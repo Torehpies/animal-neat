@@ -1,0 +1,13 @@
+pub mod compatibility;
+pub mod connection_gene;
+pub mod crossover;
+pub mod evolution;
+pub mod fitness;
+pub mod genome;
+pub mod innovation_tracker;
+pub mod io;
+pub mod node_gene;
+pub mod population;
+pub mod runner;
+pub mod speciator;
+pub mod species;
