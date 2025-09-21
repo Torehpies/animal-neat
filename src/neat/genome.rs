@@ -1,19 +1,36 @@
-use rand::Rng;
 use rand::seq::SliceRandom;
+use rand::Rng;
 use rand_distr;
 use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 
 use crate::neat::connection_gene::ConnectionGene;
 use crate::neat::innovation_tracker::InnovationTracker;
 use crate::neat::node_gene::{ActivationFunction, NodeGene, NodeType};
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Genome {
     pub nodes: HashMap<u32, NodeGene>,
     pub connections: Vec<ConnectionGene>,
     pub fitness: f32,
+    #[serde(skip)]
+    cached: RefCell<Option<CachedGraph>>,
+}
+
+#[derive(Clone, Debug)]
+struct CachedGraph {
+    // Map node id <-> index
+    id_to_index: HashMap<u32, usize>,
+    index_to_id: Vec<u32>,
+    // Topologically sorted node indices
+    order: Vec<usize>,
+    // For each node index, list of (incoming node index, connection index) for enabled edges
+    incoming: Vec<Vec<(usize, usize)>>,
+    // Stable, sorted input/output indices (by node id)
+    input_indices: Vec<usize>,
+    output_indices: Vec<usize>,
 }
 
 impl Genome {
@@ -27,6 +44,7 @@ impl Genome {
             nodes: node_map,
             connections,
             fitness: 0.0,
+            cached: RefCell::new(None),
         }
     }
 
@@ -95,70 +113,221 @@ impl Genome {
     }
 
     pub fn evaluate(&self, input_values: Vec<f32>) -> Vec<f32> {
-        let mut node_values: HashMap<u32, f32> = HashMap::new();
-        let mut node_inputs: HashMap<u32, Vec<&ConnectionGene>> =
-            self.nodes.keys().map(|&n| (n, Vec::new())).collect();
+        self.evaluate_slice(&input_values)
+    }
 
-        let input_nodes: Vec<&NodeGene> = self
-            .nodes
-            .values()
-            .filter(|n| n.node_type == NodeType::Input)
-            .collect();
-        let output_nodes: Vec<&NodeGene> = self
-            .nodes
-            .values()
-            .filter(|n| n.node_type == NodeType::Output)
-            .collect();
+    pub fn evaluate_slice(&self, input_values: &[f32]) -> Vec<f32> {
+        // Build caches if needed
+        if self.cached.borrow().is_none() {
+            let built = self.build_cache();
+            *self.cached.borrow_mut() = Some(built);
+        }
+        let cache = self.cached.borrow();
+        let cache = cache.as_ref().unwrap();
 
-        if input_nodes.len() != input_values.len() {
+        if cache.input_indices.len() != input_values.len() {
             panic!(
                 "Number of inputs doesn't match input nodes: got {}, expected {}",
                 input_values.len(),
-                input_nodes.len()
+                cache.input_indices.len()
             );
         }
 
-        for (node, val) in input_nodes.iter().zip(input_values.into_iter()) {
-            node_values.insert(node.id, val);
+        let num_nodes = cache.index_to_id.len();
+        let mut values = vec![0.0f32; num_nodes];
+
+        // Set inputs in sorted order
+        for (i, &idx) in cache.input_indices.iter().enumerate() {
+            values[idx] = input_values[i];
         }
 
-        let mut edges: HashMap<u32, Vec<u32>> =
-            self.nodes.keys().map(|&n| (n, Vec::new())).collect();
-
-        for conn in &self.connections {
-            if conn.enabled {
-                if let Some(v) = edges.get_mut(&conn.in_node_id) {
-                    v.push(conn.out_node_id);
-                }
-                if let Some(inputs) = node_inputs.get_mut(&conn.out_node_id) {
-                    inputs.push(conn);
-                }
+    for &idx in &cache.order {
+            // Skip if already set (input nodes)
+            if values[idx] != 0.0 {
+                // It's possible a non-input computes to exactly 0.0; however inputs are assigned explicitly.
+                // To robustly detect inputs, we could check node type; do that instead of value check.
             }
-        }
-
-        let sorted_nodes = topological_sort(&edges);
-
-        for node_id in sorted_nodes {
-            if node_values.contains_key(&node_id) {
+            let node_id = cache.index_to_id[idx];
+            let node = &self.nodes[&node_id];
+            if matches!(node.node_type, NodeType::Input) {
                 continue;
             }
 
-            let incoming = &node_inputs[&node_id];
-            let total_input: f32 = incoming
-                .iter()
-                .map(|c| node_values.get(&c.in_node_id).copied().unwrap_or(0.0) * c.weight)
-                .sum();
-
-            let node = &self.nodes[&node_id];
-            let value = node.activation.apply(total_input + node.bias);
-
-            node_values.insert(node_id, value);
+            let mut sum = 0.0f32;
+            for &(in_idx, conn_idx) in &cache.incoming[idx] {
+                let w = self.connections[conn_idx].weight;
+                sum += values[in_idx] * w;
+            }
+            let value = node.activation.apply(sum + node.bias);
+            values[idx] = value;
         }
 
-        output_nodes
+        let mut outputs = Vec::with_capacity(cache.output_indices.len());
+        for &idx in &cache.output_indices {
+            outputs.push(values[idx]);
+        }
+        outputs
+    }
+
+    fn evaluate_uncached(&self, input_values: &[f32]) -> Vec<f32> {
+        // Fallback: similar to cached but recompute structures quickly
+        // Build id->index and list
+        let mut ids: Vec<u32> = self.nodes.keys().copied().collect();
+        ids.sort_unstable();
+        let id_to_idx: HashMap<u32, usize> = ids
             .iter()
-            .map(|n| *node_values.get(&n.id).unwrap_or(&0.0))
-            .collect()
+            .enumerate()
+            .map(|(i, &id)| (id, i))
+            .collect();
+
+        let n = ids.len();
+        let mut in_deg = vec![0usize; n];
+        let mut edges: Vec<Vec<usize>> = vec![Vec::new(); n];
+        let mut incoming: Vec<Vec<(usize, usize)>> = vec![Vec::new(); n];
+
+        for (ci, c) in self.connections.iter().enumerate() {
+            if !c.enabled {
+                continue;
+            }
+            if let (Some(&u), Some(&v)) = (id_to_idx.get(&c.in_node_id), id_to_idx.get(&c.out_node_id)) {
+                edges[u].push(v);
+                in_deg[v] += 1;
+                incoming[v].push((u, ci));
+            }
+        }
+
+        let mut queue: std::collections::VecDeque<usize> = in_deg
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &d)| if d == 0 { Some(i) } else { None })
+            .collect();
+        let mut order = Vec::with_capacity(n);
+        while let Some(u) = queue.pop_front() {
+            order.push(u);
+            for &v in &edges[u] {
+                in_deg[v] -= 1;
+                if in_deg[v] == 0 {
+                    queue.push_back(v);
+                }
+            }
+        }
+
+        // Inputs/outputs sorted by id
+        let mut input_indices: Vec<usize> = ids
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &id)| match self.nodes[&id].node_type {
+                NodeType::Input => Some(i),
+                _ => None,
+            })
+            .collect();
+        input_indices.sort_unstable();
+        let mut output_indices: Vec<usize> = ids
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &id)| match self.nodes[&id].node_type {
+                NodeType::Output => Some(i),
+                _ => None,
+            })
+            .collect();
+        output_indices.sort_unstable();
+
+        if input_indices.len() != input_values.len() {
+            panic!(
+                "Number of inputs doesn't match input nodes: got {}, expected {}",
+                input_values.len(),
+                input_indices.len()
+            );
+        }
+
+        let mut values = vec![0.0f32; n];
+        for (i, &idx) in input_indices.iter().enumerate() {
+            values[idx] = input_values[i];
+        }
+        for &idx in &order {
+            let node = &self.nodes[&ids[idx]];
+            if matches!(node.node_type, NodeType::Input) {
+                continue;
+            }
+            let mut sum = 0.0f32;
+            for &(in_idx, ci) in &incoming[idx] {
+                let w = self.connections[ci].weight;
+                sum += values[in_idx] * w;
+            }
+            values[idx] = node.activation.apply(sum + node.bias);
+        }
+        output_indices.into_iter().map(|i| values[i]).collect()
+    }
+
+    fn build_cache(&self) -> CachedGraph {
+        // Stable node id ordering
+        let mut ids: Vec<u32> = self.nodes.keys().copied().collect();
+        ids.sort_unstable();
+        let id_to_index: HashMap<u32, usize> = ids
+            .iter()
+            .enumerate()
+            .map(|(i, &id)| (id, i))
+            .collect();
+
+        let n = ids.len();
+        let mut in_deg = vec![0usize; n];
+        let mut edges: Vec<Vec<usize>> = vec![Vec::new(); n];
+        let mut incoming: Vec<Vec<(usize, usize)>> = vec![Vec::new(); n];
+
+        for (ci, c) in self.connections.iter().enumerate() {
+            if !c.enabled {
+                continue;
+            }
+            if let (Some(&u), Some(&v)) = (id_to_index.get(&c.in_node_id), id_to_index.get(&c.out_node_id)) {
+                edges[u].push(v);
+                in_deg[v] += 1;
+                incoming[v].push((u, ci));
+            }
+        }
+
+        let mut queue: std::collections::VecDeque<usize> = in_deg
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &d)| if d == 0 { Some(i) } else { None })
+            .collect();
+        let mut order = Vec::with_capacity(n);
+        while let Some(u) = queue.pop_front() {
+            order.push(u);
+            for &v in &edges[u] {
+                in_deg[v] -= 1;
+                if in_deg[v] == 0 {
+                    queue.push_back(v);
+                }
+            }
+        }
+
+        let mut input_indices: Vec<usize> = ids
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &id)| match self.nodes[&id].node_type {
+                NodeType::Input => Some(i),
+                _ => None,
+            })
+            .collect();
+        input_indices.sort_unstable();
+        let mut output_indices: Vec<usize> = ids
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &id)| match self.nodes[&id].node_type {
+                NodeType::Output => Some(i),
+                _ => None,
+            })
+            .collect();
+        output_indices.sort_unstable();
+
+        CachedGraph {
+            id_to_index,
+            index_to_id: ids,
+            order,
+            incoming,
+            input_indices,
+            output_indices,
+        }
     }
 
     fn path_exists(
@@ -243,6 +412,7 @@ impl Genome {
             let weight = rng.random_range(-1.0..1.0);
             let new_conn = ConnectionGene::new(node1.id, node2.id, weight, true, innov_num);
             self.connections.push(new_conn);
+            *self.cached.borrow_mut() = None; // topology changed
             return;
         }
     }
@@ -288,13 +458,14 @@ impl Genome {
         self.nodes.insert(node_id, new_node);
         self.connections.push(conn1);
         self.connections.push(conn2);
+        *self.cached.borrow_mut() = None; // topology changed
     }
 
-    pub fn mutate_weights(&mut self, rate: f32, power: f32) {
+    pub fn mutate_weights(&mut self, rate: f32, power: f32, reinit_prob: f32) {
         let mut rng = rand::rng();
         for conn in &mut self.connections {
             if rng.random_bool(rate as f64) {
-                if rng.random_bool(0.1) {
+                if rng.random_bool(reinit_prob as f64) {
                     conn.weight = rng.random_range(-1.0..1.0);
                 } else {
                     let pertrub: f32 = rng.sample(rand_distr::Normal::new(0.0, power).unwrap());
@@ -305,11 +476,11 @@ impl Genome {
         }
     }
 
-    pub fn mutate_bias(&mut self, rate: f32, power: f32) {
+    pub fn mutate_bias(&mut self, rate: f32, power: f32, reinit_prob: f32) {
         let mut rng = rand::rng();
         for node in self.nodes.values_mut() {
             if !matches!(node.node_type, NodeType::Input) && rng.random_bool(rate as f64) {
-                if rng.random_bool(0.1) {
+                if rng.random_bool(reinit_prob as f64) {
                     node.bias = rng.random_range(-1.0..1.0);
                 } else {
                     let pertrub: f32 = rng.sample(rand_distr::Normal::new(0.0, power).unwrap());
@@ -320,57 +491,26 @@ impl Genome {
         }
     }
 
-    pub fn mutate(
-        &mut self,
-        innov: &mut InnovationTracker,
-        conn_mutation_rate: f32,
-        node_mutation_rate: f32,
-        weight_mutation_rate: f32,
-        bias_mutation_rate: f32,
-    ) {
-        self.mutate_weights(weight_mutation_rate, 0.5);
-        self.mutate_bias(bias_mutation_rate, 0.5);
+    pub fn mutate(&mut self, innov: &mut InnovationTracker, cfg: &crate::neat::config::EvolutionConfig) {
+        self.mutate_weights(cfg.weight_mutation_rate, cfg.weight_perturb_power, cfg.reinit_weight_prob);
+        self.mutate_bias(cfg.bias_mutation_rate, cfg.bias_perturb_power, cfg.reinit_bias_prob);
 
         let mut rng = rand::rng();
-        if rng.random_bool(conn_mutation_rate as f64) {
+        if rng.random_bool(cfg.conn_mutation_rate as f64) {
             //println!("Mutation: add connection");
             self.mutate_add_connection(innov);
         }
-        if rng.random_bool(node_mutation_rate as f64) {
+        if rng.random_bool(cfg.node_mutation_rate as f64) {
             //println!("Mutation: add node");
             self.mutate_add_node(innov);
         }
     }
 }
 
-fn topological_sort(edges: &HashMap<u32, Vec<u32>>) -> Vec<u32> {
-    fn visit(
-        n: u32,
-        visited: &mut HashSet<u32>,
-        order: &mut Vec<u32>,
-        edges: &HashMap<u32, Vec<u32>>,
-    ) {
-        if visited.contains(&n) {
-            return;
-        }
-        visited.insert(n);
-
-        if let Some(children) = edges.get(&n) {
-            for &m in children {
-                visit(m, visited, order, edges);
-            }
-        }
-
-        order.push(n);
+impl PartialEq for Genome {
+    fn eq(&self, other: &Self) -> bool {
+        self.nodes == other.nodes && self.connections == other.connections && self.fitness == other.fitness
     }
-
-    let mut visited = HashSet::new();
-    let mut order = Vec::new();
-
-    for &node in edges.keys() {
-        visit(node, &mut visited, &mut order, edges);
-    }
-
-    order.reverse();
-    order
 }
+
+// Note: The cached evaluation path avoids this generic topological_sort; retained only for reference

@@ -29,21 +29,20 @@ impl Speciator {
             s.clear_members();
         }
 
-        for genome in population {
+        for (i, genome) in population.iter().enumerate() {
             let mut found_species = false;
 
             for species in &mut self.species {
-                if distance(genome, &species.representative, 1.0, 1.0, 0.4)
-                    < self.compatibility_threshold
-                {
-                    species.add_member(genome.clone());
+                let rep = &population[species.representative];
+                if distance(genome, rep, 1.0, 1.0, 0.4) < self.compatibility_threshold {
+                    species.add_member(i);
                     found_species = true;
                     break;
                 }
             }
 
             if !found_species {
-                let new_species = Species::new(genome.clone());
+                let new_species = Species::new(i);
                 self.species.push(new_species);
             }
         }
@@ -51,15 +50,14 @@ impl Speciator {
         self.species.retain(|s| !s.members.is_empty());
 
         for species in &mut self.species {
-            species.update_fitness_status();
+            species.update_fitness_status(population);
 
-            if let Some(best) = species
+            if let Some(&best_idx) = species
                 .members
                 .iter()
-                .cloned()
-                .max_by(|a, b| a.fitness.total_cmp(&b.fitness))
+                .max_by(|&&a, &&b| population[a].fitness.total_cmp(&population[b].fitness))
             {
-                species.representative = best;
+                species.representative = best_idx;
             }
         }
     }

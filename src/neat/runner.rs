@@ -1,8 +1,8 @@
 use std::f32;
 
 use crate::neat::{
-    evolution, fitness::fitness_xor, genome::Genome, innovation_tracker::InnovationTracker, io,
-    speciator::Speciator,
+    config::EvolutionConfig, evolution, fitness::fitness_xor, genome::Genome,
+    innovation_tracker::InnovationTracker, io, speciator::Speciator,
 };
 
 /// Run a NEAT evolution process on the XOR problem.
@@ -28,6 +28,8 @@ pub fn run_neat_xor(
 
     let mut innov = InnovationTracker::new();
     let mut speciator = Speciator::new(speciator_threshold);
+    let mut cfg = EvolutionConfig::default();
+    cfg.compatibility_threshold = speciator_threshold;
 
     let mut population =
         Genome::create_initial_population(pop_size, num_inputs, num_outputs, &mut innov);
@@ -85,12 +87,6 @@ pub fn run_neat_xor(
         }
 
         // Evolve the population for the next generation
-        population = evolution::evolution(
-            population,
-            fitness_scores,
-            &mut speciator,
-            &mut innov,
-            15, // stagnation limit
-        );
+        population = evolution::evolution(population, fitness_scores, &mut speciator, &mut innov, &cfg);
     }
 }

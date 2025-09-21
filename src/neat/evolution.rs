@@ -2,55 +2,40 @@ use rand::seq::IndexedRandom;
 
 use crate::neat::{
     crossover::crossover, genome::Genome, innovation_tracker::InnovationTracker,
-    speciator::Speciator, species::Species,
+    speciator::Speciator, species::Species, config::EvolutionConfig,
 };
 
 pub fn reproduce_species(
     species: &Species,
+    population: &[Genome],
     offspring_count: usize,
     innov: &mut InnovationTracker,
+    cfg: &EvolutionConfig,
 ) -> Vec<Genome> {
-    let conn_mutation_rate: f32 = 0.05;
-    let node_mutation_rate: f32 = 0.03;
-    let weight_mutation_rate: f32 = 0.8;
-    let bias_mutation_rate: f32 = 0.7;
-
     let mut rng = rand::rng();
     let mut offspring = Vec::new();
 
     if species.members.len() == 1 {
-        let parent = &species.members[0];
+        let parent = &population[species.members[0]];
         for _ in 0..offspring_count {
             let mut child = Genome::new(
                 parent.nodes.values().cloned().map(Some).collect(),
                 parent.connections.clone(),
             );
-            child.mutate(
-                innov,
-                conn_mutation_rate,
-                node_mutation_rate,
-                weight_mutation_rate,
-                bias_mutation_rate,
-            );
+            child.mutate(innov, cfg);
             offspring.push(child);
         }
     } else {
         for _ in 0..offspring_count {
-            let parents: Vec<&Genome> = species.members.choose_multiple(&mut rng, 2).collect();
-            let (mut parent1, mut parent2) = (parents[0], parents[1]);
+            let parent_indices: Vec<&usize> = species.members.choose_multiple(&mut rng, 2).collect();
+            let (mut parent1, mut parent2) = (&population[*parent_indices[0]], &population[*parent_indices[1]]);
 
             if parent1.fitness < parent2.fitness {
                 std::mem::swap(&mut parent1, &mut parent2);
             }
 
             let mut child = crossover(parent1, parent2);
-            child.mutate(
-                innov,
-                conn_mutation_rate,
-                node_mutation_rate,
-                weight_mutation_rate,
-                bias_mutation_rate,
-            );
+            child.mutate(innov, cfg);
             offspring.push(child);
         }
     }
@@ -62,7 +47,7 @@ pub fn evolution(
     fitness_scores: Vec<f32>,
     speciator: &mut Speciator,
     innov: &mut InnovationTracker,
-    stagnation_limit: usize,
+    cfg: &EvolutionConfig,
 ) -> Vec<Genome> {
     let mut new_population: Vec<Genome> = Vec::new();
 
@@ -82,7 +67,7 @@ pub fn evolution(
         let (first, rest) = species_list.split_at_mut(1);
         surviving_species.push(&mut first[0]);
         for s in rest {
-            if s.stagnant_generations < stagnation_limit as u32 {
+            if s.stagnant_generations < cfg.stagnation_limit as u32 {
                 surviving_species.push(s);
             }
         }
@@ -95,13 +80,12 @@ pub fn evolution(
 
     for species in surviving_species.iter() {
         if !species.members.is_empty() {
-            if let Some(best_genome) = species
+            if let Some(&best_idx) = species
                 .members
                 .iter()
-                .cloned()
-                .max_by(|a, b| a.fitness.total_cmp(&b.fitness))
+                .max_by(|&&a, &&b| population[a].fitness.total_cmp(&population[b].fitness))
             {
-                new_population.push(best_genome);
+                new_population.push(population[best_idx].clone());
             }
         }
     }
@@ -117,7 +101,7 @@ pub fn evolution(
         };
 
         if offspring_count > 0 {
-            let offspring = reproduce_species(species, offspring_count, innov);
+            let offspring = reproduce_species(species, &population, offspring_count, innov, cfg);
             new_population.extend(offspring);
         }
     }
@@ -127,7 +111,7 @@ pub fn evolution(
             .iter()
             .max_by(|a, b| a.adjusted_fitness.total_cmp(&b.adjusted_fitness))
         {
-            let offspring = reproduce_species(best_species, 1, innov);
+            let offspring = reproduce_species(best_species, &population, 1, innov, cfg);
             new_population.extend(offspring);
         }
     }

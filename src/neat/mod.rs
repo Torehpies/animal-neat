@@ -1,4 +1,5 @@
 pub mod compatibility;
+pub mod config;
 pub mod connection_gene;
 pub mod crossover;
 pub mod evolution;

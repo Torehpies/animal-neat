@@ -1,4 +1,5 @@
 use neat::neat::{
+    config::EvolutionConfig,
     evolution,
     genome::Genome,
     innovation_tracker::InnovationTracker,
@@ -7,13 +8,13 @@ use neat::neat::{
 
 fn fitness_example(g: &Genome) -> f32 {
     // XOR-like example fitness (replace with your own problem!)
-    let x = vec![vec![0.0, 0.0], vec![0.0, 1.0], vec![1.0, 0.0], vec![1.0, 1.0]];
-    let y = vec![0.0, 1.0, 1.0, 0.0];
+    const X: [[f32; 2]; 4] = [[0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0]];
+    const Y: [f32; 4] = [0.0, 1.0, 1.0, 0.0];
 
     let mut total_err = 0.0;
-    for (xi, yi) in x.into_iter().zip(y.into_iter()) {
-        let out = g.evaluate(xi);
-        total_err += (out.get(0).copied().unwrap_or(0.0) - yi).abs();
+    for i in 0..4 {
+        let out = g.evaluate_slice(&X[i]);
+        total_err += (out.get(0).copied().unwrap_or(0.0) - Y[i]).abs();
     }
     (4.0 - total_err).max(0.0)
 }
@@ -29,6 +30,7 @@ fn main() {
     let mut speciator = Speciator::new(2.0);
 
     let mut population = Genome::create_initial_population(pop_size, num_inputs, num_outputs, &mut innov);
+    let cfg = EvolutionConfig { compatibility_threshold: 2.0, ..Default::default() };
 
     for step in 0..generations {
         let fitness_scores: Vec<f32> = population.iter().map(fitness_example).collect();
@@ -42,12 +44,6 @@ fn main() {
             break;
         }
 
-        population = evolution::evolution(
-            population,
-            fitness_scores,
-            &mut speciator,
-            &mut innov,
-            15,
-        );
+        population = evolution::evolution(population, fitness_scores, &mut speciator, &mut innov, &cfg);
     }
 }

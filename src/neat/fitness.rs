@@ -1,28 +1,15 @@
 use crate::neat::genome::Genome;
 
+const XOR_INPUTS: [[f32; 2]; 4] = [[0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0]];
+const XOR_TARGETS: [f32; 4] = [0.0, 1.0, 1.0, 0.0];
+
 pub fn fitness_xor(genome: &Genome) -> f32 {
-    let x_data = vec![
-        vec![0.0, 0.0],
-        vec![0.0, 1.0],
-        vec![1.0, 0.0],
-        vec![1.0, 1.0],
-    ];
-
-    let y_data = vec![0.0, 1.0, 1.0, 0.0];
-
     let mut total_error = 0.0;
-
-    for (inputs, target) in x_data.into_iter().zip(y_data.into_iter()) {
-        let output = genome.evaluate(inputs);
-
-        if let Some(&val) = output.first() {
-            let error = (val - target).abs();
-            total_error += error;
-        } else {
-            total_error += target;
-        }
+    for i in 0..4 {
+        let output = genome.evaluate_slice(&XOR_INPUTS[i]);
+        let val = output.first().copied().unwrap_or(0.0);
+        let error = (val - XOR_TARGETS[i]).abs();
+        total_error += error;
     }
-
-    let fitness = 4.0 - total_error;
-    fitness.max(0.0)
+    (4.0 - total_error).max(0.0)
 }
