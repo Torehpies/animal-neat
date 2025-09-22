@@ -15,10 +15,17 @@ const WORLD_H: f32 = 500.0;
 const FOOD_COUNT: usize = 40;
 const FOOD_RADIUS: f32 = 1.2;
 const AGENT_RADIUS: f32 = 1.2;
-const INITIAL_ENERGY: f32 = 300.0;
-const ENERGY_DRAIN_PER_STEP: f32 = 1.0;
+const INITIAL_ENERGY: f32 = 550.0;
+const ENERGY_DRAIN_PER_STEP: f32 = 0.1;
 const FOOD_ENERGY: f32 = 75.0;
 const MAX_STEPS: usize = 500;
+
+// Plant/food dynamics
+const MAX_FOOD: usize = 150;                 // hard cap on number of plants
+const FOOD_MIN_SEP: f32 = 2.5;               // minimum separation between plants
+const FOOD_RESPAWN_PROB: f32 = 0.06;         // per-step probability to spawn one random plant
+const FOOD_SPREAD_CHANCE: f32 = 0.02;        // per existing plant, chance to spawn a nearby offshoot
+const FOOD_SPREAD_RADIUS: f32 = 15.0;        // max radius for offshoot from parent plant
 
 // Vision cone parameters
 const VISION_RAYS: usize = 5;           // number of rays within the cone
@@ -28,6 +35,9 @@ const VISION_RANGE: f32 = 20.0;         // world units
 // Movement
 const MAX_TURN: f32 = std::f32::consts::PI / 8.0; // radians per step at full turn
 const MAX_SPEED: f32 = 2.5;                        // units per step at full thrust
+
+// Reduce circling: scale thrust down when turning strongly
+const THRUST_TURN_COUPLING: f32 = 0.8; // 0 = none, 1 = full: thrust*(1-|turn|)
 
 const INPUTS: usize = VISION_RAYS * 2 + 1; // per-ray [food, wall] + energy
 const OUTPUTS: usize = 2; // turn, thrust
@@ -58,12 +68,52 @@ fn rand_pos<R: Rng>(rng: &mut R) -> Vec2 {
     Vec2::new(rng.random_range(0.0..WORLD_W), rng.random_range(0.0..WORLD_H))
 }
 
+fn can_place_food(existing: &[Vec2], p: Vec2) -> bool {
+    let min_d2 = FOOD_MIN_SEP * FOOD_MIN_SEP;
+    for f in existing {
+        let dx = f.x - p.x; let dy = f.y - p.y;
+        if dx*dx + dy*dy < min_d2 { return false; }
+    }
+    true
+}
+
 fn build_world<R: Rng>(rng: &mut R) -> Vec<Vec2> {
     let mut food = Vec::with_capacity(FOOD_COUNT);
-    while food.len() < FOOD_COUNT {
-        food.push(rand_pos(rng));
+    let mut attempts = 0;
+    while food.len() < FOOD_COUNT && attempts < FOOD_COUNT * 50 {
+        attempts += 1;
+        let p = rand_pos(rng);
+        if can_place_food(&food, p) { food.push(p); }
     }
     food
+}
+
+fn try_spawn_food_random<R: Rng>(food: &mut Vec<Vec2>, rng: &mut R) {
+    if food.len() >= MAX_FOOD { return; }
+    let p = rand_pos(rng);
+    if can_place_food(food, p) { food.push(p); }
+}
+
+fn try_spawn_food_near<R: Rng>(food: &mut Vec<Vec2>, rng: &mut R, center: Vec2) {
+    if food.len() >= MAX_FOOD { return; }
+    let ang = rng.random_range(0.0..(std::f32::consts::PI * 2.0));
+    let r = rng.random_range(0.5..FOOD_SPREAD_RADIUS);
+    let p = Vec2 { x: (center.x + ang.cos() * r).clamp(0.0, WORLD_W), y: (center.y + ang.sin() * r).clamp(0.0, WORLD_H) };
+    if can_place_food(food, p) { food.push(p); }
+}
+
+fn food_growth_step<R: Rng>(food: &mut Vec<Vec2>, rng: &mut R) {
+    // Random spawn
+    if rng.random_range(0.0..1.0) < FOOD_RESPAWN_PROB { try_spawn_food_random(food, rng); }
+    // Local spread from existing plants (snapshot length to avoid cascading within the same step)
+    let base_len = food.len();
+    for i in 0..base_len {
+        if food.len() >= MAX_FOOD { break; }
+        if rng.random_range(0.0..1.0) < FOOD_SPREAD_CHANCE {
+            let parent = food[i];
+            try_spawn_food_near(food, rng, parent);
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -145,7 +195,7 @@ fn eat_if_near(food: &mut Vec<Vec2>, pos: Vec2) -> bool {
     if food.is_empty() { return false; }
     if let Some((idx, _)) = food.iter().enumerate()
         .map(|(i, f)| (i, ((f.x - pos.x).powi(2) + (f.y - pos.y).powi(2)).sqrt()))
-        .filter(|(_, d)| *d <= FOOD_RADIUS)
+        .filter(|(_, d)| *d <= (FOOD_RADIUS + AGENT_RADIUS))
         .min_by(|a, b| a.1.total_cmp(&b.1)) {
         food.swap_remove(idx);
         true
@@ -163,7 +213,7 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
 
     let mut steps = 0usize;
     while steps < MAX_STEPS {
-        if food.is_empty() || agents.iter().all(|a| a.energy <= 0.0) { break; }
+        if agents.iter().all(|a| a.energy <= 0.0) { break; }
         for (i, a) in agents.iter_mut().enumerate() {
             if a.energy <= 0.0 { continue; }
             visited[i].insert(grid_index(a.pos));
@@ -172,12 +222,14 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             let out = population[i].evaluate_slice(&inputs);
             let turn = out.get(0).copied().unwrap_or(0.0).clamp(-1.0, 1.0);
             let thrust = out.get(1).copied().unwrap_or(0.0).clamp(0.0, 1.0);
+            // Coupling: reduce thrust when turning strongly
+            let thrust_eff = (thrust * (1.0 - THRUST_TURN_COUPLING * turn.abs())).clamp(0.0, 1.0);
             a.theta += turn * MAX_TURN;
             let dir = dir_from_theta(a.theta);
-            let vel = dir.mul(thrust * MAX_SPEED);
+            let vel = dir.mul(thrust_eff * MAX_SPEED);
             a.pos = a.pos.add(vel).clamp_to_world();
             if eat_if_near(&mut food, a.pos) { a.energy = (a.energy + FOOD_ENERGY).min(INITIAL_ENERGY); a.eaten += 1; }
-            a.energy -= ENERGY_DRAIN_PER_STEP + thrust * 0.2;
+            a.energy -= ENERGY_DRAIN_PER_STEP + thrust_eff * 0.2;
         }
         if steps % AVOID_CHECK_EVERY == 0 {
             for i in 0..agents.len() {
@@ -193,6 +245,8 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
                 avoid_penalty[i] += pen;
             }
         }
+        // Plants grow/spread over time
+        food_growth_step(&mut food, &mut rng);
         steps += 1;
     }
 
@@ -217,7 +271,7 @@ impl Episode {
         Self { food: build_world(rng), agents, steps: 0 }
     }
 
-    fn step<R: Rng>(&mut self, population: &[Genome], _rng: &mut R) -> bool {
+    fn step<R: Rng>(&mut self, population: &[Genome], rng: &mut R) -> bool {
         // Live episode: continue until all agents are dead (ignore max steps and food exhaustion)
         if self.agents.iter().all(|a| a.energy <= 0.0) { return false; }
         for a in &mut self.agents {
@@ -227,21 +281,21 @@ impl Episode {
             let out = population[a.id.0].evaluate_slice(&inputs);
             let turn = out.get(0).copied().unwrap_or(0.0).clamp(-1.0, 1.0);
             let thrust = out.get(1).copied().unwrap_or(0.0).clamp(0.0, 1.0);
+            // Coupling: reduce thrust when turning strongly
+            let thrust_eff = (thrust * (1.0 - THRUST_TURN_COUPLING * turn.abs())).clamp(0.0, 1.0);
             a.theta += turn * MAX_TURN;
             let dir = dir_from_theta(a.theta);
-            let vel = dir.mul(thrust * MAX_SPEED);
+            let vel = dir.mul(thrust_eff * MAX_SPEED);
             a.pos = a.pos.add(vel).clamp_to_world();
             // eat if close (sum of radii)
-            if let Some((idx, _)) = self.food.iter().enumerate()
-                .map(|(i, f)| (i, (f.x - a.pos.x).hypot(f.y - a.pos.y)))
-                .filter(|(_, d)| *d <= (FOOD_RADIUS + AGENT_RADIUS))
-                .min_by(|a, b| a.1.total_cmp(&b.1)) {
-                self.food.swap_remove(idx);
+            if eat_if_near(&mut self.food, a.pos) {
                 a.energy = (a.energy + FOOD_ENERGY).min(INITIAL_ENERGY);
                 a.eaten += 1;
             }
-            a.energy -= ENERGY_DRAIN_PER_STEP + thrust * 0.2;
+            a.energy -= ENERGY_DRAIN_PER_STEP + thrust_eff * 0.2;
         }
+        // Plants grow/spread over time in the live world too
+        food_growth_step(&mut self.food, rng);
         self.steps += 1; true
     }
 
