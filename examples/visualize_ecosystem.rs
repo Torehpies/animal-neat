@@ -30,7 +30,7 @@ const FOOD_SPREAD_RADIUS: f32 = 15.0;        // max radius for offshoot from par
 // Vision cone parameters
 const VISION_RAYS: usize = 5;           // number of rays within the cone
 const VISION_ANGLE_DEG: f32 = 90.0;     // total cone angle
-const VISION_RANGE: f32 = 20.0;         // world units
+const VISION_RANGE: f32 = 100.0;         // world units
 
 // Movement
 const MAX_TURN: f32 = std::f32::consts::PI / 8.0; // radians per step at full turn
@@ -38,6 +38,12 @@ const MAX_SPEED: f32 = 2.5;                        // units per step at full thr
 
 // Reduce circling: scale thrust down when turning strongly
 const THRUST_TURN_COUPLING: f32 = 0.8; // 0 = none, 1 = full: thrust*(1-|turn|)
+
+// Predation/scavenging
+const EAT_AGENT_RADIUS: f32 = AGENT_RADIUS + AGENT_RADIUS;
+const MEAT_ENERGY: f32 = 120.0;           // energy gained by eating an agent (alive or dead)
+const PREDATION_ENABLED: bool = true;     // eat live agents when close
+const SCAVENGE_ENABLED: bool = true;      // eat dead agents when close
 
 const INPUTS: usize = VISION_RAYS * 2 + 1; // per-ray [food, wall] + energy
 const OUTPUTS: usize = 2; // turn, thrust
@@ -126,6 +132,9 @@ struct Agent {
     theta: f32,
     energy: f32,
     eaten: usize,
+    consumed: bool, // true if this agent's body has been eaten and removed from world
+    kills: usize,                // number of agents eaten (live or dead) in this episode
+    predation_flash_steps: u16,  // visual cue counter for recent predation
 }
 
 struct Episode {
@@ -206,7 +215,7 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
     let mut rng = ::rand::rng();
     let mut food = build_world(&mut rng);
     let mut agents: Vec<Agent> = population.iter().enumerate().map(|(i, _)| Agent {
-        id: AgentId(i), pos: rand_pos(&mut rng), theta: -std::f32::consts::FRAC_PI_2, energy: INITIAL_ENERGY, eaten: 0,
+        id: AgentId(i), pos: rand_pos(&mut rng), theta: -std::f32::consts::FRAC_PI_2, energy: INITIAL_ENERGY, eaten: 0, consumed: false, kills: 0, predation_flash_steps: 0,
     }).collect();
     let mut visited: Vec<std::collections::HashSet<u32>> = vec![std::collections::HashSet::new(); agents.len()];
     let mut avoid_penalty: Vec<f32> = vec![0.0; agents.len()];
@@ -214,6 +223,9 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
     let mut steps = 0usize;
     while steps < MAX_STEPS {
         if agents.iter().all(|a| a.energy <= 0.0) { break; }
+        // Snapshot for predation decisions to avoid borrow conflicts
+        let snapshot: Vec<(Vec2, bool, bool)> = agents.iter().map(|a| (a.pos, a.energy > 0.0, a.consumed)).collect();
+        let mut prey_targets: Vec<Option<usize>> = vec![None; agents.len()];
         for (i, a) in agents.iter_mut().enumerate() {
             if a.energy <= 0.0 { continue; }
             visited[i].insert(grid_index(a.pos));
@@ -229,7 +241,40 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             let vel = dir.mul(thrust_eff * MAX_SPEED);
             a.pos = a.pos.add(vel).clamp_to_world();
             if eat_if_near(&mut food, a.pos) { a.energy = (a.energy + FOOD_ENERGY).min(INITIAL_ENERGY); a.eaten += 1; }
+            // Predation/scavenging: choose a nearby target (record only)
+            if PREDATION_ENABLED || SCAVENGE_ENABLED {
+                let mut target: Option<usize> = None;
+                for j in 0..snapshot.len() {
+                    if j == i { continue; }
+                    let (pos_j, alive_j, consumed_j) = snapshot[j];
+                    if consumed_j { continue; }
+                    if (alive_j && !PREDATION_ENABLED) || (!alive_j && !SCAVENGE_ENABLED) { continue; }
+                    let dx = pos_j.x - a.pos.x; let dy = pos_j.y - a.pos.y;
+                    if (dx*dx + dy*dy).sqrt() <= EAT_AGENT_RADIUS { target = Some(j); break; }
+                }
+                prey_targets[i] = target;
+            }
             a.energy -= ENERGY_DRAIN_PER_STEP + thrust_eff * 0.2;
+        }
+        // Resolve predation after movement without aliasing borrows
+        let mut claimed = vec![false; agents.len()];
+        for i in 0..agents.len() {
+            if let Some(j) = prey_targets[i] {
+                if claimed[j] || agents[j].consumed { continue; }
+                let alive_j = agents[j].energy > 0.0;
+                if (alive_j && !PREDATION_ENABLED) || (!alive_j && !SCAVENGE_ENABLED) { continue; }
+                agents[j].energy = 0.0;
+                agents[j].consumed = true;
+                agents[i].energy = (agents[i].energy + MEAT_ENERGY).min(INITIAL_ENERGY);
+                agents[i].eaten += 1;
+                agents[i].kills += 1;
+                agents[i].predation_flash_steps = agents[i].predation_flash_steps.saturating_add(10);
+                claimed[j] = true;
+            }
+        }
+        // Decay predation flash counters
+        for a in &mut agents {
+            if a.predation_flash_steps > 0 { a.predation_flash_steps -= 1; }
         }
         if steps % AVOID_CHECK_EVERY == 0 {
             for i in 0..agents.len() {
@@ -266,6 +311,9 @@ impl Episode {
                 theta: -std::f32::consts::FRAC_PI_2,
                 energy: INITIAL_ENERGY,
                 eaten: 0,
+                consumed: false,
+                kills: 0,
+                predation_flash_steps: 0,
             });
         }
         Self { food: build_world(rng), agents, steps: 0 }
@@ -274,7 +322,10 @@ impl Episode {
     fn step<R: Rng>(&mut self, population: &[Genome], rng: &mut R) -> bool {
         // Live episode: continue until all agents are dead (ignore max steps and food exhaustion)
         if self.agents.iter().all(|a| a.energy <= 0.0) { return false; }
-        for a in &mut self.agents {
+        // Snapshot for predation decisions
+        let snapshot: Vec<(Vec2, bool, bool)> = self.agents.iter().map(|a| (a.pos, a.energy > 0.0, a.consumed)).collect();
+        let mut prey_targets: Vec<Option<usize>> = vec![None; self.agents.len()];
+        for (i, a) in self.agents.iter_mut().enumerate() {
             if a.energy <= 0.0 { continue; }
             let mut inputs = sample_cone_inputs(a.pos, a.theta, &self.food);
             inputs[INPUTS - 1] = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
@@ -292,10 +343,43 @@ impl Episode {
                 a.energy = (a.energy + FOOD_ENERGY).min(INITIAL_ENERGY);
                 a.eaten += 1;
             }
+            // Predation/scavenging: choose a target to apply after the loop
+            if PREDATION_ENABLED || SCAVENGE_ENABLED {
+                let mut target: Option<usize> = None;
+                for j in 0..snapshot.len() {
+                    if j == i { continue; }
+                    let (pos_j, alive_j, consumed_j) = snapshot[j];
+                    if consumed_j { continue; }
+                    if (alive_j && !PREDATION_ENABLED) || (!alive_j && !SCAVENGE_ENABLED) { continue; }
+                    let dx = pos_j.x - a.pos.x; let dy = pos_j.y - a.pos.y;
+                    if (dx*dx + dy*dy).sqrt() <= EAT_AGENT_RADIUS { target = Some(j); break; }
+                }
+                prey_targets[i] = target;
+            }
             a.energy -= ENERGY_DRAIN_PER_STEP + thrust_eff * 0.2;
+        }
+        // Resolve predation after movement
+        let mut claimed = vec![false; self.agents.len()];
+        for i in 0..self.agents.len() {
+            if let Some(j) = prey_targets[i] {
+                if claimed[j] || self.agents[j].consumed { continue; }
+                let alive_j = self.agents[j].energy > 0.0;
+                if (alive_j && !PREDATION_ENABLED) || (!alive_j && !SCAVENGE_ENABLED) { continue; }
+                self.agents[j].energy = 0.0;
+                self.agents[j].consumed = true;
+                self.agents[i].energy = (self.agents[i].energy + MEAT_ENERGY).min(INITIAL_ENERGY);
+                self.agents[i].eaten += 1;
+                self.agents[i].kills += 1;
+                self.agents[i].predation_flash_steps = self.agents[i].predation_flash_steps.saturating_add(10);
+                claimed[j] = true;
+            }
         }
         // Plants grow/spread over time in the live world too
         food_growth_step(&mut self.food, rng);
+        // Decay predation flash counters
+        for a in &mut self.agents {
+            if a.predation_flash_steps > 0 { a.predation_flash_steps -= 1; }
+        }
         self.steps += 1; true
     }
 
@@ -444,16 +528,25 @@ fn draw_world(area: Rect, episode: &Episode, show_cones: bool, member_species: &
         let (px, py) = world_to_screen(area, a.pos);
         let agent_r = ((AGENT_RADIUS / WORLD_W) * area.w).max(3.0);
         let sidx = *member_species.get(a.id.0).unwrap_or(&0usize);
-        let fill = species_color(sidx);
-        draw_circle(px, py, agent_r, fill);
+        // draw alive vs dead differently
+        if a.energy > 0.0 {
+            let fill = species_color(sidx);
+            draw_circle(px, py, agent_r, fill);
+        } else {
+            let fill = Color::new(0.25, 0.25, 0.25, 0.9);
+            draw_circle(px, py, agent_r, fill);
+        }
         draw_circle_lines(px, py, agent_r, 2.0, Color::new(0.2, 0.2, 0.2, 0.6));
         // heading line
-        let dir = dir_from_theta(a.theta);
-        let (hx, hy) = world_to_screen(area, Vec2 { x: a.pos.x + dir.x * 2.0, y: a.pos.y + dir.y * 2.0 });
-        draw_line(px, py, hx, hy, 2.0, BLUE);
+        if a.energy > 0.0 {
+            let dir = dir_from_theta(a.theta);
+            let (hx, hy) = world_to_screen(area, Vec2 { x: a.pos.x + dir.x * 2.0, y: a.pos.y + dir.y * 2.0 });
+            draw_line(px, py, hx, hy, 2.0, BLUE);
+        }
 
         let mut any_food_sensed = false;
-        if show_cones {
+        if show_cones && a.energy > 0.0 {
+            let dir = dir_from_theta(a.theta);
             for r in ray_directions(dir) {
                 let food_t = nearest_food_along_ray(a.pos, r, &episode.food);
                 match food_t {
@@ -483,10 +576,14 @@ fn draw_world(area: Rect, episode: &Episode, show_cones: bool, member_species: &
         if any_food_sensed {
             draw_circle_lines(px, py, agent_r + 3.0, 2.0, Color::new(0.2, 1.0, 0.2, 0.9));
         }
+        // Predation flash: red ring
+        if a.predation_flash_steps > 0 {
+            draw_circle_lines(px, py, agent_r + 5.0, 3.0, Color::new(1.0, 0.1, 0.1, 0.95));
+        }
     }
 }
 
-fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool) {
+fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, member_species: &[usize]) {
     // Sidebar panel to avoid overflow
     let padding = 12.0;
     let mut y = area.y + padding;
@@ -499,7 +596,7 @@ fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool) {
         state.episode.agents.iter().map(|a| a.energy).sum::<f32>() / state.episode.agents.len() as f32
     } else { 0.0 };
     let mode = if !running { "Paused" } else if fast_mode { "Running (Fast)" } else { "Running (Normal)" };
-    let mut lines = vec![
+    let lines = vec![
         format!("Generation: {}", state.generation),
         format!("Population: {}", state.population.len()),
         format!("Mode: {}", mode),
@@ -516,13 +613,6 @@ fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool) {
     ];
     let mut species = state.last_species.clone();
     species.sort_by(|a, b| b.best_fitness.partial_cmp(&a.best_fitness).unwrap_or(std::cmp::Ordering::Equal));
-    for (rank, s) in species.into_iter().enumerate() {
-        lines.push(format!(
-            "  #{:02} mem={} best={:.2} adj={:.2} stagn={} rep={}",
-            rank, s.members.len(), s.best_fitness, s.adjusted_fitness, s.stagnant_generations, s.representative
-        ));
-        if lines.len() > 64 { break; }
-    }
     // Panel background
     draw_rectangle(area.x, area.y, area.w, area.h, Color::new(0.08, 0.08, 0.08, 0.9));
     draw_rectangle_lines(area.x, area.y, area.w, area.h, 2.0, GRAY);
@@ -531,6 +621,51 @@ fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool) {
         draw_text(&line, x, y, font_size, WHITE);
         y += font_size + 6.0;
     }
+    // Species lines with color swatch
+    for (rank, s) in species.into_iter().enumerate() {
+        if y > max_y { break; }
+        let color = species_color(rank);
+        // swatch
+        let sw_h = font_size * 0.8;
+        let sw_w = sw_h * 1.4;
+        draw_rectangle(x, y - sw_h + 2.0, sw_w, sw_h, color);
+        draw_rectangle_lines(x, y - sw_h + 2.0, sw_w, sw_h, 1.0, BLACK);
+        let text = format!(
+            "  mem={} best={:.2} adj={:.2} stagn={} rep={} (rank #{:02})",
+            s.members.len(), s.best_fitness, s.adjusted_fitness, s.stagnant_generations, s.representative, rank
+        );
+        draw_text(&text, x + sw_w + 6.0, y, font_size, WHITE);
+        y += font_size + 6.0;
+    }
+    if y <= max_y {
+        // Live predation summary
+        let mut max_idx = 0usize;
+        for &sidx in member_species { if sidx > max_idx { max_idx = sidx; } }
+        let mut kills_per_species = vec![0usize; max_idx + 1];
+        let mut preds_per_species = vec![0usize; max_idx + 1];
+        for a in &state.episode.agents {
+            if a.kills > 0 && a.id.0 < member_species.len() {
+                let sidx = member_species[a.id.0];
+                kills_per_species[sidx] += a.kills;
+                preds_per_species[sidx] += 1;
+            }
+        }
+        // Header
+        draw_text("Predation (live):", x, y, font_size, WHITE);
+        y += font_size + 6.0;
+        for sidx in 0..kills_per_species.len() {
+            if y > max_y { break; }
+            if kills_per_species[sidx] == 0 { continue; }
+            let color = species_color(sidx);
+            let sw_h = font_size * 0.8; let sw_w = sw_h * 1.4;
+            draw_rectangle(x, y - sw_h + 2.0, sw_w, sw_h, color);
+            draw_rectangle_lines(x, y - sw_h + 2.0, sw_w, sw_h, 1.0, BLACK);
+            let text = format!("  kills={} preds={}", kills_per_species[sidx], preds_per_species[sidx]);
+            draw_text(&text, x + sw_w + 6.0, y, font_size, WHITE);
+            y += font_size + 6.0;
+        }
+    }
+    return;
 }
 
 #[macroquad::main("NEAT Ecosystem Visualizer")]
@@ -597,7 +732,7 @@ async fn main() {
         }
 
     draw_world(world_area, &state.episode, state.show_cones, &state.member_species);
-    draw_hud(hud_area, &state, running, fast_mode);
+    draw_hud(hud_area, &state, running, fast_mode, &state.member_species);
 
         next_frame().await
     }
