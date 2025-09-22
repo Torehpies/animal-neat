@@ -10,6 +10,8 @@ use neat::neat::species::Species;
 use neat::neat::node_gene::NodeType;
 use std::collections::VecDeque;
 use ::rand::Rng;
+#[path = "visualize_ecosystem/sensing.rs"]
+mod sensing;
 
 // World/agent constants (continuous space)
 const WORLD_W: f32 = 500.0;
@@ -175,132 +177,6 @@ struct Episode {
 
 fn dir_from_theta(theta: f32) -> Vec2 { Vec2 { x: theta.cos(), y: theta.sin() } }
 
-fn ray_directions(dir: Vec2) -> Vec<Vec2> {
-    let center_ang = dir.y.atan2(dir.x);
-    let half = VISION_ANGLE_DEG.to_radians() * 0.5; let start = center_ang - half;
-    let step = if VISION_RAYS > 1 { (2.0 * half) / (VISION_RAYS as f32 - 1.0) } else { 0.0 };
-    (0..VISION_RAYS).map(|i| { let ang = start + step * (i as f32); Vec2 { x: ang.cos(), y: ang.sin() } }).collect()
-}
-
-fn ray_wall_distance(p: Vec2, dir: Vec2) -> f32 {
-    let mut tmin = 0.0f32; let mut tmax = f32::INFINITY;
-    if dir.x.abs() < 1e-6 { if p.x <= 0.0 || p.x >= WORLD_W { return 0.0; } } else {
-        let inv = 1.0/dir.x; let mut t1 = (0.0 - p.x) * inv; let mut t2 = (WORLD_W - p.x) * inv; if t1>t2 { std::mem::swap(&mut t1, &mut t2); } tmin = tmin.max(t1); tmax = tmax.min(t2);
-    }
-    if dir.y.abs() < 1e-6 { if p.y <= 0.0 || p.y >= WORLD_H { return 0.0; } } else {
-        let inv = 1.0/dir.y; let mut t1 = (0.0 - p.y) * inv; let mut t2 = (WORLD_H - p.y) * inv; if t1>t2 { std::mem::swap(&mut t1, &mut t2); } tmin = tmin.max(t1); tmax = tmax.min(t2);
-    }
-    if tmax < tmin { return 0.0; }
-    if tmin > 0.0 { tmin } else { tmax.max(0.0) }
-}
-
-fn nearest_food_along_ray(p: Vec2, dir: Vec2, food: &[Vec2]) -> Option<f32> {
-    let mut best: Option<f32> = None;
-    for f in food {
-        let op = Vec2 { x: f.x - p.x, y: f.y - p.y };
-        let t = op.x * dir.x + op.y * dir.y;
-        if t <= 0.0 || t > VISION_RANGE { continue; }
-        let closest = Vec2 { x: p.x + dir.x * t, y: p.y + dir.y * t };
-        let dx = f.x - closest.x; let dy = f.y - closest.y; let dist = (dx*dx + dy*dy).sqrt();
-        if dist <= FOOD_RADIUS { match best { Some(b) if t >= b => {}, _ => best = Some(t) } }
-    }
-    best
-}
-
-fn nearest_food_vector_local(pos: Vec2, theta: f32, food: &[Vec2]) -> (f32, f32) {
-    // Find nearest plant, build a direction vector in agent-local frame, attenuated by distance
-    let mut best_d2 = f32::INFINITY;
-    let mut best_v = Vec2 { x: 0.0, y: 0.0 };
-    for f in food {
-        let dx = f.x - pos.x; let dy = f.y - pos.y;
-        let d2 = dx*dx + dy*dy;
-        if d2 < best_d2 { best_d2 = d2; best_v = Vec2 { x: dx, y: dy }; }
-    }
-    if !best_d2.is_finite() || best_d2.is_infinite() || food.is_empty() { return (0.0, 0.0); }
-    let d = best_d2.sqrt();
-    let att = (1.0 - (d / FOOD_VECTOR_MAX_RANGE)).clamp(0.0, 1.0);
-    if att <= 0.0 { return (0.0, 0.0); }
-    // Rotate into agent frame: forward=(cos, sin), right=(-sin, cos)
-    let c = theta.cos(); let s = theta.sin();
-    let fwd_x = c; let fwd_y = s;
-    let right_x = -s; let right_y = c;
-    let dot_fwd = (best_v.x * fwd_x + best_v.y * fwd_y) / (d.max(1e-6));
-    let dot_right = (best_v.x * right_x + best_v.y * right_y) / (d.max(1e-6));
-    (dot_right * att, dot_fwd * att)
-}
-
-fn nearest_agent_vector_local(pos: Vec2, theta: f32, snapshot: &[(Vec2, bool, bool)], self_idx: usize) -> (f32, f32) {
-    // Consider nearest other alive, not-consumed agent within danger range; encode in agent-local frame
-    let mut best_d2 = f32::INFINITY;
-    let mut best_v = Vec2 { x: 0.0, y: 0.0 };
-    for (j, (p, alive, consumed)) in snapshot.iter().enumerate() {
-        if j == self_idx { continue; }
-        if !*alive || *consumed { continue; }
-        let dx = p.x - pos.x; let dy = p.y - pos.y;
-        let d2 = dx*dx + dy*dy;
-        if d2 < best_d2 { best_d2 = d2; best_v = Vec2 { x: dx, y: dy }; }
-    }
-    if !best_d2.is_finite() || best_d2.is_infinite() { return (0.0, 0.0); }
-    let d = best_d2.sqrt();
-    let att = (1.0 - (d / DANGER_VECTOR_MAX_RANGE)).clamp(0.0, 1.0);
-    if att <= 0.0 { return (0.0, 0.0); }
-    let c = theta.cos(); let s = theta.sin();
-    let fwd_x = c; let fwd_y = s;
-    let right_x = -s; let right_y = c;
-    let dot_fwd = (best_v.x * fwd_x + best_v.y * fwd_y) / (d.max(1e-6));
-    let dot_right = (best_v.x * right_x + best_v.y * right_y) / (d.max(1e-6));
-    (dot_right * att, dot_fwd * att)
-}
-
-fn density_sectors(pos: Vec2, theta: f32, snapshot: &[(Vec2, bool, bool)], self_idx: usize) -> [f32; DENSITY_SECTORS] {
-    let mut bins = [0.0f32; DENSITY_SECTORS];
-    let two_pi = std::f32::consts::PI * 2.0;
-    let sector_size = two_pi / (DENSITY_SECTORS as f32);
-    for (j, (p, alive, consumed)) in snapshot.iter().enumerate() {
-        if j == self_idx { continue; }
-        if !*alive || *consumed { continue; }
-        let dx = p.x - pos.x; let dy = p.y - pos.y;
-        let d2 = dx*dx + dy*dy; let r2 = DENSITY_RADIUS * DENSITY_RADIUS;
-        if d2 > r2 { continue; }
-        let d = d2.sqrt().max(1e-6);
-        // Agent-local coordinates (right, forward)
-        let c = theta.cos(); let s = theta.sin();
-        let right = dx * (-s) + dy * c;
-        let fwd = dx * c + dy * s;
-        let ang = fwd.atan2(right); // range -pi..pi where 0 = along +right, pi/2 = forward
-        let mut ang2 = ang + std::f32::consts::PI; // 0..2pi
-        if ang2 < 0.0 { ang2 += two_pi; }
-        let idx = (ang2 / sector_size).floor() as usize % DENSITY_SECTORS;
-        // Weight closer agents higher; saturate per bin at 1.0
-        let w = (1.0 - (d / DENSITY_RADIUS)).clamp(0.0, 1.0);
-        bins[idx] = (bins[idx] + w).clamp(0.0, 1.0);
-    }
-    bins
-}
-
-fn build_inputs(pos: Vec2, theta: f32, food: &[Vec2], energy: f32, last_food_mem: Vec2, last_danger_mem: Vec2, density: &[f32]) -> [f32; INPUTS] {
-    let mut inputs = [0.0f32; INPUTS];
-    let dir = dir_from_theta(theta);
-    let rays = ray_directions(dir);
-    let mut k = 0;
-    for r in rays {
-        let rdir = r.normalized();
-        let food_t = nearest_food_along_ray(pos, rdir, food);
-        let food_sig = food_t.map(|t| 1.0 - (t / VISION_RANGE)).unwrap_or(0.0);
-        let wall_t = ray_wall_distance(pos, rdir);
-        let wall_sig = if wall_t.is_finite() { (1.0 - (wall_t / VISION_RANGE)).clamp(0.0, 1.0) } else { 0.0 };
-        inputs[k] = food_sig; k += 1; inputs[k] = wall_sig; k += 1;
-    }
-    let (fx, fy) = nearest_food_vector_local(pos, theta, food);
-    inputs[k] = fx; k += 1; inputs[k] = fy; k += 1;
-    inputs[k] = energy.clamp(0.0, 1.0); k += 1;
-    // Memory inputs
-    inputs[k] = last_food_mem.x; k += 1; inputs[k] = last_food_mem.y; k += 1;
-    inputs[k] = last_danger_mem.x; k += 1; inputs[k] = last_danger_mem.y; k += 1;
-    // Density sectors
-    for s in 0..DENSITY_SECTORS { inputs[k] = *density.get(s).unwrap_or(&0.0); k += 1; }
-    inputs
-}
 
 // sample_inputs replaced by build_inputs in Phase 3
 
@@ -352,8 +228,8 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         for (i, a) in agents.iter_mut().enumerate() {
             if a.energy <= 0.0 { continue; }
             // Build extended inputs (Phase 3): rays + current food vec + energy + memory + density
-            let (cur_fx, cur_fy) = nearest_food_vector_local(a.pos, a.theta, &food);
-            let density = density_sectors(a.pos, a.theta, &snapshot, i);
+            let (cur_fx, cur_fy) = sensing::nearest_food_vector_local(a.pos, a.theta, &food);
+            let density = sensing::density_sectors(a.pos, a.theta, &snapshot, i);
             // Digest before acting
             if !a.digest.is_empty() {
                 let mut gained = 0.0f32;
@@ -363,7 +239,7 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             }
             visited[i].insert(grid_index(a.pos));
             let energy_in = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
-            let inputs = build_inputs(a.pos, a.theta, &food, energy_in, a.last_food_mem, a.last_danger_mem, &density);
+            let inputs = sensing::build_inputs(a.pos, a.theta, &food, energy_in, a.last_food_mem, a.last_danger_mem, &density);
             let out = population[i].evaluate_slice(&inputs);
             let turn = out.get(0).copied().unwrap_or(0.0).clamp(-1.0, 1.0);
             let thrust = out.get(1).copied().unwrap_or(0.0).clamp(0.0, 1.0);
@@ -394,7 +270,7 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             if a.energy <= 0.0 { if a.dead_since.is_none() { a.dead_since = Some(steps); a.corpse_energy = CORPSE_INITIAL_ENERGY; } }
             // Update memories after acting
             a.last_food_mem = Vec2 { x: cur_fx, y: cur_fy };
-            let (dx_mem, dy_mem) = nearest_agent_vector_local(a.pos, a.theta, &snapshot, i);
+            let (dx_mem, dy_mem) = sensing::nearest_agent_vector_local(a.pos, a.theta, &snapshot, i);
             a.last_danger_mem = Vec2 { x: dx_mem, y: dy_mem };
         }
         // Resolve predation after movement without aliasing borrows
@@ -487,9 +363,9 @@ impl Episode {
         for (i, a) in self.agents.iter_mut().enumerate() {
             if a.energy <= 0.0 { continue; }
             // Build extended inputs (Phase 3): rays + current food vec + energy + memory + density
-            let (cur_fx, cur_fy) = nearest_food_vector_local(a.pos, a.theta, &self.food);
-            let (_cur_dx, _cur_dy) = nearest_agent_vector_local(a.pos, a.theta, &snapshot, i);
-            let density = density_sectors(a.pos, a.theta, &snapshot, i);
+            let (cur_fx, cur_fy) = sensing::nearest_food_vector_local(a.pos, a.theta, &self.food);
+            let (_cur_dx, _cur_dy) = sensing::nearest_agent_vector_local(a.pos, a.theta, &snapshot, i);
+            let density = sensing::density_sectors(a.pos, a.theta, &snapshot, i);
             // Digestive intake before action
             if !a.digest.is_empty() {
                 let mut gained = 0.0f32;
@@ -500,7 +376,7 @@ impl Episode {
                 a.energy = (a.energy + gained).min(INITIAL_ENERGY);
             }
             let energy_in = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
-            let inputs = build_inputs(a.pos, a.theta, &self.food, energy_in, a.last_food_mem, a.last_danger_mem, &density);
+            let inputs = sensing::build_inputs(a.pos, a.theta, &self.food, energy_in, a.last_food_mem, a.last_danger_mem, &density);
             let out = population[a.id.0].evaluate_slice(&inputs);
             let turn = out.get(0).copied().unwrap_or(0.0).clamp(-1.0, 1.0);
             let thrust = out.get(1).copied().unwrap_or(0.0).clamp(0.0, 1.0);
@@ -535,7 +411,7 @@ impl Episode {
             // Update memories after acting
             a.last_food_mem = Vec2 { x: cur_fx, y: cur_fy };
             // For now, we only store danger memory; current danger not part of inputs to keep size down
-            let (dx_mem, dy_mem) = nearest_agent_vector_local(a.pos, a.theta, &snapshot, i);
+            let (dx_mem, dy_mem) = sensing::nearest_agent_vector_local(a.pos, a.theta, &snapshot, i);
             a.last_danger_mem = Vec2 { x: dx_mem, y: dy_mem };
         }
         // Resolve predation after movement
@@ -802,8 +678,8 @@ fn draw_world(area: Rect, episode: &Episode, show_cones: bool, member_species: &
         let mut any_food_sensed = false;
         if show_cones && a.energy > 0.0 {
             let dir = dir_from_theta(a.theta);
-            for r in ray_directions(dir) {
-                let food_t = nearest_food_along_ray(a.pos, r, &episode.food);
+            for r in sensing::ray_directions(dir) {
+                let food_t = sensing::nearest_food_along_ray(a.pos, r, &episode.food);
                 match food_t {
                     Some(t) => {
                         any_food_sensed = true;
@@ -819,7 +695,7 @@ fn draw_world(area: Rect, episode: &Episode, show_cones: bool, member_species: &
                         draw_line(sx, sy, x2, y2, 1.0, Color::new(0.0, 0.6, 1.0, 0.25));
                     }
                     None => {
-                        let end = Vec2 { x: a.pos.x + r.x * VISION_RANGE, y: a.pos.y + r.y * VISION_RANGE };
+                        let end = Vec2 { x: a.pos.x + r.x * VISION_RANGE, y: a.pos.y * 1.0 + r.y * VISION_RANGE };
                         let (x2, y2) = world_to_screen(area, end);
                         draw_line(px, py, x2, y2, 1.0, Color::new(0.0, 0.6, 1.0, 0.4));
                     }
@@ -839,7 +715,7 @@ fn draw_world(area: Rect, episode: &Episode, show_cones: bool, member_species: &
         // Overlays for the focused agent
         if Some(idx) == focused_idx && a.energy > 0.0 {
             if show_density_overlay {
-                let bins = density_sectors(a.pos, a.theta, &snapshot, idx);
+                let bins = sensing::density_sectors(a.pos, a.theta, &snapshot, idx);
                 let two_pi = std::f32::consts::PI * 2.0;
                 let sector = two_pi / (DENSITY_SECTORS as f32);
                 let base_len = 18.0_f32.max(agent_r + 4.0);
@@ -881,10 +757,10 @@ fn draw_world(area: Rect, episode: &Episode, show_cones: bool, member_species: &
                     draw_line(ex, ey, hx2, hy2, 2.0, color);
                 };
                 // Current food vector (green)
-                let (fx, fy) = nearest_food_vector_local(a.pos, a.theta, &episode.food);
+                let (fx, fy) = sensing::nearest_food_vector_local(a.pos, a.theta, &episode.food);
                 draw_local_arrow("food", fx, fy, Color::new(0.2, 1.0, 0.2, 0.95));
                 // Current danger vector (red)
-                let (dx, dy) = nearest_agent_vector_local(a.pos, a.theta, &snapshot, idx);
+                let (dx, dy) = sensing::nearest_agent_vector_local(a.pos, a.theta, &snapshot, idx);
                 draw_local_arrow("danger", dx, dy, Color::new(1.0, 0.2, 0.2, 0.9));
                 // Memory vectors (yellow/orange)
                 draw_local_arrow("last_food", a.last_food_mem.x, a.last_food_mem.y, Color::new(1.0, 0.9, 0.2, 0.95));
