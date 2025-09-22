@@ -146,7 +146,7 @@ fn draw_hud(state: &AppState, area: Rect) {
 
 #[macroquad::main("NEAT XOR Visualizer")]
 async fn main() {
-    let mut state = AppState::new(1000, 2, 1, 4.0);
+    let mut state = AppState::new(300, 2, 1, 3.9);
     let mut autorun = false;
     let mut timer = 0.0;
     let step_interval = 0.002; // seconds per step when autorun is enabled
@@ -168,7 +168,7 @@ async fn main() {
             autorun = !autorun;
         }
         if is_key_pressed(KeyCode::R) {
-            state.reset(20, 2, 1);
+            state.reset(300, 2, 1);
         }
 
         if autorun {
