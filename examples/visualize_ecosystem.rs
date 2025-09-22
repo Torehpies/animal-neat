@@ -6,11 +6,12 @@ use neat::neat::{
     innovation_tracker::InnovationTracker,
     speciator::Speciator,
 };
+use neat::neat::species::Species;
 use ::rand::Rng;
 
 // World/agent constants (continuous space)
-const WORLD_W: f32 = 100.0;
-const WORLD_H: f32 = 100.0;
+const WORLD_W: f32 = 500.0;
+const WORLD_H: f32 = 500.0;
 const FOOD_COUNT: usize = 40;
 const FOOD_RADIUS: f32 = 1.2;
 const AGENT_RADIUS: f32 = 1.2;
@@ -260,6 +261,8 @@ struct AppState {
     last_avg: f32,
     episode: Episode,
     show_cones: bool,
+    member_species: Vec<usize>,
+    last_species: Vec<Species>,
 }
 
 impl AppState {
@@ -267,10 +270,20 @@ impl AppState {
         let num_inputs = INPUTS as u32;
         let num_outputs = OUTPUTS as u32;
         let mut rng = ::rand::rng();
-        let mut innov = InnovationTracker::new();
-        let speciator = Speciator::new(2.0);
+    let mut innov = InnovationTracker::new();
+    // Start with a lower threshold to encourage early splits; aim for ~5 species
+    let mut speciator = Speciator::new(1.0).with_target(5, 0.05);
         let cfg = EvolutionConfig { compatibility_threshold: 2.0, ..Default::default() };
         let population = Genome::create_initial_population(pop_size, num_inputs, num_outputs, &mut innov);
+        // initial speciation for coloring
+        speciator.speciate(&population);
+        let member_species = {
+            let mut map = vec![0usize; population.len()];
+            for (sidx, s) in speciator.get_species().iter().enumerate() {
+                for &m in &s.members { if m < population.len() { map[m] = sidx; } }
+            }
+            map
+        };
         let episode = Episode::new(&mut rng, pop_size);
         Self {
             population,
@@ -282,6 +295,8 @@ impl AppState {
             last_avg: 0.0,
             episode,
             show_cones: true,
+            member_species,
+            last_species: Vec::new(),
         }
     }
 
@@ -309,9 +324,20 @@ impl AppState {
             &mut self.innov,
             &self.cfg,
         );
+        // snapshot species from evaluated generation for HUD
+        self.last_species = self.speciator.get_species().clone();
         self.generation += 1;
         let mut rng = ::rand::rng();
         self.episode = Episode::new(&mut rng, self.population.len());
+        // speciate new population for coloring and update mapping
+        self.speciator.speciate(&self.population);
+        self.member_species = {
+            let mut map = vec![0usize; self.population.len()];
+            for (sidx, s) in self.speciator.get_species().iter().enumerate() {
+                for &m in &s.members { if m < self.population.len() { map[m] = sidx; } }
+            }
+            map
+        };
     }
 }
 
@@ -321,7 +347,24 @@ fn world_to_screen(area: Rect, p: Vec2) -> (f32, f32) {
     (sx, sy)
 }
 
-fn draw_world(area: Rect, episode: &Episode, show_cones: bool) {
+fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (f32, f32, f32) {
+    let h = (h % 1.0 + 1.0) % 1.0;
+    if s <= 0.0 { return (v, v, v); }
+    let i = (h * 6.0).floor();
+    let f = h * 6.0 - i;
+    let p = v * (1.0 - s);
+    let q = v * (1.0 - s * f);
+    let t = v * (1.0 - s * (1.0 - f));
+    match i as i32 % 6 { 0 => (v, t, p), 1 => (q, v, p), 2 => (p, v, t), 3 => (p, q, v), 4 => (t, p, v), _ => (v, p, q) }
+}
+
+fn species_color(species_idx: usize) -> Color {
+    let hue = ((species_idx as f32) * 0.618_033_988) % 1.0; // golden ratio spacing
+    let (r, g, b) = hsv_to_rgb(hue, 0.65, 0.95);
+    Color::new(r, g, b, 1.0)
+}
+
+fn draw_world(area: Rect, episode: &Episode, show_cones: bool, member_species: &[usize]) {
     // background
     draw_rectangle(area.x, area.y, area.w, area.h, DARKGREEN);
     // border
@@ -344,20 +387,47 @@ fn draw_world(area: Rect, episode: &Episode, show_cones: bool) {
     }
     // agents
     for a in &episode.agents {
-    let (px, py) = world_to_screen(area, a.pos);
-    let agent_r = ((AGENT_RADIUS / WORLD_W) * area.w).max(3.0);
-    draw_circle(px, py, agent_r, SKYBLUE);
-    draw_circle_lines(px, py, agent_r, 2.0, Color::new(0.2, 0.6, 1.0, 0.7));
+        let (px, py) = world_to_screen(area, a.pos);
+        let agent_r = ((AGENT_RADIUS / WORLD_W) * area.w).max(3.0);
+        let sidx = *member_species.get(a.id.0).unwrap_or(&0usize);
+        let fill = species_color(sidx);
+        draw_circle(px, py, agent_r, fill);
+        draw_circle_lines(px, py, agent_r, 2.0, Color::new(0.2, 0.2, 0.2, 0.6));
         // heading line
         let dir = dir_from_theta(a.theta);
         let (hx, hy) = world_to_screen(area, Vec2 { x: a.pos.x + dir.x * 2.0, y: a.pos.y + dir.y * 2.0 });
         draw_line(px, py, hx, hy, 2.0, BLUE);
+
+        let mut any_food_sensed = false;
         if show_cones {
             for r in ray_directions(dir) {
-                let end = Vec2 { x: a.pos.x + r.x * VISION_RANGE, y: a.pos.y + r.y * VISION_RANGE };
-                let (x2, y2) = world_to_screen(area, end);
-                draw_line(px, py, x2, y2, 1.0, Color::new(0.0, 0.6, 1.0, 0.4));
+                let food_t = nearest_food_along_ray(a.pos, r, &episode.food);
+                match food_t {
+                    Some(t) => {
+                        any_food_sensed = true;
+                        let sense_pt = Vec2 { x: a.pos.x + r.x * t, y: a.pos.y + r.y * t };
+                        let (sx, sy) = world_to_screen(area, sense_pt);
+                        // draw sensed segment in bright green up to the food point
+                        draw_line(px, py, sx, sy, 2.0, Color::new(0.2, 1.0, 0.2, 0.9));
+                        // mark the sensed point
+                        draw_circle(sx, sy, 3.0, Color::new(0.2, 1.0, 0.2, 0.9));
+                        // faint remainder to max range
+                        let end = Vec2 { x: a.pos.x + r.x * VISION_RANGE, y: a.pos.y + r.y * VISION_RANGE };
+                        let (x2, y2) = world_to_screen(area, end);
+                        draw_line(sx, sy, x2, y2, 1.0, Color::new(0.0, 0.6, 1.0, 0.25));
+                    }
+                    None => {
+                        let end = Vec2 { x: a.pos.x + r.x * VISION_RANGE, y: a.pos.y + r.y * VISION_RANGE };
+                        let (x2, y2) = world_to_screen(area, end);
+                        draw_line(px, py, x2, y2, 1.0, Color::new(0.0, 0.6, 1.0, 0.4));
+                    }
+                }
             }
+        }
+
+        // If any ray senses food, add a green highlight ring around the agent
+        if any_food_sensed {
+            draw_circle_lines(px, py, agent_r + 3.0, 2.0, Color::new(0.2, 1.0, 0.2, 0.9));
         }
     }
 }
@@ -368,14 +438,14 @@ fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool) {
     let mut y = area.y + padding;
     let x = area.x + padding;
     let max_y = area.y + area.h - padding;
-    let font_size = 20.0;
+    let font_size = 18.0;
     let total_eaten: usize = state.episode.agents.iter().map(|a| a.eaten).sum();
     let alive = state.episode.agents.iter().filter(|a| a.energy > 0.0).count();
     let avg_energy = if !state.episode.agents.is_empty() {
         state.episode.agents.iter().map(|a| a.energy).sum::<f32>() / state.episode.agents.len() as f32
     } else { 0.0 };
     let mode = if !running { "Paused" } else if fast_mode { "Running (Fast)" } else { "Running (Normal)" };
-    let lines = [
+    let mut lines = vec![
         format!("Generation: {}", state.generation),
         format!("Population: {}", state.population.len()),
         format!("Mode: {}", mode),
@@ -385,8 +455,20 @@ fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool) {
         format!("Alive: {}", alive),
         format!("Avg energy: {:.1}", avg_energy),
         format!("Steps (live): {}", state.episode.steps),
-        "Controls: [P] pause/resume  [F] fast/normal  [R] reset episode  [V] toggle vision".to_string(),
+        "Controls:".to_string(),
+        "  [P] pause/resume   [F] fast/normal".to_string(),
+        "  [R] reset episode  [V] toggle vision".to_string(),
+        "Species (last gen):".to_string(),
     ];
+    let mut species = state.last_species.clone();
+    species.sort_by(|a, b| b.best_fitness.partial_cmp(&a.best_fitness).unwrap_or(std::cmp::Ordering::Equal));
+    for (rank, s) in species.into_iter().enumerate() {
+        lines.push(format!(
+            "  #{:02} mem={} best={:.2} adj={:.2} stagn={} rep={}",
+            rank, s.members.len(), s.best_fitness, s.adjusted_fitness, s.stagnant_generations, s.representative
+        ));
+        if lines.len() > 64 { break; }
+    }
     // Panel background
     draw_rectangle(area.x, area.y, area.w, area.h, Color::new(0.08, 0.08, 0.08, 0.9));
     draw_rectangle_lines(area.x, area.y, area.w, area.h, 2.0, GRAY);
@@ -399,11 +481,11 @@ fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool) {
 
 #[macroquad::main("NEAT Ecosystem Visualizer")]
 async fn main() {
-    let mut state = AppState::new(50);
+    let mut state = AppState::new(10);
     let mut running = true;      // continuous evolution by default
     let mut fast_mode = false;   // start at normal speed
     let mut normal_step_timer = 0.0f32;          // accumulates frame time for normal stepping
-    let normal_step_interval = 0.005f32;           // seconds per simulation step in normal mode
+    let normal_step_interval = 0.02f32;           // seconds per simulation step in normal mode
     let fast_steps_per_frame: usize = 500;       // simulation steps per frame in fast mode
 
     loop {
@@ -460,7 +542,7 @@ async fn main() {
             }
         }
 
-    draw_world(world_area, &state.episode, state.show_cones);
+    draw_world(world_area, &state.episode, state.show_cones, &state.member_species);
     draw_hud(hud_area, &state, running, fast_mode);
 
         next_frame().await

@@ -60,6 +60,16 @@ impl Speciator {
                 species.representative = best_idx;
             }
         }
+
+        // Nudge the compatibility threshold toward the target species count
+        let count = self.species.len();
+        if count < self.target_species_count {
+            // Too few species -> decrease threshold to split more easily
+            self.compatibility_threshold = (self.compatibility_threshold - self.adjust_step).max(0.05);
+        } else if count > self.target_species_count {
+            // Too many species -> increase threshold to merge more easily
+            self.compatibility_threshold = (self.compatibility_threshold + self.adjust_step).min(10.0);
+        }
     }
 
     pub fn get_species(&self) -> &Vec<Species> {
