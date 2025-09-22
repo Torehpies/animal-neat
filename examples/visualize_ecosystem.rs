@@ -10,76 +10,17 @@ use neat::neat::species::Species;
 use neat::neat::node_gene::NodeType;
 use std::collections::VecDeque;
 use ::rand::Rng;
+#[path = "visualize_ecosystem/params.rs"]
+mod params;
 #[path = "visualize_ecosystem/sensing.rs"]
 mod sensing;
 #[path = "visualize_ecosystem/world.rs"]
 mod world;
+#[path = "visualize_ecosystem/sim.rs"]
+mod sim;
 
-// World/agent constants (continuous space)
-const WORLD_W: f32 = 500.0;
-const WORLD_H: f32 = 500.0;
-const FOOD_COUNT: usize = 100;
-const FOOD_RADIUS: f32 = 1.2;
-const AGENT_RADIUS: f32 = 1.5;
-const INITIAL_ENERGY: f32 = 300.0;
-const ENERGY_DRAIN_PER_STEP: f32 = 0.4;
-const FOOD_ENERGY: f32 = 75.0;
-const MAX_STEPS: usize = 500;
-
-// Plant/food dynamics
-const MAX_FOOD: usize = 300;                 // hard cap on number of plants
-const FOOD_MIN_SEP: f32 = 2.5;               // minimum separation between plants
-const FOOD_RESPAWN_PROB: f32 = 0.06;         // per-step probability to spawn one random plant
-const FOOD_SPREAD_CHANCE: f32 = 0.02;        // per existing plant, chance to spawn a nearby offshoot
-const FOOD_SPREAD_RADIUS: f32 = 15.0;        // max radius for offshoot from parent plant
-
-// Vision cone parameters
-const VISION_RAYS: usize = 7;           // number of rays within the cone
-const VISION_ANGLE_DEG: f32 = 90.0;     // total cone angle
-const VISION_RANGE: f32 = 200.0;         // world units
-
-// Movement
-const MAX_TURN: f32 = std::f32::consts::PI / 15.0; // radians per step at full turn
-const MAX_SPEED: f32 = 2.5;                        // units per step at full thrust
-
-// Reduce circling: scale thrust down when turning strongly
-const THRUST_TURN_COUPLING: f32 = 0.6; // 0 = none, 1 = full: thrust*(1-|turn|)
-
-// Predation/scavenging
-const EAT_AGENT_RADIUS: f32 = AGENT_RADIUS + AGENT_RADIUS;
-const MEAT_ENERGY: f32 = 60.0;           // energy gained by eating an agent (alive or dead)
-const PREDATION_ENABLED: bool = true;     // eat live agents when close
-const SCAVENGE_ENABLED: bool = true;      // eat dead agents when close
-
-// Additional sensing (Phase 3): danger vector memory and local density sectors
-const DANGER_VECTOR_MAX_RANGE: f32 = 150.0; // range considered for nearest-agent danger vector
-const DENSITY_SECTORS: usize = 8;           // angular sectors around the agent for density
-const DENSITY_RADIUS: f32 = 40.0;           // neighborhood radius to accumulate density
-
-const INPUTS: usize = VISION_RAYS * 2 + 3 + 4 + DENSITY_SECTORS; // per-ray [food, wall] + [food_vec x,y]+energy + [last_food x,y]+[last_danger x,y] + density[sectors]
-const OUTPUTS: usize = 2; // turn, thrust
-
-// Exploration and avoidance (mirrors headless)
-const EXPL_CELL_SIZE: f32 = 10.0;
-const EXPL_REWARD_PER_CELL: f32 = 0.02;
-const AVOID_RADIUS: f32 = 3.0;
-const AVOID_PENALTY_SCALE: f32 = 0.003;
-const AVOID_CHECK_EVERY: usize = 2;
-const EPISODES_PER_GEN: usize = 3; // average fitness over multiple randomized episodes
-
-// Food-direction vector parameters
-const FOOD_VECTOR_MAX_RANGE: f32 = 150.0; // how far we consider plants when building the vector
-
-// Turn and fitness shaping
-const TURN_COST: f32 = 0.02;     // energy drain per unit |turn|
-const EAT_WEIGHT: f32 = 4.5;     // fitness weight for each item eaten (plants or agents)
-const STEP_WEIGHT: f32 = 0.001;  // fitness weight per step survived
-
-// Phase 2: corpse decay and digestive lag
-const CORPSE_INITIAL_ENERGY: f32 = MEAT_ENERGY; // energy available in a fresh corpse
-const CORPSE_DECAY_RATE: f32 = 0.02;            // fraction lost per step (e.g., 0.02 = 2%)
-const DIGEST_STEPS_PLANT: u16 = 25;             // steps over which plant energy is released
-const DIGEST_STEPS_MEAT: u16 = 35;              // steps over which meat energy is released
+// Use centralized params
+use params::*;
 
 #[derive(Clone, Copy, Debug)]
 struct Vec2 { x: f32, y: f32 }
@@ -173,13 +114,8 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             // Build extended inputs (Phase 3): rays + current food vec + energy + memory + density
             let (cur_fx, cur_fy) = sensing::nearest_food_vector_local(a.pos, a.theta, &food);
             let density = sensing::density_sectors(a.pos, a.theta, &snapshot, i);
-            // Digest before acting
-            if !a.digest.is_empty() {
-                let mut gained = 0.0f32;
-                for ev in a.digest.iter_mut() { if ev.remaining > 0 { gained += ev.per_step; ev.remaining -= 1; } }
-                a.digest.retain(|ev| ev.remaining > 0);
-                a.energy = (a.energy + gained).min(INITIAL_ENERGY);
-            }
+            // Digest before acting (shared)
+            sim::apply_digestion(a);
             visited[i].insert(grid_index(a.pos));
             let energy_in = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
             let inputs = sensing::build_inputs(a.pos, a.theta, &food, energy_in, a.last_food_mem, a.last_danger_mem, &density);
@@ -216,39 +152,9 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             let (dx_mem, dy_mem) = sensing::nearest_agent_vector_local(a.pos, a.theta, &snapshot, i);
             a.last_danger_mem = Vec2 { x: dx_mem, y: dy_mem };
         }
-        // Resolve predation after movement without aliasing borrows
-        let mut claimed = vec![false; agents.len()];
-        for i in 0..agents.len() {
-            if let Some(j) = prey_targets[i] {
-                if claimed[j] || agents[j].consumed { continue; }
-                let alive_j = agents[j].energy > 0.0;
-                if (alive_j && !PREDATION_ENABLED) || (!alive_j && !SCAVENGE_ENABLED) { continue; }
-                let gain = if alive_j { CORPSE_INITIAL_ENERGY } else { agents[j].corpse_energy.max(0.0) };
-                agents[j].energy = 0.0;
-                agents[j].dead_since.get_or_insert(steps);
-                agents[j].corpse_energy = 0.0;
-                agents[j].consumed = true;
-                if gain > 0.0 {
-                    if DIGEST_STEPS_MEAT > 0 { agents[i].digest.push_back(DigestEvent { remaining: DIGEST_STEPS_MEAT, per_step: gain / (DIGEST_STEPS_MEAT as f32) }); }
-                    else { agents[i].energy = (agents[i].energy + gain).min(INITIAL_ENERGY); }
-                }
-                agents[i].eaten += 1;
-                agents[i].kills += 1;
-                agents[i].predation_flash_steps = agents[i].predation_flash_steps.saturating_add(10);
-                claimed[j] = true;
-            }
-        }
-        // Corpse decay
-        for a in &mut agents {
-            if a.energy <= 0.0 && !a.consumed && a.corpse_energy > 0.0 {
-                a.corpse_energy *= (1.0 - CORPSE_DECAY_RATE).max(0.0);
-                if a.corpse_energy < 0.1 { a.corpse_energy = 0.0; a.consumed = true; }
-            }
-        }
-        // Decay predation flash counters
-        for a in &mut agents {
-            if a.predation_flash_steps > 0 { a.predation_flash_steps -= 1; }
-        }
+        // Resolve predation and tick corpse/flash decay (shared)
+        sim::resolve_predation(&mut agents, &prey_targets, steps);
+        sim::decay_corpses_and_flashes(&mut agents);
         if steps % AVOID_CHECK_EVERY == 0 {
             for i in 0..agents.len() {
                 if agents[i].energy <= 0.0 { continue; }
@@ -309,15 +215,8 @@ impl Episode {
             let (cur_fx, cur_fy) = sensing::nearest_food_vector_local(a.pos, a.theta, &self.food);
             let (_cur_dx, _cur_dy) = sensing::nearest_agent_vector_local(a.pos, a.theta, &snapshot, i);
             let density = sensing::density_sectors(a.pos, a.theta, &snapshot, i);
-            // Digestive intake before action
-            if !a.digest.is_empty() {
-                let mut gained = 0.0f32;
-                for ev in a.digest.iter_mut() {
-                    if ev.remaining > 0 { gained += ev.per_step; ev.remaining -= 1; }
-                }
-                a.digest.retain(|ev| ev.remaining > 0);
-                a.energy = (a.energy + gained).min(INITIAL_ENERGY);
-            }
+            // Digestive intake before action (shared)
+            sim::apply_digestion(a);
             let energy_in = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
             let inputs = sensing::build_inputs(a.pos, a.theta, &self.food, energy_in, a.last_food_mem, a.last_danger_mem, &density);
             let out = population[a.id.0].evaluate_slice(&inputs);
@@ -357,39 +256,9 @@ impl Episode {
             let (dx_mem, dy_mem) = sensing::nearest_agent_vector_local(a.pos, a.theta, &snapshot, i);
             a.last_danger_mem = Vec2 { x: dx_mem, y: dy_mem };
         }
-        // Resolve predation after movement
-        let mut claimed = vec![false; self.agents.len()];
-        for i in 0..self.agents.len() {
-            if let Some(j) = prey_targets[i] {
-                if claimed[j] || self.agents[j].consumed { continue; }
-                let alive_j = self.agents[j].energy > 0.0;
-                if (alive_j && !PREDATION_ENABLED) || (!alive_j && !SCAVENGE_ENABLED) { continue; }
-                // Determine meat energy to gain (decay for scavenging)
-                let gain = if alive_j { CORPSE_INITIAL_ENERGY } else { self.agents[j].corpse_energy.max(0.0) };
-                // Remove corpse
-                self.agents[j].energy = 0.0;
-                self.agents[j].dead_since.get_or_insert(self.steps);
-                self.agents[j].corpse_energy = 0.0;
-                self.agents[j].consumed = true;
-                // Digestive lag for meat
-                if gain > 0.0 {
-                    if DIGEST_STEPS_MEAT > 0 { self.agents[i].digest.push_back(DigestEvent { remaining: DIGEST_STEPS_MEAT, per_step: gain / (DIGEST_STEPS_MEAT as f32) }); }
-                    else { self.agents[i].energy = (self.agents[i].energy + gain).min(INITIAL_ENERGY); }
-                }
-                self.agents[i].eaten += 1;
-                self.agents[i].kills += 1;
-                self.agents[i].predation_flash_steps = self.agents[i].predation_flash_steps.saturating_add(10);
-                if self.first_eat_step.is_none() { self.first_eat_step = Some(self.steps); }
-                claimed[j] = true;
-            }
-        }
-        // Corpse decay for dead but not yet consumed agents
-        for a in &mut self.agents {
-            if a.energy <= 0.0 && !a.consumed && a.corpse_energy > 0.0 {
-                a.corpse_energy *= (1.0 - CORPSE_DECAY_RATE).max(0.0);
-                if a.corpse_energy < 0.1 { a.corpse_energy = 0.0; a.consumed = true; }
-            }
-        }
+        // Resolve predation after movement and decay (shared)
+        sim::resolve_predation(&mut self.agents, &prey_targets, self.steps);
+        sim::decay_corpses_and_flashes(&mut self.agents);
         // Plants grow/spread over time in the live world too
     world::food_growth_step(&mut self.food, rng);
         // Decay predation flash counters
