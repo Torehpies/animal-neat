@@ -50,6 +50,8 @@ pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, member_specie
             let fill = crate::species_color(sidx);
             draw_circle(px, py, agent_r, fill);
         } else {
+            // If corpse is fully consumed or flagged consumed, skip rendering
+            if a.consumed || a.corpse_energy <= 0.1 { continue; }
             let fill = Color::new(0.25, 0.25, 0.25, 0.9);
             draw_circle(px, py, agent_r, fill);
         }
@@ -92,6 +94,22 @@ pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, member_specie
         // If any ray senses food, add a green highlight ring around the agent
         if any_food_sensed {
             draw_circle_lines(px, py, agent_r + 3.0, 2.0, Color::new(0.2, 1.0, 0.2, 0.9));
+        }
+        // Visual cue: edible nearby (live prey or unconsumed corpse) within EAT_AGENT_RADIUS
+        if a.energy > 0.0 {
+            let eat_r2 = EAT_AGENT_RADIUS * EAT_AGENT_RADIUS;
+            let mut edible_near = false;
+            for (j, (p, alive, consumed)) in snapshot.iter().enumerate() {
+                if j == idx { continue; }
+                // edible if alive (predation) or dead but not yet consumed (scavenge)
+                if (*alive && !PREDATION_ENABLED) || (!*alive && !SCAVENGE_ENABLED) { continue; }
+                if !*alive && *consumed { continue; }
+                let dx = p.x - a.pos.x; let dy = p.y - a.pos.y; let d2 = dx*dx + dy*dy;
+                if d2 <= eat_r2 { edible_near = true; break; }
+            }
+            if edible_near {
+                draw_circle_lines(px, py, agent_r + 6.0, 2.5, Color::new(1.0, 0.6, 0.1, 0.95));
+            }
         }
         // Predation flash: red ring
         if a.predation_flash_steps > 0 {

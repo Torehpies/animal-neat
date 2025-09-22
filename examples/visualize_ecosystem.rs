@@ -118,6 +118,10 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
     let mut avoid_penalty: Vec<f32> = vec![0.0; agents.len()];
 
     let mut steps = 0usize;
+    // Headless-only shaping trackers
+    let mut last_food_d: Vec<f32> = agents.iter().map(|a| {
+        sensing::nearest_food_distance(a.pos, &food).unwrap_or(f32::INFINITY)
+    }).collect();
     while steps < MAX_STEPS {
         if agents.iter().all(|a| a.energy <= 0.0) { break; }
         // Snapshot for predation decisions to avoid borrow conflicts
@@ -184,6 +188,17 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             a.last_food_mem = Vec2 { x: cur_fx, y: cur_fy };
             let (dx_mem, dy_mem) = sensing::nearest_agent_vector_local(a.pos, a.theta, &snapshot, i);
             a.last_danger_mem = Vec2 { x: dx_mem, y: dy_mem };
+            // Headless shaping: approach reward and spin penalty
+            if a.energy > 0.0 {
+                if let Some(d) = sensing::nearest_food_distance(a.pos, &food) {
+                    if last_food_d[i].is_finite() && d.is_finite() && d < APPROACH_MAX_RANGE {
+                        let delta = (last_food_d[i] - d).clamp(-10.0, 10.0);
+                        avoid_penalty[i] -= delta * APPROACH_REWARD_SCALE; // subtract negative to add reward
+                    }
+                    last_food_d[i] = d;
+                }
+                avoid_penalty[i] += turn.abs() * SPIN_PENALTY_SCALE;
+            }
         }
         // Resolve predation and tick corpse/flash decay (shared)
         sim::resolve_predation(&mut agents, &prey_targets, steps);
@@ -369,8 +384,8 @@ impl AppState {
         let num_outputs = OUTPUTS as u32;
         let mut rng = ::rand::rng();
     let mut innov = InnovationTracker::new();
-    // Start with a lower threshold to encourage early splits; aim for ~5 species
-    let mut speciator = Speciator::new(1.0).with_target(5, 0.05);
+    // Speciation target and adapt rate are now configurable via params
+    let mut speciator = Speciator::new(1.0).with_target(SPECIES_TARGET, SPECIES_ADAPT_RATE);
         let cfg = EvolutionConfig { compatibility_threshold: 2.0, ..Default::default() };
         let population = Genome::create_initial_population(pop_size, num_inputs, num_outputs, &mut innov);
         // initial speciation for coloring
@@ -489,12 +504,12 @@ fn window_conf() -> Conf {
 
 #[macroquad::main(window_conf)]
 async fn main() {
-    let mut state = AppState::new(100);
+    let mut state = AppState::new(50);
     let mut running = true;      // continuous evolution by default
     let mut fast_mode = false;   // start at normal speed
     let mut normal_step_timer = 0.0f32;          // accumulates frame time for normal stepping
     let normal_step_interval = 0.02f32;           // seconds per simulation step in normal mode
-    let fast_steps_per_frame: usize = 1000;       // simulation steps per frame in fast mode
+    let fast_steps_per_frame: usize = 2000;       // simulation steps per frame in fast mode
 
     loop {
         clear_background(BLACK);
