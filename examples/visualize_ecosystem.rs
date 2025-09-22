@@ -12,6 +12,8 @@ use std::collections::VecDeque;
 use ::rand::Rng;
 #[path = "visualize_ecosystem/sensing.rs"]
 mod sensing;
+#[path = "visualize_ecosystem/world.rs"]
+mod world;
 
 // World/agent constants (continuous space)
 const WORLD_W: f32 = 500.0;
@@ -93,57 +95,7 @@ impl Vec2 {
     fn clamp_to_world(self) -> Self { Self::new(self.x.clamp(0.0, WORLD_W), self.y.clamp(0.0, WORLD_H)) }
 }
 
-fn rand_pos<R: Rng>(rng: &mut R) -> Vec2 {
-    Vec2::new(rng.random_range(0.0..WORLD_W), rng.random_range(0.0..WORLD_H))
-}
-
-fn can_place_food(existing: &[Vec2], p: Vec2) -> bool {
-    let min_d2 = FOOD_MIN_SEP * FOOD_MIN_SEP;
-    for f in existing {
-        let dx = f.x - p.x; let dy = f.y - p.y;
-        if dx*dx + dy*dy < min_d2 { return false; }
-    }
-    true
-}
-
-fn build_world<R: Rng>(rng: &mut R) -> Vec<Vec2> {
-    let mut food = Vec::with_capacity(FOOD_COUNT);
-    let mut attempts = 0;
-    while food.len() < FOOD_COUNT && attempts < FOOD_COUNT * 50 {
-        attempts += 1;
-        let p = rand_pos(rng);
-        if can_place_food(&food, p) { food.push(p); }
-    }
-    food
-}
-
-fn try_spawn_food_random<R: Rng>(food: &mut Vec<Vec2>, rng: &mut R) {
-    if food.len() >= MAX_FOOD { return; }
-    let p = rand_pos(rng);
-    if can_place_food(food, p) { food.push(p); }
-}
-
-fn try_spawn_food_near<R: Rng>(food: &mut Vec<Vec2>, rng: &mut R, center: Vec2) {
-    if food.len() >= MAX_FOOD { return; }
-    let ang = rng.random_range(0.0..(std::f32::consts::PI * 2.0));
-    let r = rng.random_range(0.5..FOOD_SPREAD_RADIUS);
-    let p = Vec2 { x: (center.x + ang.cos() * r).clamp(0.0, WORLD_W), y: (center.y + ang.sin() * r).clamp(0.0, WORLD_H) };
-    if can_place_food(food, p) { food.push(p); }
-}
-
-fn food_growth_step<R: Rng>(food: &mut Vec<Vec2>, rng: &mut R) {
-    // Random spawn
-    if rng.random_range(0.0..1.0) < FOOD_RESPAWN_PROB { try_spawn_food_random(food, rng); }
-    // Local spread from existing plants (snapshot length to avoid cascading within the same step)
-    let base_len = food.len();
-    for i in 0..base_len {
-        if food.len() >= MAX_FOOD { break; }
-        if rng.random_range(0.0..1.0) < FOOD_SPREAD_CHANCE {
-            let parent = food[i];
-            try_spawn_food_near(food, rng, parent);
-        }
-    }
-}
+// world.rs now provides rand_pos/build_world/food growth helpers
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 struct AgentId(usize);
@@ -187,23 +139,14 @@ fn grid_index(p: Vec2) -> u32 {
     iy * nx + ix
 }
 
-fn eat_if_near(food: &mut Vec<Vec2>, pos: Vec2) -> bool {
-    if food.is_empty() { return false; }
-    if let Some((idx, _)) = food.iter().enumerate()
-        .map(|(i, f)| (i, ((f.x - pos.x).powi(2) + (f.y - pos.y).powi(2)).sqrt()))
-        .filter(|(_, d)| *d <= (FOOD_RADIUS + AGENT_RADIUS))
-        .min_by(|a, b| a.1.total_cmp(&b.1)) {
-        food.swap_remove(idx);
-        true
-    } else { false }
-}
+// eat_if_near moved to world.rs
 
 fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
     let mut rng = ::rand::rng();
-    let mut food = build_world(&mut rng);
+    let mut food = world::build_world(&mut rng);
     let mut agents: Vec<Agent> = population.iter().enumerate().map(|(i, _)| Agent {
         id: AgentId(i),
-        pos: rand_pos(&mut rng),
+    pos: world::rand_pos(&mut rng),
         theta: -std::f32::consts::FRAC_PI_2,
         energy: INITIAL_ENERGY,
         eaten: 0,
@@ -249,7 +192,7 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             let dir = dir_from_theta(a.theta);
             let vel = dir.mul(thrust_eff * MAX_SPEED);
             a.pos = a.pos.add(vel).clamp_to_world();
-            if eat_if_near(&mut food, a.pos) {
+            if world::eat_if_near(&mut food, a.pos) {
                 if DIGEST_STEPS_PLANT > 0 { a.digest.push_back(DigestEvent { remaining: DIGEST_STEPS_PLANT, per_step: FOOD_ENERGY / (DIGEST_STEPS_PLANT as f32) }); }
                 else { a.energy = (a.energy + FOOD_ENERGY).min(INITIAL_ENERGY); }
                 a.eaten += 1; }
@@ -321,7 +264,7 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             }
         }
         // Plants grow/spread over time
-        food_growth_step(&mut food, &mut rng);
+    world::food_growth_step(&mut food, &mut rng);
         steps += 1;
     }
 
@@ -337,7 +280,7 @@ impl Episode {
         for i in 0..agent_count {
             agents.push(Agent {
                 id: AgentId(i),
-                pos: rand_pos(rng),
+                pos: world::rand_pos(rng),
                 theta: -std::f32::consts::FRAC_PI_2,
                 energy: INITIAL_ENERGY,
                 eaten: 0,
@@ -351,7 +294,7 @@ impl Episode {
                 last_danger_mem: Vec2 { x: 0.0, y: 0.0 },
             });
         }
-        Self { food: build_world(rng), agents, steps: 0, first_eat_step: None }
+    Self { food: world::build_world(rng), agents, steps: 0, first_eat_step: None }
     }
 
     fn step<R: Rng>(&mut self, population: &[Genome], rng: &mut R) -> bool {
@@ -387,7 +330,7 @@ impl Episode {
             let vel = dir.mul(thrust_eff * MAX_SPEED);
             a.pos = a.pos.add(vel).clamp_to_world();
             // eat if close (sum of radii) with digestive lag
-            if eat_if_near(&mut self.food, a.pos) {
+            if world::eat_if_near(&mut self.food, a.pos) {
                 if DIGEST_STEPS_PLANT > 0 { a.digest.push_back(DigestEvent { remaining: DIGEST_STEPS_PLANT, per_step: FOOD_ENERGY / (DIGEST_STEPS_PLANT as f32) }); }
                 else { a.energy = (a.energy + FOOD_ENERGY).min(INITIAL_ENERGY); }
                 a.eaten += 1;
@@ -448,7 +391,7 @@ impl Episode {
             }
         }
         // Plants grow/spread over time in the live world too
-        food_growth_step(&mut self.food, rng);
+    world::food_growth_step(&mut self.food, rng);
         // Decay predation flash counters
         for a in &mut self.agents {
             if a.predation_flash_steps > 0 { a.predation_flash_steps -= 1; }
@@ -738,7 +681,7 @@ fn draw_world(area: Rect, episode: &Episode, show_cones: bool, member_species: &
             }
             if show_vector_overlay {
                 // Helper to draw an arrow for a local vector
-                let draw_local_arrow = |label: &str, lx: f32, ly: f32, color: Color| {
+                let draw_local_arrow = |_label: &str, lx: f32, ly: f32, color: Color| {
                     let c = a.theta.cos(); let snt = a.theta.sin();
                     let right_x = -snt; let right_y = c;
                     let fwd_x = c; let fwd_y = snt;
