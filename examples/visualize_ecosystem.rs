@@ -7,7 +7,6 @@ use neat::neat::{
     speciator::Speciator,
 };
 use neat::neat::species::Species;
-use neat::neat::node_gene::NodeType;
 use std::collections::VecDeque;
 use ::rand::Rng;
 #[path = "visualize_ecosystem/params.rs"]
@@ -18,6 +17,14 @@ mod sensing;
 mod world;
 #[path = "visualize_ecosystem/sim.rs"]
 mod sim;
+#[path = "visualize_ecosystem/ui/common.rs"]
+mod ui_common;
+#[path = "visualize_ecosystem/ui/world_view.rs"]
+mod ui_world_view;
+#[path = "visualize_ecosystem/ui/hud.rs"]
+mod ui_hud;
+#[path = "visualize_ecosystem/ui/network.rs"]
+mod ui_network;
 
 // Use centralized params
 use params::*;
@@ -25,6 +32,7 @@ use params::*;
 #[derive(Clone, Copy, Debug)]
 struct Vec2 { x: f32, y: f32 }
 
+#[allow(dead_code)]
 impl Vec2 {
     fn new(x: f32, y: f32) -> Self { Self { x, y } }
     fn add(self, o: Self) -> Self { Self::new(self.x + o.x, self.y + o.y) }
@@ -402,382 +410,14 @@ impl AppState {
     }
 }
 
-fn world_to_screen(area: Rect, p: Vec2) -> (f32, f32) {
-    let sx = area.x + (p.x / WORLD_W) * area.w;
-    let sy = area.y + (p.y / WORLD_H) * area.h;
-    (sx, sy)
-}
+use ui_common::screen_to_world;
+use ui_common::species_color;
 
-fn screen_to_world(area: Rect, sx: f32, sy: f32) -> Vec2 {
-    let x = ((sx - area.x) / area.w).clamp(0.0, 1.0) * WORLD_W;
-    let y = ((sy - area.y) / area.h).clamp(0.0, 1.0) * WORLD_H;
-    Vec2 { x, y }
-}
+// draw_world moved to ui_world_view::draw_world
 
-fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (f32, f32, f32) {
-    let h = (h % 1.0 + 1.0) % 1.0;
-    if s <= 0.0 { return (v, v, v); }
-    let i = (h * 6.0).floor();
-    let f = h * 6.0 - i;
-    let p = v * (1.0 - s);
-    let q = v * (1.0 - s * f);
-    let t = v * (1.0 - s * (1.0 - f));
-    match i as i32 % 6 { 0 => (v, t, p), 1 => (q, v, p), 2 => (p, v, t), 3 => (p, q, v), 4 => (t, p, v), _ => (v, p, q) }
-}
+// draw_hud moved to ui_hud::draw_hud
 
-fn species_color(species_idx: usize) -> Color {
-    let hue = ((species_idx as f32) * 0.618_033_988) % 1.0; // golden ratio spacing
-    let (r, g, b) = hsv_to_rgb(hue, 0.65, 0.95);
-    Color::new(r, g, b, 1.0)
-}
-
-fn draw_world(area: Rect, episode: &Episode, show_cones: bool, member_species: &[usize], show_density_overlay: bool, show_vector_overlay: bool, mouse_world: Option<Vec2>) {
-    // background
-    draw_rectangle(area.x, area.y, area.w, area.h, DARKGREEN);
-    // border
-    draw_rectangle_lines(area.x, area.y, area.w, area.h, 2.0, BLACK);
-    // food
-    for p in &episode.food {
-        let (px, py) = world_to_screen(area, *p);
-        let r = ((FOOD_RADIUS / WORLD_W) * area.w).max(2.0);
-        draw_circle(px, py, r, YELLOW);
-        // highlight if within eat range of any agent
-        let eat_r = FOOD_RADIUS + AGENT_RADIUS;
-        let mut near = false;
-        for a in &episode.agents {
-            let dx = p.x - a.pos.x; let dy = p.y - a.pos.y;
-            let d2 = dx*dx + dy*dy; if d2 <= eat_r*eat_r { near = true; break; }
-        }
-        if near {
-            draw_circle_lines(px, py, r + 2.0, 2.0, ORANGE);
-        }
-    }
-    // Precompute snapshot for overlays
-    let snapshot: Vec<(Vec2, bool, bool)> = episode.agents.iter().map(|a| (a.pos, a.energy > 0.0, a.consumed)).collect();
-
-    // Determine focused agent (nearest to mouse)
-    let focused_idx: Option<usize> = mouse_world.and_then(|mw| {
-        let mut best: Option<(usize, f32)> = None;
-        for (i, a) in episode.agents.iter().enumerate() {
-            if a.energy <= 0.0 { continue; }
-            let dx = a.pos.x - mw.x; let dy = a.pos.y - mw.y; let d2 = dx*dx + dy*dy;
-            if let Some((_, b)) = best { if d2 < b { best = Some((i, d2)); } } else { best = Some((i, d2)); }
-        }
-        best.map(|(i, _)| i)
-    });
-
-    // agents
-    for (idx, a) in episode.agents.iter().enumerate() {
-        let (px, py) = world_to_screen(area, a.pos);
-        let agent_r = ((AGENT_RADIUS / WORLD_W) * area.w).max(3.0);
-        let sidx = *member_species.get(a.id.0).unwrap_or(&0usize);
-        // draw alive vs dead differently
-        if a.energy > 0.0 {
-            let fill = species_color(sidx);
-            draw_circle(px, py, agent_r, fill);
-        } else {
-            let fill = Color::new(0.25, 0.25, 0.25, 0.9);
-            draw_circle(px, py, agent_r, fill);
-        }
-        draw_circle_lines(px, py, agent_r, 2.0, Color::new(0.2, 0.2, 0.2, 0.6));
-        // heading line
-        if a.energy > 0.0 {
-            let dir = dir_from_theta(a.theta);
-            let (hx, hy) = world_to_screen(area, Vec2 { x: a.pos.x + dir.x * 2.0, y: a.pos.y + dir.y * 2.0 });
-            draw_line(px, py, hx, hy, 2.0, BLUE);
-        }
-
-        let mut any_food_sensed = false;
-        if show_cones && a.energy > 0.0 {
-            let dir = dir_from_theta(a.theta);
-            for r in sensing::ray_directions(dir) {
-                let food_t = sensing::nearest_food_along_ray(a.pos, r, &episode.food);
-                match food_t {
-                    Some(t) => {
-                        any_food_sensed = true;
-                        let sense_pt = Vec2 { x: a.pos.x + r.x * t, y: a.pos.y + r.y * t };
-                        let (sx, sy) = world_to_screen(area, sense_pt);
-                        // draw sensed segment in bright green up to the food point
-                        draw_line(px, py, sx, sy, 2.0, Color::new(0.2, 1.0, 0.2, 0.9));
-                        // mark the sensed point
-                        draw_circle(sx, sy, 3.0, Color::new(0.2, 1.0, 0.2, 0.9));
-                        // faint remainder to max range
-                        let end = Vec2 { x: a.pos.x + r.x * VISION_RANGE, y: a.pos.y + r.y * VISION_RANGE };
-                        let (x2, y2) = world_to_screen(area, end);
-                        draw_line(sx, sy, x2, y2, 1.0, Color::new(0.0, 0.6, 1.0, 0.25));
-                    }
-                    None => {
-                        let end = Vec2 { x: a.pos.x + r.x * VISION_RANGE, y: a.pos.y * 1.0 + r.y * VISION_RANGE };
-                        let (x2, y2) = world_to_screen(area, end);
-                        draw_line(px, py, x2, y2, 1.0, Color::new(0.0, 0.6, 1.0, 0.4));
-                    }
-                }
-            }
-        }
-
-        // If any ray senses food, add a green highlight ring around the agent
-        if any_food_sensed {
-            draw_circle_lines(px, py, agent_r + 3.0, 2.0, Color::new(0.2, 1.0, 0.2, 0.9));
-        }
-        // Predation flash: red ring
-        if a.predation_flash_steps > 0 {
-            draw_circle_lines(px, py, agent_r + 5.0, 3.0, Color::new(1.0, 0.1, 0.1, 0.95));
-        }
-
-        // Overlays for the focused agent
-        if Some(idx) == focused_idx && a.energy > 0.0 {
-            if show_density_overlay {
-                let bins = sensing::density_sectors(a.pos, a.theta, &snapshot, idx);
-                let two_pi = std::f32::consts::PI * 2.0;
-                let sector = two_pi / (DENSITY_SECTORS as f32);
-                let base_len = 18.0_f32.max(agent_r + 4.0);
-                for s in 0..DENSITY_SECTORS {
-                    let v = bins[s].clamp(0.0, 1.0);
-                    if v <= 0.0 { continue; }
-                    // mid-angle of sector in local frame: 0 = right, +pi/2 = forward
-                    let ang_local = -std::f32::consts::PI + sector * (s as f32 + 0.5);
-                    // Convert local dir to world delta with scale
-                    let c = a.theta.cos(); let snt = a.theta.sin();
-                    let right_x = -snt; let right_y = c;
-                    let fwd_x = c; let fwd_y = snt;
-                    let dir_world_x = right_x * ang_local.cos() + fwd_x * ang_local.sin();
-                    let dir_world_y = right_y * ang_local.cos() + fwd_y * ang_local.sin();
-                    let len = base_len + v * 28.0;
-                    let end_world = Vec2 { x: a.pos.x + dir_world_x * (len / area.w * WORLD_W), y: a.pos.y + dir_world_y * (len / area.h * WORLD_H) };
-                    let (ex, ey) = world_to_screen(area, end_world);
-                    draw_line(px, py, ex, ey, 2.0, Color::new(0.1, 1.0, 1.0, 0.8));
-                }
-            }
-            if show_vector_overlay {
-                // Helper to draw an arrow for a local vector
-                let draw_local_arrow = |_label: &str, lx: f32, ly: f32, color: Color| {
-                    let c = a.theta.cos(); let snt = a.theta.sin();
-                    let right_x = -snt; let right_y = c;
-                    let fwd_x = c; let fwd_y = snt;
-                    let scale = 60.0; // pixels
-                    let world_dx = (right_x * lx + fwd_x * ly) * (scale / area.w * WORLD_W);
-                    let world_dy = (right_y * lx + fwd_y * ly) * (scale / area.h * WORLD_H);
-                    let end = Vec2 { x: a.pos.x + world_dx, y: a.pos.y + world_dy };
-                    let (ex, ey) = world_to_screen(area, end);
-                    draw_line(px, py, ex, ey, 2.0, color);
-                    // arrow head
-                    let hx = ex + (px - ex) * 0.15 + (ey - py) * 0.12;
-                    let hy = ey + (py - ey) * 0.15 - (ex - px) * 0.12;
-                    draw_line(ex, ey, hx, hy, 2.0, color);
-                    let hx2 = ex + (px - ex) * 0.15 - (ey - py) * 0.12;
-                    let hy2 = ey + (py - ey) * 0.15 + (ex - px) * 0.12;
-                    draw_line(ex, ey, hx2, hy2, 2.0, color);
-                };
-                // Current food vector (green)
-                let (fx, fy) = sensing::nearest_food_vector_local(a.pos, a.theta, &episode.food);
-                draw_local_arrow("food", fx, fy, Color::new(0.2, 1.0, 0.2, 0.95));
-                // Current danger vector (red)
-                let (dx, dy) = sensing::nearest_agent_vector_local(a.pos, a.theta, &snapshot, idx);
-                draw_local_arrow("danger", dx, dy, Color::new(1.0, 0.2, 0.2, 0.9));
-                // Memory vectors (yellow/orange)
-                draw_local_arrow("last_food", a.last_food_mem.x, a.last_food_mem.y, Color::new(1.0, 0.9, 0.2, 0.95));
-                draw_local_arrow("last_danger", a.last_danger_mem.x, a.last_danger_mem.y, Color::new(1.0, 0.6, 0.2, 0.95));
-            }
-        }
-    }
-}
-
-fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, member_species: &[usize]) {
-    // Sidebar panel to avoid overflow
-    let padding = 12.0;
-    let mut y = area.y + padding;
-    let x = area.x + padding;
-    // Reserve bottom portion for network panel
-    let network_h = (area.h * 0.42).clamp(160.0, 380.0);
-    let max_y = area.y + area.h - padding - network_h - 8.0;
-    let font_size = 18.0;
-    let total_eaten: usize = state.episode.agents.iter().map(|a| a.eaten).sum();
-    let alive = state.episode.agents.iter().filter(|a| a.energy > 0.0).count();
-    let (min_energy, max_energy, avg_energy) = if !state.episode.agents.is_empty() {
-        let mut min_e = f32::INFINITY; let mut max_e = f32::NEG_INFINITY; let mut sum = 0.0;
-        for a in &state.episode.agents { min_e = min_e.min(a.energy); max_e = max_e.max(a.energy); sum += a.energy; }
-        (min_e, max_e, sum / state.episode.agents.len() as f32)
-    } else { (0.0, 0.0, 0.0) };
-    let corpses = state.episode.agents.iter().filter(|a| a.energy <= 0.0 && !a.consumed).count();
-    let plants = state.episode.food.len();
-    let species_count = state.speciator.get_species().len();
-    let first_eat = state.episode.first_eat_step.map(|s| s.to_string()).unwrap_or("-".to_string());
-    let mode = if !running { "Paused" } else if fast_mode { "Running (Fast)" } else { "Running (Normal)" };
-    let lines = vec![
-        format!("Generation: {}", state.generation),
-        format!("Population: {}  Species: {}", state.population.len(), species_count),
-        format!("Mode: {}", mode),
-        format!("Best: {:.3}  Avg: {:.3}", state.last_best, state.last_avg),
-        format!("Steps: {}  First eat: {}", state.episode.steps, first_eat),
-        format!("Plants: {}  Corpses: {}", plants, corpses),
-        format!("Alive: {}  Total eaten: {}", alive, total_eaten),
-        format!("Energy min/avg/max: {:.0} / {:.0} / {:.0}", min_energy, avg_energy, max_energy),
-        format!("Inputs: {}  Rays: {}  Range: {:.0}", INPUTS, VISION_RAYS, VISION_RANGE),
-        format!("Move: turn={:.2} rad  speed={:.1}", MAX_TURN, MAX_SPEED),
-        format!("Turn cost: {:.3}  Thrust coupling: {:.2}", TURN_COST, THRUST_TURN_COUPLING),
-        format!("Food vec range: {:.0}", FOOD_VECTOR_MAX_RANGE),
-        format!("Danger vec range: {:.0}", DANGER_VECTOR_MAX_RANGE),
-        format!("Density: sectors={} radius={:.0}", DENSITY_SECTORS, DENSITY_RADIUS),
-        format!("Corpse decay: {:.1}%/step  Digest (plant/meat): {}/{} steps", CORPSE_DECAY_RATE*100.0, DIGEST_STEPS_PLANT, DIGEST_STEPS_MEAT),
-        format!("Eaten weight: {:.2}  Step weight: {:.3}  Expl/cell: {:.3}", EAT_WEIGHT, STEP_WEIGHT, EXPL_REWARD_PER_CELL),
-        format!("Predation: {}  Scavenge: {}  Meat energy: {:.0}", PREDATION_ENABLED, SCAVENGE_ENABLED, MEAT_ENERGY),
-        "Controls:".to_string(),
-        "  [P] pause/resume   [F] fast/normal".to_string(),
-        "  [R] reset episode  [V] toggle vision  [D] density overlay  [B] vector overlay".to_string(),
-        "  Hover an agent in the world to see overlays".to_string(),
-        "Species (last gen):".to_string(),
-    ];
-    let mut species = state.last_species.clone();
-    species.sort_by(|a, b| b.best_fitness.partial_cmp(&a.best_fitness).unwrap_or(std::cmp::Ordering::Equal));
-    // Panel background
-    draw_rectangle(area.x, area.y, area.w, area.h, Color::new(0.08, 0.08, 0.10, 0.95));
-    draw_rectangle_lines(area.x, area.y, area.w, area.h, 2.0, GRAY);
-    for line in lines {
-        if y > max_y { break; }
-        draw_text_clamped(&line, x, y, font_size, WHITE, area.w - (x - area.x) - padding);
-        y += font_size + 6.0;
-    }
-    // Species lines with color swatch
-    for (rank, s) in species.into_iter().enumerate() {
-        if y > max_y { break; }
-        let color = species_color(rank);
-        // swatch
-        let sw_h = font_size * 0.8;
-        let sw_w = sw_h * 1.4;
-        draw_rectangle(x, y - sw_h + 2.0, sw_w, sw_h, color);
-        draw_rectangle_lines(x, y - sw_h + 2.0, sw_w, sw_h, 1.0, BLACK);
-        let text = format!(
-            "  mem={} best={:.2} adj={:.2} stagn={} rep={} (rank #{:02})",
-            s.members.len(), s.best_fitness, s.adjusted_fitness, s.stagnant_generations, s.representative, rank
-        );
-        draw_text(&text, x + sw_w + 6.0, y, font_size, WHITE);
-        y += font_size + 6.0;
-    }
-    if y <= max_y {
-        // Live predation summary
-        let mut max_idx = 0usize;
-        for &sidx in member_species { if sidx > max_idx { max_idx = sidx; } }
-        let mut kills_per_species = vec![0usize; max_idx + 1];
-        let mut preds_per_species = vec![0usize; max_idx + 1];
-        for a in &state.episode.agents {
-            if a.kills > 0 && a.id.0 < member_species.len() {
-                let sidx = member_species[a.id.0];
-                kills_per_species[sidx] += a.kills;
-                preds_per_species[sidx] += 1;
-            }
-        }
-        // Header
-        draw_text("Predation (live):", x, y, font_size, WHITE);
-        y += font_size + 6.0;
-        for sidx in 0..kills_per_species.len() {
-            if y > max_y { break; }
-            if kills_per_species[sidx] == 0 { continue; }
-            let color = species_color(sidx);
-            let sw_h = font_size * 0.8; let sw_w = sw_h * 1.4;
-            draw_rectangle(x, y - sw_h + 2.0, sw_w, sw_h, color);
-            draw_rectangle_lines(x, y - sw_h + 2.0, sw_w, sw_h, 1.0, BLACK);
-            let text = format!("  kills={} preds={}", kills_per_species[sidx], preds_per_species[sidx]);
-            draw_text_clamped(&text, x + sw_w + 6.0, y, font_size, WHITE, area.w - (x + sw_w + 6.0 - area.x) - padding);
-            y += font_size + 6.0;
-        }
-    }
-    // Draw best-network panel at bottom
-    let panel = Rect {
-        x: area.x + 8.0,
-        y: area.y + area.h - network_h + 8.0,
-        w: area.w - 16.0,
-        h: network_h - 16.0,
-    };
-    draw_rectangle(panel.x - 4.0, panel.y - 4.0, panel.w + 8.0, panel.h + 8.0, Color::new(0.05, 0.05, 0.07, 0.95));
-    draw_rectangle_lines(panel.x - 4.0, panel.y - 4.0, panel.w + 8.0, panel.h + 8.0, 2.0, Color::new(0.25, 0.25, 0.3, 1.0));
-    let title = if state.last_best.is_finite() && state.last_best > f32::NEG_INFINITY {
-        format!("Best network (last gen {}, fit {:.2})", state.last_best_generation, state.last_best)
-    } else {
-        "Best network (pending)".to_string()
-    };
-    draw_text_clamped(&title, panel.x, panel.y - 8.0, 18.0, LIGHTGRAY, panel.w - 8.0);
-    if let Some(genome) = state.last_best_genome.as_ref() {
-        draw_network_panel(panel, genome);
-    } else {
-        let msg = "Evolves as episodes complete. Once a new best is found, its network will appear here.";
-        draw_text_clamped(msg, panel.x, panel.y + panel.h * 0.5, 16.0, GRAY, panel.w - 8.0);
-    }
-    return;
-}
-
-fn draw_network_panel(area: Rect, genome: &Genome) {
-    // Compute layout: inputs (left), hidden (middle), outputs (right)
-    // Collect nodes by type and sort by id for stability
-    let mut inputs: Vec<u32> = Vec::new();
-    let mut hiddens: Vec<u32> = Vec::new();
-    let mut outputs: Vec<u32> = Vec::new();
-    for (id, node) in &genome.nodes {
-        match node.node_type {
-            NodeType::Input => inputs.push(*id),
-            NodeType::Hidden => hiddens.push(*id),
-            NodeType::Output => outputs.push(*id),
-            NodeType::Bias => {} // not used in this setup
-        }
-    }
-    inputs.sort_unstable();
-    hiddens.sort_unstable();
-    outputs.sort_unstable();
-
-    // Positions
-    let left_x = area.x + 40.0;
-    let right_x = area.x + area.w - 40.0;
-    let mid_x = (left_x + right_x) * 0.5;
-    let top_y = area.y + 24.0;
-    let bot_y = area.y + area.h - 24.0;
-
-    let mut pos: std::collections::HashMap<u32, (f32, f32)> = std::collections::HashMap::new();
-    let place_col = |ids: &Vec<u32>, x: f32, pos: &mut std::collections::HashMap<u32, (f32, f32)>| {
-        let n = ids.len().max(1) as f32;
-        for (i, id) in ids.iter().enumerate() {
-            let t = if n <= 1.0 { 0.5 } else { i as f32 / (n - 1.0) };
-            let y = top_y * (1.0 - t) + bot_y * t;
-            pos.insert(*id, (x, y));
-        }
-    };
-    place_col(&inputs, left_x, &mut pos);
-    place_col(&hiddens, mid_x, &mut pos);
-    place_col(&outputs, right_x, &mut pos);
-
-    // Draw connections first
-    for conn in &genome.connections {
-        if !conn.enabled { continue; }
-        if let (Some(&(x1, y1)), Some(&(x2, y2))) = (pos.get(&conn.in_node_id), pos.get(&conn.out_node_id)) {
-            let w = (conn.weight.abs() * 2.0).clamp(1.0, 4.0);
-            let col = if conn.weight >= 0.0 { Color::new(0.2, 0.9, 0.3, 0.85) } else { Color::new(0.95, 0.25, 0.25, 0.85) };
-            draw_line(x1, y1, x2, y2, w, col);
-        }
-    }
-    // Draw nodes on top
-    let draw_nodes = |ids: &Vec<u32>, color: Color| {
-        for id in ids {
-            if let Some(&(x, y)) = pos.get(id) {
-                draw_circle(x, y, 3.0, color);
-                draw_circle_lines(x, y, 3.0, 1.5, BLACK);
-            }
-        }
-    };
-    draw_nodes(&inputs, Color::new(0.2, 0.6, 1.0, 1.0));
-    draw_nodes(&hiddens, Color::new(0.8, 0.8, 0.85, 1.0));
-    draw_nodes(&outputs, Color::new(1.0, 0.6, 0.2, 1.0));
-
-    // Legends
-    let legend_y = area.y + 16.0;
-    let mut lx = area.x + 8.0;
-    let legend = |lx: &mut f32, label: &str, col: Color| {
-        draw_circle(*lx + 8.0, legend_y, 6.0, col);
-        draw_circle_lines(*lx + 8.0, legend_y, 6.0, 1.0, BLACK);
-        draw_text(label, *lx + 18.0, legend_y + 4.0, 14.0, LIGHTGRAY);
-        *lx += 90.0;
-    };
-    legend(&mut lx, "Inputs", Color::new(0.2, 0.6, 1.0, 1.0));
-    legend(&mut lx, "Hidden", Color::new(0.8, 0.8, 0.85, 1.0));
-    legend(&mut lx, "Outputs", Color::new(1.0, 0.6, 0.2, 1.0));
-}
+// draw_network_panel moved to ui_network::draw_network_panel
 
 fn window_conf() -> Conf {
     Conf {
@@ -861,7 +501,7 @@ async fn main() {
         Some(screen_to_world(world_area, mx, my))
     } else { None };
 
-    draw_world(
+    ui_world_view::draw_world(
         world_area,
         &state.episode,
         state.show_cones,
@@ -870,30 +510,10 @@ async fn main() {
         state.show_vector_overlay,
         mouse_world,
     );
-    draw_hud(hud_area, &state, running, fast_mode, &state.member_species);
+    ui_hud::draw_hud(hud_area, &state, running, fast_mode, &state.member_species);
 
         next_frame().await
     }
 }
 
-fn draw_text_clamped(text: &str, x: f32, y: f32, font_size: f32, color: Color, max_width: f32) {
-    let dims = measure_text(text, None, font_size as u16, 1.0);
-    if dims.width <= max_width {
-        draw_text(text, x, y, font_size, color);
-        return;
-    }
-    // Estimate a cut with ellipsis
-    let total_chars = text.chars().count().max(1) as f32;
-    let avg_w = (dims.width / total_chars).max(1.0);
-    let mut take = ((max_width - 10.0) / avg_w).floor().max(0.0) as usize;
-    if take == 0 { return; }
-    let mut s: String = text.chars().take(take).collect();
-    s.push('…');
-    let dims2 = measure_text(&s, None, font_size as u16, 1.0);
-    if dims2.width > max_width && take > 1 {
-        take = take.saturating_sub(2);
-        s = text.chars().take(take).collect();
-        s.push('…');
-    }
-    draw_text(&s, x, y, font_size, color);
-}
+// draw_text_clamped moved to ui_common::draw_text_clamped
