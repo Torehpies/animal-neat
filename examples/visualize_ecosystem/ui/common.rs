@@ -54,3 +54,44 @@ pub fn draw_text_clamped(text: &str, x: f32, y: f32, font_size: f32, color: Colo
     }
     draw_text(&s, x, y, font_size, color);
 }
+
+// Draw text wrapped to a given max_width. Returns the new y position after drawing.
+pub fn draw_text_wrapped(
+    text: &str,
+    x: f32,
+    mut y: f32,
+    font_size: f32,
+    color: Color,
+    max_width: f32,
+    line_gap: f32,
+) -> f32 {
+    // Simple word-wrapping by measuring candidate lines
+    let words: Vec<&str> = text.split_whitespace().collect();
+    if words.is_empty() {
+        return y;
+    }
+    let mut line = String::new();
+    for (i, w) in words.iter().enumerate() {
+        let candidate = if line.is_empty() { (*w).to_string() } else { format!("{} {}", line, w) };
+        let dims = measure_text(&candidate, None, font_size as u16, 1.0);
+        if dims.width <= max_width {
+            line = candidate;
+        } else {
+            // If a single very-long word overflows, clamp it on one line to avoid infinite loop
+            if line.is_empty() {
+                draw_text_clamped(w, x, y, font_size, color, max_width);
+                y += font_size + line_gap;
+            } else {
+                draw_text(&line, x, y, font_size, color);
+                y += font_size + line_gap;
+                line = (*w).to_string();
+            }
+        }
+        // Flush at end
+        if i == words.len() - 1 && !line.is_empty() {
+            draw_text(&line, x, y, font_size, color);
+            y += font_size + line_gap;
+        }
+    }
+    y
+}
