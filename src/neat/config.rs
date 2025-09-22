@@ -15,9 +15,9 @@ pub struct EvolutionConfig {
 impl Default for EvolutionConfig {
     fn default() -> Self {
         Self {
-            conn_mutation_rate: 0.05,
-            node_mutation_rate: 0.03,
-            weight_mutation_rate: 0.8,
+            conn_mutation_rate: 0.12,
+            node_mutation_rate: 0.05,
+            weight_mutation_rate: 0.9,
             bias_mutation_rate: 0.7,
             weight_perturb_power: 0.5,
             bias_perturb_power: 0.5,
