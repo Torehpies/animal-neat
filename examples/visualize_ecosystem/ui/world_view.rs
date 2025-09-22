@@ -5,7 +5,7 @@ use crate::sensing;
 use crate::ui_common::world_to_screen;
 use crate::dir_from_theta;
 
-pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, member_species: &[usize], show_density_overlay: bool, show_vector_overlay: bool, mouse_world: Option<Vec2>) {
+pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, _member_species: &[usize], show_density_overlay: bool, show_vector_overlay: bool, mouse_world: Option<Vec2>) {
     // background
     draw_rectangle(area.x, area.y, area.w, area.h, DARKGREEN);
     // border
@@ -34,10 +34,20 @@ pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, member_specie
     for (idx, a) in episode.agents.iter().enumerate() {
         let (px, py) = world_to_screen(area, a.pos);
         let agent_r = ((AGENT_RADIUS / WORLD_W) * area.w).max(3.0);
-        let sidx = *member_species.get(a.id.0).unwrap_or(&0usize);
+    // species index unused for coloring now that diet-based coloring is applied
         // draw alive vs dead differently
         if a.energy > 0.0 {
-            let fill = crate::species_color(sidx);
+            // Color by diet: greener for plant-eaters, redder for meat-eaters.
+            // Use episode stats: a.eaten counts all edible events; a.kills counts meat events (live or corpse).
+            let meat = a.kills as f32;
+            let plants = a.eaten.saturating_sub(a.kills) as f32;
+            let total = meat + plants;
+            let meat_ratio = if total > 0.0 { meat / total } else { 0.0 };
+            let hue = (1.0 / 3.0) * (1.0 - meat_ratio); // 1/3 = green, 0 = red
+            let sat = if total > 0.0 { 0.85 } else { 0.25 }; // pale before first meal
+            let val = 0.95;
+            let (r, g, b) = crate::ui_common::hsv_to_rgb(hue, sat, val);
+            let fill = Color::new(r, g, b, 1.0);
             draw_circle(px, py, agent_r, fill);
         } else {
             // If corpse is fully consumed or flagged consumed, skip rendering

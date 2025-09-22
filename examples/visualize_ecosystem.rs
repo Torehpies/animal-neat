@@ -483,7 +483,6 @@ impl AppState {
 }
 
 use ui_common::screen_to_world;
-use ui_common::species_color;
 
 // draw_world moved to ui_world_view::draw_world
 
