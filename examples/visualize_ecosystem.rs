@@ -14,9 +14,9 @@ const WORLD_W: f32 = 500.0;
 const WORLD_H: f32 = 500.0;
 const FOOD_COUNT: usize = 40;
 const FOOD_RADIUS: f32 = 1.2;
-const AGENT_RADIUS: f32 = 1.2;
-const INITIAL_ENERGY: f32 = 550.0;
-const ENERGY_DRAIN_PER_STEP: f32 = 0.1;
+const AGENT_RADIUS: f32 = 1.5;
+const INITIAL_ENERGY: f32 = 300.0;
+const ENERGY_DRAIN_PER_STEP: f32 = 0.4;
 const FOOD_ENERGY: f32 = 75.0;
 const MAX_STEPS: usize = 500;
 
@@ -28,33 +28,41 @@ const FOOD_SPREAD_CHANCE: f32 = 0.02;        // per existing plant, chance to sp
 const FOOD_SPREAD_RADIUS: f32 = 15.0;        // max radius for offshoot from parent plant
 
 // Vision cone parameters
-const VISION_RAYS: usize = 5;           // number of rays within the cone
+const VISION_RAYS: usize = 11;           // number of rays within the cone
 const VISION_ANGLE_DEG: f32 = 90.0;     // total cone angle
-const VISION_RANGE: f32 = 100.0;         // world units
+const VISION_RANGE: f32 = 200.0;         // world units
 
 // Movement
-const MAX_TURN: f32 = std::f32::consts::PI / 8.0; // radians per step at full turn
+const MAX_TURN: f32 = std::f32::consts::PI / 12.0; // radians per step at full turn
 const MAX_SPEED: f32 = 2.5;                        // units per step at full thrust
 
 // Reduce circling: scale thrust down when turning strongly
-const THRUST_TURN_COUPLING: f32 = 0.8; // 0 = none, 1 = full: thrust*(1-|turn|)
+const THRUST_TURN_COUPLING: f32 = 1.0; // 0 = none, 1 = full: thrust*(1-|turn|)
 
 // Predation/scavenging
 const EAT_AGENT_RADIUS: f32 = AGENT_RADIUS + AGENT_RADIUS;
-const MEAT_ENERGY: f32 = 120.0;           // energy gained by eating an agent (alive or dead)
+const MEAT_ENERGY: f32 = 60.0;           // energy gained by eating an agent (alive or dead)
 const PREDATION_ENABLED: bool = true;     // eat live agents when close
 const SCAVENGE_ENABLED: bool = true;      // eat dead agents when close
 
-const INPUTS: usize = VISION_RAYS * 2 + 1; // per-ray [food, wall] + energy
+const INPUTS: usize = VISION_RAYS * 2 + 3; // per-ray [food, wall] + food_vector(x,y) + energy
 const OUTPUTS: usize = 2; // turn, thrust
 
 // Exploration and avoidance (mirrors headless)
 const EXPL_CELL_SIZE: f32 = 10.0;
-const EXPL_REWARD_PER_CELL: f32 = 0.05;
+const EXPL_REWARD_PER_CELL: f32 = 0.02;
 const AVOID_RADIUS: f32 = 3.0;
 const AVOID_PENALTY_SCALE: f32 = 0.005;
 const AVOID_CHECK_EVERY: usize = 2;
 const EPISODES_PER_GEN: usize = 3; // average fitness over multiple randomized episodes
+
+// Food-direction vector parameters
+const FOOD_VECTOR_MAX_RANGE: f32 = 150.0; // how far we consider plants when building the vector
+
+// Turn and fitness shaping
+const TURN_COST: f32 = 0.05;     // energy drain per unit |turn|
+const EAT_WEIGHT: f32 = 4.5;     // fitness weight for each item eaten (plants or agents)
+const STEP_WEIGHT: f32 = 0.001;  // fitness weight per step survived
 
 #[derive(Clone, Copy, Debug)]
 struct Vec2 { x: f32, y: f32 }
@@ -177,7 +185,29 @@ fn nearest_food_along_ray(p: Vec2, dir: Vec2, food: &[Vec2]) -> Option<f32> {
     best
 }
 
-fn sample_cone_inputs(pos: Vec2, theta: f32, food: &[Vec2]) -> [f32; INPUTS] {
+fn nearest_food_vector_local(pos: Vec2, theta: f32, food: &[Vec2]) -> (f32, f32) {
+    // Find nearest plant, build a direction vector in agent-local frame, attenuated by distance
+    let mut best_d2 = f32::INFINITY;
+    let mut best_v = Vec2 { x: 0.0, y: 0.0 };
+    for f in food {
+        let dx = f.x - pos.x; let dy = f.y - pos.y;
+        let d2 = dx*dx + dy*dy;
+        if d2 < best_d2 { best_d2 = d2; best_v = Vec2 { x: dx, y: dy }; }
+    }
+    if !best_d2.is_finite() || best_d2.is_infinite() || food.is_empty() { return (0.0, 0.0); }
+    let d = best_d2.sqrt();
+    let att = (1.0 - (d / FOOD_VECTOR_MAX_RANGE)).clamp(0.0, 1.0);
+    if att <= 0.0 { return (0.0, 0.0); }
+    // Rotate into agent frame: forward=(cos, sin), right=(-sin, cos)
+    let c = theta.cos(); let s = theta.sin();
+    let fwd_x = c; let fwd_y = s;
+    let right_x = -s; let right_y = c;
+    let dot_fwd = (best_v.x * fwd_x + best_v.y * fwd_y) / (d.max(1e-6));
+    let dot_right = (best_v.x * right_x + best_v.y * right_y) / (d.max(1e-6));
+    (dot_right * att, dot_fwd * att)
+}
+
+fn sample_inputs(pos: Vec2, theta: f32, food: &[Vec2], energy: f32) -> [f32; INPUTS] {
     let mut inputs = [0.0f32; INPUTS];
     let dir = dir_from_theta(theta);
     let rays = ray_directions(dir);
@@ -190,6 +220,9 @@ fn sample_cone_inputs(pos: Vec2, theta: f32, food: &[Vec2]) -> [f32; INPUTS] {
         let wall_sig = if wall_t.is_finite() { (1.0 - (wall_t / VISION_RANGE)).clamp(0.0, 1.0) } else { 0.0 };
         inputs[k] = food_sig; k += 1; inputs[k] = wall_sig; k += 1;
     }
+    let (fx, fy) = nearest_food_vector_local(pos, theta, food);
+    inputs[k] = fx; k += 1; inputs[k] = fy; k += 1;
+    inputs[k] = energy.clamp(0.0, 1.0);
     inputs
 }
 
@@ -229,9 +262,8 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         for (i, a) in agents.iter_mut().enumerate() {
             if a.energy <= 0.0 { continue; }
             visited[i].insert(grid_index(a.pos));
-            let mut inputs = sample_cone_inputs(a.pos, a.theta, &food);
-            inputs[INPUTS - 1] = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
-            let out = population[i].evaluate_slice(&inputs);
+            let energy_in = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
+            let out = population[i].evaluate_slice(&sample_inputs(a.pos, a.theta, &food, energy_in));
             let turn = out.get(0).copied().unwrap_or(0.0).clamp(-1.0, 1.0);
             let thrust = out.get(1).copied().unwrap_or(0.0).clamp(0.0, 1.0);
             // Coupling: reduce thrust when turning strongly
@@ -254,7 +286,7 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
                 }
                 prey_targets[i] = target;
             }
-            a.energy -= ENERGY_DRAIN_PER_STEP + thrust_eff * 0.2;
+            a.energy -= ENERGY_DRAIN_PER_STEP + thrust_eff * 0.2 + TURN_COST * turn.abs();
         }
         // Resolve predation after movement without aliasing borrows
         let mut claimed = vec![false; agents.len()];
@@ -297,7 +329,7 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
 
     agents.iter().enumerate().map(|(i, a)| {
         let expl = visited[i].len() as f32 * EXPL_REWARD_PER_CELL;
-        (a.eaten as f32) * 3.0 + (steps as f32) * 0.01 + expl - avoid_penalty[i]
+        (a.eaten as f32) * EAT_WEIGHT + (steps as f32) * STEP_WEIGHT + expl - avoid_penalty[i]
     }).collect()
 }
 
@@ -327,9 +359,8 @@ impl Episode {
         let mut prey_targets: Vec<Option<usize>> = vec![None; self.agents.len()];
         for (i, a) in self.agents.iter_mut().enumerate() {
             if a.energy <= 0.0 { continue; }
-            let mut inputs = sample_cone_inputs(a.pos, a.theta, &self.food);
-            inputs[INPUTS - 1] = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
-            let out = population[a.id.0].evaluate_slice(&inputs);
+            let energy_in = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
+            let out = population[a.id.0].evaluate_slice(&sample_inputs(a.pos, a.theta, &self.food, energy_in));
             let turn = out.get(0).copied().unwrap_or(0.0).clamp(-1.0, 1.0);
             let thrust = out.get(1).copied().unwrap_or(0.0).clamp(0.0, 1.0);
             // Coupling: reduce thrust when turning strongly
@@ -356,7 +387,7 @@ impl Episode {
                 }
                 prey_targets[i] = target;
             }
-            a.energy -= ENERGY_DRAIN_PER_STEP + thrust_eff * 0.2;
+            a.energy -= ENERGY_DRAIN_PER_STEP + thrust_eff * 0.2 + TURN_COST * turn.abs();
         }
         // Resolve predation after movement
         let mut claimed = vec![false; self.agents.len()];
