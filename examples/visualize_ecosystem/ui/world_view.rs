@@ -15,16 +15,6 @@ pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, member_specie
         let (px, py) = world_to_screen(area, *p);
         let r = ((FOOD_RADIUS / WORLD_W) * area.w).max(2.0);
         draw_circle(px, py, r, YELLOW);
-        // highlight if within eat range of any agent
-        let eat_r = FOOD_RADIUS + AGENT_RADIUS;
-        let mut near = false;
-        for a in &episode.agents {
-            let dx = p.x - a.pos.x; let dy = p.y - a.pos.y;
-            let d2 = dx*dx + dy*dy; if d2 <= eat_r*eat_r { near = true; break; }
-        }
-        if near {
-            draw_circle_lines(px, py, r + 2.0, 2.0, ORANGE);
-        }
     }
     // Precompute snapshot for overlays
     let snapshot: Vec<(Vec2, bool, bool)> = episode.agents.iter().map(|a| (a.pos, a.energy > 0.0, a.consumed)).collect();
@@ -63,52 +53,69 @@ pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, member_specie
             draw_line(px, py, hx, hy, 2.0, BLUE);
         }
 
-        let mut any_food_sensed = false;
         if show_cones && a.energy > 0.0 {
             let dir = dir_from_theta(a.theta);
             for r in sensing::ray_directions(dir) {
                 let food_t = sensing::nearest_food_along_ray(a.pos, r, &episode.food);
+                let meat_t = sensing::nearest_meat_along_ray(a.pos, r, &snapshot, idx);
                 match food_t {
                     Some(t) => {
-                        any_food_sensed = true;
                         let sense_pt = Vec2 { x: a.pos.x + r.x * t, y: a.pos.y + r.y * t };
                         let (sx, sy) = world_to_screen(area, sense_pt);
-                        // draw sensed segment in bright green up to the food point
-                        draw_line(px, py, sx, sy, 2.0, Color::new(0.2, 1.0, 0.2, 0.9));
+                        // draw sensed segment in green up to the food point
+                        let green = Color::new(0.2, 1.0, 0.2, 0.9);
+                        draw_line(px, py, sx, sy, 2.0, green);
                         // mark the sensed point
-                        draw_circle(sx, sy, 3.0, Color::new(0.2, 1.0, 0.2, 0.9));
-                        // faint remainder to max range
+                        draw_circle(sx, sy, 3.0, green);
+                        // faint remainder to max range (lighter green)
                         let end = Vec2 { x: a.pos.x + r.x * VISION_RANGE, y: a.pos.y + r.y * VISION_RANGE };
                         let (x2, y2) = world_to_screen(area, end);
-                        draw_line(sx, sy, x2, y2, 1.0, Color::new(0.0, 0.6, 1.0, 0.25));
+                        draw_line(sx, sy, x2, y2, 1.0, Color::new(0.2, 1.0, 0.2, 0.25));
                     }
                     None => {
                         let end = Vec2 { x: a.pos.x + r.x * VISION_RANGE, y: a.pos.y * 1.0 + r.y * VISION_RANGE };
                         let (x2, y2) = world_to_screen(area, end);
-                        draw_line(px, py, x2, y2, 1.0, Color::new(0.0, 0.6, 1.0, 0.4));
+                        draw_line(px, py, x2, y2, 1.0, Color::new(0.2, 1.0, 0.2, 0.35));
                     }
                 }
+                // Overlay meat hit (orange) if present on this ray
+                if let Some(tm) = meat_t {
+                    let mpt = Vec2 { x: a.pos.x + r.x * tm, y: a.pos.y + r.y * tm };
+                    let (mx, my) = world_to_screen(area, mpt);
+                    let orange = Color::new(1.0, 0.6, 0.1, 0.95);
+                    draw_line(px, py, mx, my, 2.0, orange);
+                    draw_circle(mx, my, 3.0, orange);
+                }
             }
-        }
-
-        // If any ray senses food, add a green highlight ring around the agent
-        if any_food_sensed {
-            draw_circle_lines(px, py, agent_r + 3.0, 2.0, Color::new(0.2, 1.0, 0.2, 0.9));
         }
         // Visual cue: edible nearby (live prey or unconsumed corpse) within EAT_AGENT_RADIUS
         if a.energy > 0.0 {
             let eat_r2 = EAT_AGENT_RADIUS * EAT_AGENT_RADIUS;
             let mut edible_near = false;
+            let mut best_target: Option<Vec2> = None;
+            let mut best_d2: f32 = f32::INFINITY;
             for (j, (p, alive, consumed)) in snapshot.iter().enumerate() {
                 if j == idx { continue; }
                 // edible if alive (predation) or dead but not yet consumed (scavenge)
                 if (*alive && !PREDATION_ENABLED) || (!*alive && !SCAVENGE_ENABLED) { continue; }
                 if !*alive && *consumed { continue; }
                 let dx = p.x - a.pos.x; let dy = p.y - a.pos.y; let d2 = dx*dx + dy*dy;
-                if d2 <= eat_r2 { edible_near = true; break; }
+                if d2 <= eat_r2 {
+                    edible_near = true;
+                    if d2 < best_d2 {
+                        best_d2 = d2;
+                        best_target = Some(*p);
+                    }
+                }
             }
             if edible_near {
-                draw_circle_lines(px, py, agent_r + 6.0, 2.5, Color::new(1.0, 0.6, 0.1, 0.95));
+                // Draw a directional line to the nearest edible target (orange), with a marker dot (no arrowheads)
+                if let Some(tp) = best_target {
+                    let (tx, ty) = world_to_screen(area, tp);
+                    let col = Color::new(1.0, 0.6, 0.1, 0.95);
+                    draw_line(px, py, tx, ty, 2.5, col);
+                    draw_circle(tx, ty, 3.0, col);
+                }
             }
         }
         // Predation flash: red ring
@@ -160,9 +167,12 @@ pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, member_specie
                     let hy2 = ey + (py - ey) * 0.15 + (ex - px) * 0.12;
                     draw_line(ex, ey, hx2, hy2, 2.0, color);
                 };
-                // Current food vector (green)
-                let (fx, fy) = sensing::nearest_food_vector_local(a.pos, a.theta, &episode.food);
+                // Current food vector (green) derived from rays
+                let (fx, fy) = sensing::food_vector_from_rays(a.pos, a.theta, &episode.food);
                 draw_local_arrow("food", fx, fy, Color::new(0.2, 1.0, 0.2, 0.95));
+                // Current meat vector (orange) derived from rays (edible agents or corpses)
+                let (mx, my) = sensing::meat_vector_from_rays(a.pos, a.theta, &snapshot, idx);
+                draw_local_arrow("meat", mx, my, Color::new(1.0, 0.6, 0.1, 0.95));
                 // Current danger vector (red)
                 let (dx, dy) = sensing::nearest_agent_vector_local(a.pos, a.theta, &snapshot, idx);
                 draw_local_arrow("danger", dx, dy, Color::new(1.0, 0.2, 0.2, 0.9));

@@ -6,7 +6,7 @@ pub const FOOD_RADIUS: f32 = 1.2;
 pub const AGENT_RADIUS: f32 = 1.5;
 pub const INITIAL_ENERGY: f32 = 300.0;
 pub const ENERGY_DRAIN_PER_STEP: f32 = 0.4;
-pub const FOOD_ENERGY: f32 = 65.0;
+pub const FOOD_ENERGY: f32 = 60.0;
 pub const MAX_STEPS: usize = 500;
 
 // Plant/food dynamics
@@ -30,7 +30,7 @@ pub const THRUST_TURN_COUPLING: f32 = 0.7;
 
 // Predation/scavenging
 pub const EAT_AGENT_RADIUS: f32 = AGENT_RADIUS + AGENT_RADIUS;
-pub const MEAT_ENERGY: f32 = 90.0;
+pub const MEAT_ENERGY: f32 = 100.0;
 pub const PREDATION_ENABLED: bool = true;
 pub const SCAVENGE_ENABLED: bool = true;
 
@@ -39,7 +39,12 @@ pub const DANGER_VECTOR_MAX_RANGE: f32 = 150.0;
 pub const DENSITY_SECTORS: usize = 8;
 pub const DENSITY_RADIUS: f32 = 40.0;
 
-pub const INPUTS: usize = VISION_RAYS * 2 + 3 + 4 + DENSITY_SECTORS;
+// Inputs layout (ray-first, no direct food/meat vectors):
+// - VISION_RAYS * 3 (per ray: food, wall, meat)
+// - 1 (normalized energy)
+// - 4 (memory vectors: last_food x,y and last_danger x,y)
+// - DENSITY_SECTORS (alive-neighbor density bins)
+pub const INPUTS: usize = VISION_RAYS * 3 + 1 + 4 + DENSITY_SECTORS;
 // Outputs: [turn, thrust, sprint, brake]
 pub const OUTPUTS: usize = 4;
 
@@ -84,5 +89,5 @@ pub const DIGEST_STEPS_MEAT: u16 = 35;
 
 // Speciation tuning (visualizer)
 // Target number of species and adaptation rate for the compatibility threshold.
-pub const SPECIES_TARGET: usize = 8;     // e.g., aim for ~8 species
+pub const SPECIES_TARGET: usize = 12;     // e.g., aim for ~8 species
 pub const SPECIES_ADAPT_RATE: f32 = 0.05; // how fast the threshold adapts towards target

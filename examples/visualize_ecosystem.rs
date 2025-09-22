@@ -129,14 +129,14 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         let mut prey_targets: Vec<Option<usize>> = vec![None; agents.len()];
         for (i, a) in agents.iter_mut().enumerate() {
             if a.energy <= 0.0 { continue; }
-            // Build extended inputs (Phase 3): rays + current food vec + energy + memory + density
-            let (cur_fx, cur_fy) = sensing::nearest_food_vector_local(a.pos, a.theta, &food);
+            // Build extended inputs (ray-first): per-ray signals + energy + memory + density
+            let (cur_fx, cur_fy) = sensing::food_vector_from_rays(a.pos, a.theta, &food);
             let density = sensing::density_sectors(a.pos, a.theta, &snapshot, i);
             // Digest before acting (shared)
             sim::apply_digestion(a);
             visited[i].insert(grid_index(a.pos));
             let energy_in = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
-            let inputs = sensing::build_inputs(a.pos, a.theta, &food, energy_in, a.last_food_mem, a.last_danger_mem, &density);
+            let inputs = sensing::build_inputs(a.pos, a.theta, &food, energy_in, a.last_food_mem, a.last_danger_mem, &density, &snapshot, i);
             let out = population[i].evaluate_slice(&inputs);
             let mut turn = out.get(0).copied().unwrap_or(0.0);
             let mut thrust = out.get(1).copied().unwrap_or(0.0);
@@ -270,13 +270,13 @@ impl Episode {
         for (i, a) in self.agents.iter_mut().enumerate() {
             if a.energy <= 0.0 { continue; }
             // Build extended inputs (Phase 3): rays + current food vec + energy + memory + density
-            let (cur_fx, cur_fy) = sensing::nearest_food_vector_local(a.pos, a.theta, &self.food);
+            let (cur_fx, cur_fy) = sensing::food_vector_from_rays(a.pos, a.theta, &self.food);
             let (_cur_dx, _cur_dy) = sensing::nearest_agent_vector_local(a.pos, a.theta, &snapshot, i);
             let density = sensing::density_sectors(a.pos, a.theta, &snapshot, i);
             // Digestive intake before action (shared)
             sim::apply_digestion(a);
             let energy_in = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
-            let inputs = sensing::build_inputs(a.pos, a.theta, &self.food, energy_in, a.last_food_mem, a.last_danger_mem, &density);
+            let inputs = sensing::build_inputs(a.pos, a.theta, &self.food, energy_in, a.last_food_mem, a.last_danger_mem, &density, &snapshot, i);
             let out = population[a.id.0].evaluate_slice(&inputs);
             let mut turn = out.get(0).copied().unwrap_or(0.0);
             let mut thrust = out.get(1).copied().unwrap_or(0.0);
@@ -509,7 +509,7 @@ async fn main() {
     let mut fast_mode = false;   // start at normal speed
     let mut normal_step_timer = 0.0f32;          // accumulates frame time for normal stepping
     let normal_step_interval = 0.02f32;           // seconds per simulation step in normal mode
-    let fast_steps_per_frame: usize = 2000;       // simulation steps per frame in fast mode
+    let fast_steps_per_frame: usize = 500;       // simulation steps per frame in fast mode
 
     loop {
         clear_background(BLACK);
