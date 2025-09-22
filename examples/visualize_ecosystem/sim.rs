@@ -1,5 +1,5 @@
 use super::params::*;
-use super::{Agent, DigestEvent, Vec2};
+use super::{Agent, DigestEvent};
 
 // Apply digestion for one agent, returning energy gained this tick
 pub fn apply_digestion(agent: &mut Agent) {

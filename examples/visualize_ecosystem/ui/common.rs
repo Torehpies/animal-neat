@@ -3,7 +3,6 @@ use macroquad::prelude::*;
 // Re-export types/traits from parent
 use crate::params::*;
 use crate::Vec2;
-use crate::Episode;
 
 pub fn world_to_screen(area: Rect, p: Vec2) -> (f32, f32) {
     let sx = area.x + (p.x / WORLD_W) * area.w;

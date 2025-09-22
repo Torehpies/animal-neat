@@ -74,6 +74,12 @@ struct Episode {
     agents: Vec<Agent>,
     steps: usize,
     first_eat_step: Option<usize>,
+    // Motor usage stats (for HUD): aggregated over agent-steps this episode
+    total_agent_steps: usize,
+    sprint_used: usize,
+    brake_used: usize,
+    thrust_sum: f32,
+    abs_turn_sum: f32,
 }
 
 fn dir_from_theta(theta: f32) -> Vec2 { Vec2 { x: theta.cos(), y: theta.sin() } }
@@ -128,13 +134,30 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             let energy_in = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
             let inputs = sensing::build_inputs(a.pos, a.theta, &food, energy_in, a.last_food_mem, a.last_danger_mem, &density);
             let out = population[i].evaluate_slice(&inputs);
-            let turn = out.get(0).copied().unwrap_or(0.0).clamp(-1.0, 1.0);
-            let thrust = out.get(1).copied().unwrap_or(0.0).clamp(0.0, 1.0);
+            let mut turn = out.get(0).copied().unwrap_or(0.0);
+            let mut thrust = out.get(1).copied().unwrap_or(0.0);
+            let mut sprint_sig = out.get(2).copied().unwrap_or(0.0);
+            let mut brake_sig = out.get(3).copied().unwrap_or(0.0);
+            // Noise
+            turn += rng.random_range(-MOTOR_NOISE..MOTOR_NOISE);
+            thrust += rng.random_range(-MOTOR_NOISE..MOTOR_NOISE);
+            sprint_sig += rng.random_range(-MOTOR_NOISE..MOTOR_NOISE);
+            brake_sig += rng.random_range(-MOTOR_NOISE..MOTOR_NOISE);
+            // Clamp ranges
+            let turn = turn.clamp(-1.0, 1.0);
+            let thrust = thrust.clamp(0.0, 1.0);
+            let sprint_sig = sprint_sig.clamp(0.0, 1.0);
+            let brake_sig = brake_sig.clamp(0.0, 1.0);
+            // Decide sprint/brake (prioritize strongest)
+            let sprint = sprint_sig >= SPRINT_THRESHOLD && sprint_sig >= brake_sig;
+            let brake = !sprint && (brake_sig >= BRAKE_THRESHOLD);
             // Coupling: reduce thrust when turning strongly
             let thrust_eff = (thrust * (1.0 - THRUST_TURN_COUPLING * turn.abs())).clamp(0.0, 1.0);
             a.theta += turn * MAX_TURN;
+            let mut speed_scale = 1.0;
+            if sprint { speed_scale = SPRINT_MULT; } else if brake { speed_scale = BRAKE_MULT; }
             let dir = dir_from_theta(a.theta);
-            let vel = dir.mul(thrust_eff * MAX_SPEED);
+            let vel = dir.mul(thrust_eff * MAX_SPEED * speed_scale);
             a.pos = a.pos.add(vel).clamp_to_world();
             if world::eat_if_near(&mut food, a.pos) {
                 if DIGEST_STEPS_PLANT > 0 { a.digest.push_back(DigestEvent { remaining: DIGEST_STEPS_PLANT, per_step: FOOD_ENERGY / (DIGEST_STEPS_PLANT as f32) }); }
@@ -153,7 +176,9 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
                 }
                 prey_targets[i] = target;
             }
-            a.energy -= ENERGY_DRAIN_PER_STEP + thrust_eff * 0.2 + TURN_COST * turn.abs();
+            let mut extra_cost = 0.0;
+            if sprint { extra_cost += SPRINT_COST; } else if brake { extra_cost += BRAKE_COST; }
+            a.energy -= ENERGY_DRAIN_PER_STEP + thrust_eff * 0.2 + TURN_COST * turn.abs() + extra_cost;
             if a.energy <= 0.0 { if a.dead_since.is_none() { a.dead_since = Some(steps); a.corpse_energy = CORPSE_INITIAL_ENERGY; } }
             // Update memories after acting
             a.last_food_mem = Vec2 { x: cur_fx, y: cur_fy };
@@ -208,7 +233,17 @@ impl Episode {
                 last_danger_mem: Vec2 { x: 0.0, y: 0.0 },
             });
         }
-    Self { food: world::build_world(rng), agents, steps: 0, first_eat_step: None }
+    Self {
+        food: world::build_world(rng),
+        agents,
+        steps: 0,
+        first_eat_step: None,
+        total_agent_steps: 0,
+        sprint_used: 0,
+        brake_used: 0,
+        thrust_sum: 0.0,
+        abs_turn_sum: 0.0,
+    }
     }
 
     fn step<R: Rng>(&mut self, population: &[Genome], rng: &mut R) -> bool {
@@ -228,13 +263,30 @@ impl Episode {
             let energy_in = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
             let inputs = sensing::build_inputs(a.pos, a.theta, &self.food, energy_in, a.last_food_mem, a.last_danger_mem, &density);
             let out = population[a.id.0].evaluate_slice(&inputs);
-            let turn = out.get(0).copied().unwrap_or(0.0).clamp(-1.0, 1.0);
-            let thrust = out.get(1).copied().unwrap_or(0.0).clamp(0.0, 1.0);
+            let mut turn = out.get(0).copied().unwrap_or(0.0);
+            let mut thrust = out.get(1).copied().unwrap_or(0.0);
+            let mut sprint_sig = out.get(2).copied().unwrap_or(0.0);
+            let mut brake_sig = out.get(3).copied().unwrap_or(0.0);
+            // Noise
+            let mut rng_local = ::rand::rng();
+            turn += rng_local.random_range(-MOTOR_NOISE..MOTOR_NOISE);
+            thrust += rng_local.random_range(-MOTOR_NOISE..MOTOR_NOISE);
+            sprint_sig += rng_local.random_range(-MOTOR_NOISE..MOTOR_NOISE);
+            brake_sig += rng_local.random_range(-MOTOR_NOISE..MOTOR_NOISE);
+            // Clamp ranges
+            let turn = turn.clamp(-1.0, 1.0);
+            let thrust = thrust.clamp(0.0, 1.0);
+            let sprint_sig = sprint_sig.clamp(0.0, 1.0);
+            let brake_sig = brake_sig.clamp(0.0, 1.0);
+            let sprint = sprint_sig >= SPRINT_THRESHOLD && sprint_sig >= brake_sig;
+            let brake = !sprint && (brake_sig >= BRAKE_THRESHOLD);
             // Coupling: reduce thrust when turning strongly
             let thrust_eff = (thrust * (1.0 - THRUST_TURN_COUPLING * turn.abs())).clamp(0.0, 1.0);
             a.theta += turn * MAX_TURN;
+            let mut speed_scale = 1.0;
+            if sprint { speed_scale = SPRINT_MULT; } else if brake { speed_scale = BRAKE_MULT; }
             let dir = dir_from_theta(a.theta);
-            let vel = dir.mul(thrust_eff * MAX_SPEED);
+            let vel = dir.mul(thrust_eff * MAX_SPEED * speed_scale);
             a.pos = a.pos.add(vel).clamp_to_world();
             // eat if close (sum of radii) with digestive lag
             if world::eat_if_near(&mut self.food, a.pos) {
@@ -256,7 +308,12 @@ impl Episode {
                 }
                 prey_targets[i] = target;
             }
-            a.energy -= ENERGY_DRAIN_PER_STEP + thrust_eff * 0.2 + TURN_COST * turn.abs();
+            let mut extra_cost = 0.0;
+            if sprint { extra_cost += SPRINT_COST; self.sprint_used += 1; } else if brake { extra_cost += BRAKE_COST; self.brake_used += 1; }
+            self.total_agent_steps += 1;
+            self.thrust_sum += thrust_eff;
+            self.abs_turn_sum += turn.abs();
+            a.energy -= ENERGY_DRAIN_PER_STEP + thrust_eff * 0.2 + TURN_COST * turn.abs() + extra_cost;
             if a.energy <= 0.0 { if a.dead_since.is_none() { a.dead_since = Some(self.steps); a.corpse_energy = CORPSE_INITIAL_ENERGY; } }
             // Update memories after acting
             a.last_food_mem = Vec2 { x: cur_fx, y: cur_fy };
@@ -432,7 +489,7 @@ fn window_conf() -> Conf {
 
 #[macroquad::main(window_conf)]
 async fn main() {
-    let mut state = AppState::new(25);
+    let mut state = AppState::new(100);
     let mut running = true;      // continuous evolution by default
     let mut fast_mode = false;   // start at normal speed
     let mut normal_step_timer = 0.0f32;          // accumulates frame time for normal stepping

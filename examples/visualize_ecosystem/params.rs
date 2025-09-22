@@ -40,7 +40,8 @@ pub const DENSITY_SECTORS: usize = 8;
 pub const DENSITY_RADIUS: f32 = 40.0;
 
 pub const INPUTS: usize = VISION_RAYS * 2 + 3 + 4 + DENSITY_SECTORS;
-pub const OUTPUTS: usize = 2;
+// Outputs: [turn, thrust, sprint, brake]
+pub const OUTPUTS: usize = 4;
 
 // Exploration and avoidance
 pub const EXPL_CELL_SIZE: f32 = 10.0;
@@ -57,6 +58,17 @@ pub const FOOD_VECTOR_MAX_RANGE: f32 = 150.0;
 pub const TURN_COST: f32 = 0.02;
 pub const EAT_WEIGHT: f32 = 4.5;
 pub const STEP_WEIGHT: f32 = 0.001;
+
+// Phase 4: motor model expansion
+// Sprint increases speed but adds extra energy cost; brake reduces speed with small cost.
+pub const SPRINT_MULT: f32 = 1.6;
+pub const BRAKE_MULT: f32 = 0.45;
+pub const SPRINT_COST: f32 = 0.18;
+pub const BRAKE_COST: f32 = 0.03;
+pub const SPRINT_THRESHOLD: f32 = 0.5;
+pub const BRAKE_THRESHOLD: f32 = 0.5;
+// Small noise to motor outputs to improve robustness (uniform in [-NOISE, NOISE])
+pub const MOTOR_NOISE: f32 = 0.05;
 
 // Phase 2: corpse decay and digestive lag
 pub const CORPSE_INITIAL_ENERGY: f32 = MEAT_ENERGY;

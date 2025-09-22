@@ -35,8 +35,9 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, me
         format!("Alive: {}  Total eaten: {}", alive, total_eaten),
         format!("Energy min/avg/max: {:.0} / {:.0} / {:.0}", min_energy, avg_energy, max_energy),
         format!("Inputs: {}  Rays: {}  Range: {:.0}", INPUTS, VISION_RAYS, VISION_RANGE),
-        format!("Move: turn={:.2} rad  speed={:.1}", MAX_TURN, MAX_SPEED),
-        format!("Turn cost: {:.3}  Thrust coupling: {:.2}", TURN_COST, THRUST_TURN_COUPLING),
+    format!("Move: turn={:.2} rad  speed={:.1}", MAX_TURN, MAX_SPEED),
+    format!("Turn cost: {:.3}  Thrust coupling: {:.2}", TURN_COST, THRUST_TURN_COUPLING),
+    format!("Sprint x{:.2} (+{:.2})  Brake x{:.2} (+{:.2})  noise±{:.2}", SPRINT_MULT, SPRINT_COST, BRAKE_MULT, BRAKE_COST, MOTOR_NOISE),
         format!("Food vec range: {:.0}", FOOD_VECTOR_MAX_RANGE),
         format!("Danger vec range: {:.0}", DANGER_VECTOR_MAX_RANGE),
         format!("Density: sectors={} radius={:.0}", DENSITY_SECTORS, DENSITY_RADIUS),
@@ -57,7 +58,6 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, me
     for line in lines {
         if y > max_y { break; }
         draw_text_clamped(&line, x, y, font_size, WHITE, area.w - (x - area.x) - padding);
-        y += font_size + 6.0;
     }
     // Species lines with color swatch
     for (rank, s) in species.into_iter().enumerate() {
@@ -92,7 +92,6 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, me
         draw_text("Predation (live):", x, y, font_size, WHITE);
         y += font_size + 6.0;
         for sidx in 0..kills_per_species.len() {
-            if y > max_y { break; }
             if kills_per_species[sidx] == 0 { continue; }
             let color = species_color(sidx);
             let sw_h = font_size * 0.8; let sw_w = sw_h * 1.4;
@@ -101,8 +100,20 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, me
             let text = format!("  kills={} preds={}", kills_per_species[sidx], preds_per_species[sidx]);
             draw_text_clamped(&text, x + sw_w + 6.0, y, font_size, WHITE, area.w - (x + sw_w + 6.0 - area.x) - padding);
             y += font_size + 6.0;
+            if y > max_y { break; }
         }
     }
+    // Motor usage (live)
+    if y <= max_y {
+        let steps = state.episode.total_agent_steps.max(1) as f32;
+        let avg_thrust = state.episode.thrust_sum / steps;
+        let avg_turn = state.episode.abs_turn_sum / steps;
+        let pct_sprint = (state.episode.sprint_used as f32) / steps * 100.0;
+        let pct_brake = (state.episode.brake_used as f32) / steps * 100.0;
+        let line = format!("Motor: thrust_avg={:.2}  |turn|_avg={:.2}  sprint={:.0}%  brake={:.0}%", avg_thrust, avg_turn, pct_sprint, pct_brake);
+        draw_text_clamped(&line, x, y, font_size, WHITE, area.w - (x - area.x) - padding);
+    }
+
     // Draw best-network panel at bottom
     let panel = Rect {
         x: area.x + 8.0,

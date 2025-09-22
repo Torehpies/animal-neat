@@ -32,9 +32,9 @@ This document lists concrete, incremental upgrades to make the ecosystem richer,
 	- HUD shows danger vector range and density params
 
 ## Phase 4: Motor model expansion (sprint/brake)
-- [ ] Add sprint and brake outputs; tune energy drain and turn costs while sprinting
-- [ ] Small noise added to motor outputs to improve robustness
-- [ ] HUD: show current output modes and recent motor usage
+- [x] Add sprint and brake outputs; tune energy drain and turn costs while sprinting
+- [x] Small noise added to motor outputs to improve robustness
+- [x] HUD: show current output modes and recent motor usage
 
 ## Phase 5: Simple biomes and resource heterogeneity
 - [ ] Divide map into a few biomes with distinct plant spawn/spread rates
