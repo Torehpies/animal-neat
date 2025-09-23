@@ -63,12 +63,13 @@ impl Genome {
             nodes.push(Some(node));
         }
 
+        // Output nodes: use Tanh so movement outputs are zero-centered (supports symmetric vector drive)
         for i in 0..num_outputs {
             let node_id = num_inputs + i;
             let node = NodeGene::new(
                 node_id,
                 NodeType::Output,
-                ActivationFunction::Sigmoid,
+                ActivationFunction::Tanh,
                 rng.random_range(-1.0..1.0),
             );
             nodes.push(Some(node));
@@ -439,10 +440,11 @@ impl Genome {
 
         let (node_id, conn1_innov, conn2_innov) = innov.get_node_innovation(connection.innov);
 
+        // Use Tanh for new hidden nodes to keep activations roughly zero-centered and avoid directional drift
         let new_node = NodeGene::new(
             node_id,
             NodeType::Hidden,
-            ActivationFunction::ReLU,
+            ActivationFunction::Tanh,
             rng.random_range(-1.0..1.0),
         );
 
