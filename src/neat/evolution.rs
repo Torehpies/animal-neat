@@ -92,20 +92,47 @@ pub fn evolution(
 
     let remaining_offspring = population.len() - new_population.len();
 
-    for species in surviving_species.iter() {
-        let offspring_count = if total_adjusted_fitness > 0.0 {
-            ((species.adjusted_fitness / total_adjusted_fitness) * remaining_offspring as f32)
-                .round() as usize
-        } else {
-            remaining_offspring / surviving_species.len().max(1)
-        };
+    if remaining_offspring > 0 && !surviving_species.is_empty() {
+        // Allocate offspring counts per species using floor + remainder to avoid overshoot
+        let mut base_counts: Vec<usize> = Vec::with_capacity(surviving_species.len());
+        let mut remainders: Vec<(usize, f32)> = Vec::with_capacity(surviving_species.len());
 
-        if offspring_count > 0 {
-            let offspring = reproduce_species(species, &population, offspring_count, innov, cfg);
-            new_population.extend(offspring);
+        if total_adjusted_fitness > 0.0 {
+            for (i, s) in surviving_species.iter().enumerate() {
+                let exact = (s.adjusted_fitness / total_adjusted_fitness) * remaining_offspring as f32;
+                let base = exact.floor() as usize;
+                base_counts.push(base);
+                remainders.push((i, exact - base as f32));
+            }
+        } else {
+            // Equal split when adjusted fitness is zero
+            let equal = (remaining_offspring / surviving_species.len().max(1)) as usize;
+            for i in 0..surviving_species.len() {
+                base_counts.push(equal);
+                remainders.push((i, 0.0));
+            }
+        }
+
+        // Distribute leftover offspring according to largest remainders
+        let used: usize = base_counts.iter().sum();
+        let mut leftover = remaining_offspring.saturating_sub(used);
+        remainders.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        for (i, _) in remainders.iter().copied() {
+            if leftover == 0 { break; }
+            base_counts[i] = base_counts[i].saturating_add(1);
+            leftover -= 1;
+        }
+
+        // Reproduce according to final counts
+        for (s, &count) in surviving_species.iter().zip(base_counts.iter()) {
+            if count > 0 {
+                let offspring = reproduce_species(s, &population, count, innov, cfg);
+                new_population.extend(offspring);
+            }
         }
     }
 
+    // If we still need to top-up due to rounding edge cases, use the best species
     while new_population.len() < population.len() {
         if let Some(best_species) = surviving_species
             .iter()
@@ -113,7 +140,14 @@ pub fn evolution(
         {
             let offspring = reproduce_species(best_species, &population, 1, innov, cfg);
             new_population.extend(offspring);
+        } else {
+            break;
         }
+    }
+
+    // Enforce exact population size (truncate any accidental overshoot)
+    if new_population.len() > population.len() {
+        new_population.truncate(population.len());
     }
 
     new_population
