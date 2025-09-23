@@ -503,7 +503,7 @@ fn window_conf() -> Conf {
 
 #[macroquad::main(window_conf)]
 async fn main() {
-    let mut state = AppState::new(50);
+    let mut state = AppState::new(params::POPULATION_SIZE);
     let mut running = true;      // continuous evolution by default
     let mut fast_mode = false;   // start at normal speed
     let mut normal_step_timer = 0.0f32;          // accumulates frame time for normal stepping
