@@ -48,6 +48,19 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
         y = draw_text_wrapped(line, x, y, font, WHITE, max_w, 6.0);
     }
 
+    // Optional: Biome plant distribution summary
+    if y <= max_y {
+        use crate::params::{BIOME_X_SPLITS};
+        let mut counts = [0usize; 3];
+        for f in &state.episode.food {
+            let nx = f.x / WORLD_W;
+            let bi = if nx < BIOME_X_SPLITS[0] { 0 } else if nx < BIOME_X_SPLITS[1] { 1 } else { 2 };
+            counts[bi] += 1;
+        }
+        let biome_line = format!("Plants per biome: [{} | {} | {}]", counts[0], counts[1], counts[2]);
+        y = draw_text_wrapped(&biome_line, x, y, 16.0, GRAY, max_w, 6.0);
+    }
+
     // Motor usage (live)
     if y <= max_y {
         let steps = state.episode.total_agent_steps.max(1) as f32;

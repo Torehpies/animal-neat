@@ -25,6 +25,21 @@ pub const AGENT_RADIUS: f32 = 1.5;
 // =====
 // Food
 // =====
+
+// =====================
+// Biomes (Phase 5)
+// =====================
+// We split the world into 3 vertical biomes by X coordinate with different growth rates.
+// Define splits in normalized [0,1] of WORLD_W; with 2 splits we get 3 biomes: [0, s0), [s0, s1), [s1, 1]
+pub const BIOME_X_SPLITS: [f32; 2] = [0.33, 0.66];
+// Multipliers applied to base FOOD_RESPAWN_PROB and FOOD_SPREAD_CHANCE in each biome
+pub const BIOME_RESPAWN_MULT: [f32; 3] = [0.6, 1.0, 1.6];
+pub const BIOME_SPREAD_MULT: [f32; 3] = [0.5, 1.0, 1.8];
+// Optional seasonal modulation: per-biome phase offsets to nudge migration/exploration
+pub const SEASONAL_ENABLED: bool = true;
+pub const SEASONAL_PERIOD_STEPS: usize = 4000; // higher = slower seasons
+pub const SEASONAL_AMPLITUDE: f32 = 0.35;      // 0.0..1.0; multiplies growth by (1 + A*sin(...))
+pub const BIOME_SEASON_PHASE: [f32; 3] = [0.0, 1.2, 2.4]; // radians offset per biome
 pub const FOOD_COUNT: usize = 150;
 pub const FOOD_RADIUS: f32 = 1.2;
 pub const FOOD_ENERGY: f32 = 60.0;

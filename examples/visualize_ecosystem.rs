@@ -221,8 +221,9 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
                 crowding_penalty[i] += pen;
             }
         }
-        // Plants grow/spread over time
-    world::food_growth_step(&mut food, &mut rng);
+        // Plants grow/spread over time (season-aware)
+        world::set_current_step(steps);
+        world::food_growth_step(&mut food, &mut rng);
         steps += 1;
     }
 
@@ -358,8 +359,9 @@ impl Episode {
         // Resolve predation after movement and decay (shared)
         sim::resolve_predation(&mut self.agents, &prey_targets, self.steps);
         sim::decay_corpses_and_flashes(&mut self.agents);
-        // Plants grow/spread over time in the live world too
-    world::food_growth_step(&mut self.food, rng);
+        // Plants grow/spread over time in the live world too (season-aware)
+        world::set_current_step(self.steps);
+        world::food_growth_step(&mut self.food, rng);
         // Decay predation flash counters
         for a in &mut self.agents {
             if a.predation_flash_steps > 0 { a.predation_flash_steps -= 1; }

@@ -1,4 +1,11 @@
-use super::params::{WORLD_W, WORLD_H, FOOD_COUNT, FOOD_MIN_SEP, MAX_FOOD, FOOD_RESPAWN_PROB, FOOD_SPREAD_CHANCE, FOOD_SPREAD_RADIUS, FOOD_RADIUS, AGENT_RADIUS};
+use super::params::{
+    WORLD_W, WORLD_H,
+    FOOD_COUNT, FOOD_MIN_SEP, MAX_FOOD,
+    FOOD_RESPAWN_PROB, FOOD_SPREAD_CHANCE, FOOD_SPREAD_RADIUS,
+    FOOD_RADIUS, AGENT_RADIUS,
+    BIOME_X_SPLITS, BIOME_RESPAWN_MULT, BIOME_SPREAD_MULT,
+    SEASONAL_ENABLED, SEASONAL_PERIOD_STEPS, SEASONAL_AMPLITUDE, BIOME_SEASON_PHASE,
+};
 use super::Vec2;
 use ::rand::Rng;
 
@@ -26,6 +33,13 @@ pub fn build_world<R: Rng>(rng: &mut R) -> Vec<Vec2> {
     food
 }
 
+fn biome_index_for_x(x: f32) -> usize {
+    let nx = x / WORLD_W;
+    if nx < BIOME_X_SPLITS[0] { 0 }
+    else if nx < BIOME_X_SPLITS[1] { 1 }
+    else { 2 }
+}
+
 pub fn try_spawn_food_random<R: Rng>(food: &mut Vec<Vec2>, rng: &mut R) {
     if food.len() >= MAX_FOOD { return; }
     let p = rand_pos(rng);
@@ -41,12 +55,30 @@ pub fn try_spawn_food_near<R: Rng>(food: &mut Vec<Vec2>, rng: &mut R, center: Ve
 }
 
 pub fn food_growth_step<R: Rng>(food: &mut Vec<Vec2>, rng: &mut R) {
-    if rng.random_range(0.0..1.0) < FOOD_RESPAWN_PROB { try_spawn_food_random(food, rng); }
+    // Seasonal factor function: f(biome) = 1 + A * sin(2π t/T + phase)
+    let (t, season_amp) = if SEASONAL_ENABLED { (crate_current_step(), SEASONAL_AMPLITUDE) } else { (0usize, 0.0) };
+    let season_factor = |biome: usize| -> f32 {
+        if season_amp <= 0.0 || SEASONAL_PERIOD_STEPS == 0 { return 1.0; }
+        let phase = BIOME_SEASON_PHASE[biome];
+        let x = (t as f32) * std::f32::consts::TAU / (SEASONAL_PERIOD_STEPS as f32) + phase;
+        (1.0 + season_amp * x.sin()).max(0.0)
+    };
+
+    // Random respawn attempt (biome-scaled)
+    if food.len() < MAX_FOOD {
+        let p = rand_pos(rng);
+        let biome = biome_index_for_x(p.x);
+        let prob = FOOD_RESPAWN_PROB * BIOME_RESPAWN_MULT[biome] * season_factor(biome);
+        if rng.random_range(0.0..1.0) < prob { if can_place_food(food, p) { food.push(p); } }
+    }
+    // Spread from existing foods (biome-scaled)
     let base_len = food.len();
     for i in 0..base_len {
         if food.len() >= MAX_FOOD { break; }
-        if rng.random_range(0.0..1.0) < FOOD_SPREAD_CHANCE {
-            let parent = food[i];
+        let parent = food[i];
+        let biome = biome_index_for_x(parent.x);
+        let prob = FOOD_SPREAD_CHANCE * BIOME_SPREAD_MULT[biome] * season_factor(biome);
+        if rng.random_range(0.0..1.0) < prob {
             try_spawn_food_near(food, rng, parent);
         }
     }
@@ -86,3 +118,16 @@ pub fn eat_along_path(food: &mut Vec<Vec2>, p0: Vec2, p1: Vec2) -> bool {
     }
     if let Some(i) = best_i { food.swap_remove(i); true } else { false }
 }
+
+// Hook to provide current global step for seasons; the visualizer sets this via a thread-local.
+fn crate_current_step() -> usize {
+    // Fallback: if not set, 0
+    CURRENT_STEP.with(|c| c.get())
+}
+
+thread_local! {
+    static CURRENT_STEP: std::cell::Cell<usize> = std::cell::Cell::new(0);
+}
+
+// Public setter used by visualize_ecosystem.rs to update world step before growth
+pub fn set_current_step(step: usize) { CURRENT_STEP.with(|c| c.set(step)); }
