@@ -114,17 +114,11 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         last_food_mem: Vec2 { x: 0.0, y: 0.0 },
         last_danger_mem: Vec2 { x: 0.0, y: 0.0 },
     }).collect();
-    // Track exploration (unique grid cells) and explicit shaping buckets
+    // Track exploration (unique grid cells); shaping buckets removed for simplification
     let mut visited: Vec<std::collections::HashSet<u32>> = vec![std::collections::HashSet::new(); agents.len()];
-    let mut crowding_penalty: Vec<f32> = vec![0.0; agents.len()];
-    let mut spin_penalty: Vec<f32> = vec![0.0; agents.len()];
-    let mut approach_reward: Vec<f32> = vec![0.0; agents.len()];
 
     let mut steps = 0usize;
-    // Headless-only shaping trackers
-    let mut last_food_d: Vec<f32> = agents.iter().map(|a| {
-        sensing::nearest_food_distance(a.pos, &food).unwrap_or(f32::INFINITY)
-    }).collect();
+    // (Removed approach/spin shaping trackers)
     while steps < MAX_STEPS {
         if agents.iter().all(|a| a.energy <= 0.0) { break; }
         // Snapshot for predation decisions to avoid borrow conflicts
@@ -192,35 +186,12 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             a.last_food_mem = Vec2 { x: cur_fx, y: cur_fy };
             let (dx_mem, dy_mem) = sensing::nearest_agent_vector_local(a.pos, a.theta, &snapshot, i);
             a.last_danger_mem = Vec2 { x: dx_mem, y: dy_mem };
-            // Headless shaping: approach reward and spin penalty
-            if a.energy > 0.0 {
-                if let Some(d) = sensing::nearest_food_distance(a.pos, &food) {
-                    if last_food_d[i].is_finite() && d.is_finite() && d < APPROACH_MAX_RANGE {
-                        let delta = (last_food_d[i] - d).clamp(-10.0, 10.0);
-                        approach_reward[i] += delta * APPROACH_REWARD_SCALE; // positive when getting closer
-                    }
-                    last_food_d[i] = d;
-                }
-                spin_penalty[i] += turn.abs() * SPIN_PENALTY_SCALE;
-            }
+            // (Removed approach reward & spin penalty accumulation)
         }
         // Resolve predation and tick corpse/flash decay (shared)
         sim::resolve_predation(&mut agents, &prey_targets, steps);
         sim::decay_corpses_and_flashes(&mut agents);
-        if steps % AVOID_CHECK_EVERY == 0 {
-            for i in 0..agents.len() {
-                if agents[i].energy <= 0.0 { continue; }
-                let pi = agents[i].pos;
-                let mut pen = 0.0f32;
-                for j in 0..agents.len() {
-                    if i == j || agents[j].energy <= 0.0 { continue; }
-                    let pj = agents[j].pos;
-                    let dx = pj.x - pi.x; let dy = pj.y - pi.y; let d2 = dx*dx + dy*dy; let r2 = AVOID_RADIUS * AVOID_RADIUS;
-                    if d2 < r2 { let d = d2.sqrt(); let m = (AVOID_RADIUS - d) / AVOID_RADIUS; pen += m * AVOID_PENALTY_SCALE; }
-                }
-                crowding_penalty[i] += pen;
-            }
-        }
+        // (Removed avoidance/crowding penalty sampling)
         // Plants grow/spread over time (season-aware)
         world::set_current_step(steps);
         world::food_growth_step(&mut food, &mut rng);
@@ -230,20 +201,12 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
     // Compose final fitness with optional normalized exploration and sublinear eaten term
     let total_cells = ((WORLD_W / EXPL_CELL_SIZE).ceil() * (WORLD_H / EXPL_CELL_SIZE).ceil()) as f32;
     agents.iter().enumerate().map(|(i, a)| {
-        let eaten_plants = a.eaten.saturating_sub(a.kills) as f32; // plant eats only
-        let eaten_meat = a.kills as f32; // meat events (predation or scavenging)
-        let eaten_term = if EAT_EXPONENT == 1.0 {
-            eaten_plants * EAT_WEIGHT + eaten_meat * MEAT_WEIGHT
-        } else {
-            eaten_plants.powf(EAT_EXPONENT) * EAT_WEIGHT + eaten_meat.powf(EAT_EXPONENT) * MEAT_WEIGHT
-        };
-        let expl = if EXPL_NORMALIZE {
-            let frac = if total_cells > 0.0 { (visited[i].len() as f32) / total_cells } else { 0.0 };
-            frac * EXPL_WEIGHT
-        } else {
-            visited[i].len() as f32 * EXPL_REWARD_PER_CELL
-        };
-        eaten_term + (steps as f32) * STEP_WEIGHT + expl + approach_reward[i] - crowding_penalty[i] - spin_penalty[i]
+        let eaten_plants = a.eaten.saturating_sub(a.kills) as f32;
+        let eaten_meat = a.kills as f32;
+        let intake = eaten_plants * PLANT_FITNESS + eaten_meat * MEAT_FITNESS;
+        let frac = if total_cells > 0.0 { (visited[i].len() as f32) / total_cells } else { 0.0 };
+        let exploration = frac * EXPL_WEIGHT;
+        intake + exploration + (steps as f32) * SURVIVAL_STEP_FITNESS
     }).collect()
 }
 

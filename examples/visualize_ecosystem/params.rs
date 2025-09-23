@@ -86,39 +86,26 @@ pub const INPUTS: usize = VISION_RAYS * 3 + 1 + 4 + DENSITY_SECTORS;
 pub const OUTPUTS: usize = 4;
 
 // ==========================
-// Exploration and avoidance
+// Exploration (simplified)
 // ==========================
-pub const EXPL_CELL_SIZE: f32 = 12.0;
-// Exploration reward. Two modes:
-// 1) Per-cell reward (legacy): EXPL_REWARD_PER_CELL per unique grid cell visited.
-// 2) Normalized reward: fraction of world cells visited multiplied by EXPL_WEIGHT.
-pub const EXPL_REWARD_PER_CELL: f32 = 0.06; // used when EXPL_NORMALIZE == false
-pub const EXPL_NORMALIZE: bool = true;      // when true, use normalized exploration reward
-pub const EXPL_WEIGHT: f32 = 10.0;          // total reward when covering 100% of the world (if EXPL_NORMALIZE)
-pub const AVOID_RADIUS: f32 = 3.0;
-pub const AVOID_PENALTY_SCALE: f32 = 0.003;
-pub const AVOID_CHECK_EVERY: usize = 2;
+// We always use normalized exploration: fraction of world cells visited * EXPL_WEIGHT.
+// (Legacy per-cell / avoidance shaping removed to simplify fitness.)
+pub const EXPL_CELL_SIZE: f32 = 12.0;            // grid resolution for exploration coverage
+pub const EXPL_WEIGHT: f32 = 8.0;                // reward for 100% coverage (typically unreachable)
 
 // Legacy food-direction vector parameters (used for approach shaping)
 pub const FOOD_VECTOR_MAX_RANGE: f32 = 150.0;
 
 // ========================
-// Turn cost and fitness shaping
+// Core movement & fitness (simplified)
 // ========================
-pub const TURN_COST: f32 = 0.02;
-pub const EAT_WEIGHT: f32 = 4.5;
-// Additional reward for meat-eating events (predation or scavenging)
-pub const MEAT_WEIGHT: f32 = 4.0;
-pub const STEP_WEIGHT: f32 = 0.001;
-// Optional: sublinear gains for eaten count to reduce single-strategy domination.
-// 1.0 keeps legacy linear behavior; 0.5 approximates sqrt.
-pub const EAT_EXPONENT: f32 = 1.0;
-
-// Headless-only shaping to reduce circling and radar scanning
-// Reward getting closer to the nearest food, and penalize sustained turning.
-pub const APPROACH_MAX_RANGE: f32 = FOOD_VECTOR_MAX_RANGE; // only count approach within this range
-pub const APPROACH_REWARD_SCALE: f32 = 0.003;               // reward per unit distance improvement
-pub const SPIN_PENALTY_SCALE: f32 = 0.001;                  // penalty per unit of |turn| per step
+pub const TURN_COST: f32 = 0.02;               // energy cost per unit of absolute turn (kept – impacts dynamics)
+// Fitness: we collapse plant/meat shaping into two simple weights.
+pub const PLANT_FITNESS: f32 = 4.0;            // reward per plant eaten
+pub const MEAT_FITNESS: f32 = 6.0;             // reward per meat (kill or scavenged corpse) event
+pub const SURVIVAL_STEP_FITNESS: f32 = 0.001;  // reward per simulation step survived (alive or not? counted via total steps for now)
+// Removed: approach reward, spin penalty, crowding penalty, sublinear exponent.
+// Rationale: focus on emergent behavior; keep only outcome-based signals (resource intake, exploration, longevity).
 
 // =====================
 // Predation/scavenging
