@@ -162,8 +162,9 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             if sprint { speed_scale = SPRINT_MULT; } else if brake { speed_scale = BRAKE_MULT; }
             let dir = dir_from_theta(a.theta);
             let vel = dir.mul(thrust_eff * MAX_SPEED * speed_scale);
+            let prev = a.pos;
             a.pos = a.pos.add(vel).clamp_to_world();
-            if world::eat_if_near(&mut food, a.pos) {
+            if world::eat_along_path(&mut food, prev, a.pos) || world::eat_if_near(&mut food, a.pos) {
                 if DIGEST_STEPS_PLANT > 0 { a.digest.push_back(DigestEvent { remaining: DIGEST_STEPS_PLANT, per_step: FOOD_ENERGY / (DIGEST_STEPS_PLANT as f32) }); }
                 else { a.energy = (a.energy + FOOD_ENERGY).min(INITIAL_ENERGY); }
                 a.eaten += 1; }
@@ -302,9 +303,10 @@ impl Episode {
             if sprint { speed_scale = SPRINT_MULT; } else if brake { speed_scale = BRAKE_MULT; }
             let dir = dir_from_theta(a.theta);
             let vel = dir.mul(thrust_eff * MAX_SPEED * speed_scale);
+            let prev = a.pos;
             a.pos = a.pos.add(vel).clamp_to_world();
-            // eat if close (sum of radii) with digestive lag
-            if world::eat_if_near(&mut self.food, a.pos) {
+            // eat along the path (continuous) to prevent tunneling; fallback to near check
+            if world::eat_along_path(&mut self.food, prev, a.pos) || world::eat_if_near(&mut self.food, a.pos) {
                 if DIGEST_STEPS_PLANT > 0 { a.digest.push_back(DigestEvent { remaining: DIGEST_STEPS_PLANT, per_step: FOOD_ENERGY / (DIGEST_STEPS_PLANT as f32) }); }
                 else { a.energy = (a.energy + FOOD_ENERGY).min(INITIAL_ENERGY); }
                 a.eaten += 1;
@@ -518,7 +520,7 @@ async fn main() {
         let hud_w = (w * 0.28).clamp(240.0, 380.0);
         let world_w = (w - hud_w - margin * 3.0).max(100.0);
         let world_h = (h - margin * 2.0).max(100.0);
-        let world_area = Rect { x: margin, y: margin, w: world_w, h: world_h };
+    let world_area = Rect { x: margin, y: margin, w: world_w, h: world_h };
         let hud_area = Rect { x: world_area.x + world_area.w + margin, y: margin, w: hud_w, h: world_h };
 
     // Controls
@@ -568,8 +570,10 @@ async fn main() {
 
     // Mouse position in world-space (for focus and overlays) if inside world rect
     let (mx, my) = mouse_position();
-    let mouse_world = if mx >= world_area.x && mx <= world_area.x + world_area.w && my >= world_area.y && my <= world_area.y + world_area.h {
-        Some(screen_to_world(world_area, mx, my))
+    // Fit the world rect so aspect ratio is preserved
+    let fitted = ui_common::fit_world_rect(world_area);
+    let mouse_world = if mx >= fitted.x && mx <= fitted.x + fitted.w && my >= fitted.y && my <= fitted.y + fitted.h {
+        Some(screen_to_world(fitted, mx, my))
     } else { None };
 
     ui_world_view::draw_world(

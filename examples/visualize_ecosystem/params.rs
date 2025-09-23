@@ -15,8 +15,8 @@ pub const EPISODES_PER_GEN: usize = 3;
 // ======
 // World
 // ======
-pub const WORLD_W: f32 = 2000.0;
-pub const WORLD_H: f32 = 2000.0;
+pub const WORLD_W: f32 = 1500.0;
+pub const WORLD_H: f32 = 1500.0;
 pub const INITIAL_ENERGY: f32 = 500.0;
 pub const ENERGY_DRAIN_PER_STEP: f32 = 0.25;
 pub const MAX_STEPS: usize = 500;
@@ -25,12 +25,12 @@ pub const AGENT_RADIUS: f32 = 1.5;
 // =====
 // Food
 // =====
-pub const FOOD_COUNT: usize = 200;
+pub const FOOD_COUNT: usize = 100;
 pub const FOOD_RADIUS: f32 = 1.2;
 pub const FOOD_ENERGY: f32 = 60.0;
 
 // Plant/food dynamics
-pub const MAX_FOOD: usize = 60;
+pub const MAX_FOOD: usize = 160;
 pub const FOOD_MIN_SEP: f32 = 2.5;
 pub const FOOD_RESPAWN_PROB: f32 = 0.01;
 pub const FOOD_SPREAD_CHANCE: f32 = 0.01;
@@ -40,8 +40,8 @@ pub const FOOD_SPREAD_RADIUS: f32 = 15.0;
 // Vision cone parameters
 // =====================
 pub const VISION_RAYS: usize = 5;
-pub const VISION_ANGLE_DEG: f32 = 35.0;
-pub const VISION_RANGE: f32 = 50.0;
+pub const VISION_ANGLE_DEG: f32 = 90.0;
+pub const VISION_RANGE: f32 = 100.0;
 /// Derived: radians for convenience if needed by math
 pub const VISION_ANGLE_RAD: f32 = VISION_ANGLE_DEG.to_radians();
 
@@ -74,7 +74,7 @@ pub const OUTPUTS: usize = 4;
 // Exploration and avoidance
 // ==========================
 pub const EXPL_CELL_SIZE: f32 = 12.0;
-pub const EXPL_REWARD_PER_CELL: f32 = 0.1;
+pub const EXPL_REWARD_PER_CELL: f32 = 0.06;
 pub const AVOID_RADIUS: f32 = 3.0;
 pub const AVOID_PENALTY_SCALE: f32 = 0.003;
 pub const AVOID_CHECK_EVERY: usize = 2;

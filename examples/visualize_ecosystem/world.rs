@@ -62,3 +62,27 @@ pub fn eat_if_near(food: &mut Vec<Vec2>, pos: Vec2) -> bool {
         true
     } else { false }
 }
+
+// Continuous collision: did the path from p0 to p1 pass within eat radius of any food?
+pub fn eat_along_path(food: &mut Vec<Vec2>, p0: Vec2, p1: Vec2) -> bool {
+    if food.is_empty() { return false; }
+    let (vx, vy) = (p1.x - p0.x, p1.y - p0.y);
+    let v_len2 = vx*vx + vy*vy;
+    let eat_r = FOOD_RADIUS + AGENT_RADIUS;
+    let eat_r2 = eat_r * eat_r;
+    let mut best_i: Option<usize> = None;
+    let mut best_t: f32 = f32::INFINITY;
+    for (i, f) in food.iter().enumerate() {
+        // Project (f - p0) onto v to clamp closest point on segment
+        let wx = f.x - p0.x; let wy = f.y - p0.y;
+        let mut t = if v_len2 > 0.0 { (wx*vx + wy*vy) / v_len2 } else { 0.0 };
+        if t < 0.0 { t = 0.0; } else if t > 1.0 { t = 1.0; }
+        let cx = p0.x + vx * t; let cy = p0.y + vy * t;
+        let dx = f.x - cx; let dy = f.y - cy; let d2 = dx*dx + dy*dy;
+        if d2 <= eat_r2 {
+            // Prefer the earliest along the path
+            if t < best_t { best_t = t; best_i = Some(i); }
+        }
+    }
+    if let Some(i) = best_i { food.swap_remove(i); true } else { false }
+}

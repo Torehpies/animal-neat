@@ -2,18 +2,20 @@ use macroquad::prelude::*;
 use crate::params::*;
 use crate::{Episode, Vec2};
 use crate::sensing;
-use crate::ui_common::world_to_screen;
+use crate::ui_common::{world_to_screen, fit_world_rect, world_scale};
 use crate::dir_from_theta;
 
 pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, _member_species: &[usize], show_density_overlay: bool, show_vector_overlay: bool, mouse_world: Option<Vec2>) {
+    let fitted = fit_world_rect(area);
     // background
-    draw_rectangle(area.x, area.y, area.w, area.h, DARKGREEN);
+    draw_rectangle(fitted.x, fitted.y, fitted.w, fitted.h, DARKGREEN);
     // border
-    draw_rectangle_lines(area.x, area.y, area.w, area.h, 2.0, BLACK);
+    draw_rectangle_lines(fitted.x, fitted.y, fitted.w, fitted.h, 2.0, BLACK);
+    let px_per_world = world_scale(fitted);
     // food
     for p in &episode.food {
-        let (px, py) = world_to_screen(area, *p);
-        let r = ((FOOD_RADIUS / WORLD_W) * area.w).max(2.0);
+        let (px, py) = world_to_screen(fitted, *p);
+        let r = (FOOD_RADIUS * px_per_world).max(2.0);
         draw_circle(px, py, r, YELLOW);
     }
     // Precompute snapshot for overlays
@@ -32,8 +34,8 @@ pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, _member_speci
 
     // agents
     for (idx, a) in episode.agents.iter().enumerate() {
-        let (px, py) = world_to_screen(area, a.pos);
-        let agent_r = ((AGENT_RADIUS / WORLD_W) * area.w).max(3.0);
+    let (px, py) = world_to_screen(fitted, a.pos);
+    let agent_r = (AGENT_RADIUS * px_per_world).max(3.0);
     // species index unused for coloring now that diet-based coloring is applied
         // draw alive vs dead differently
         if a.energy > 0.0 {
@@ -59,7 +61,7 @@ pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, _member_speci
         // heading line
         if a.energy > 0.0 {
             let dir = dir_from_theta(a.theta);
-            let (hx, hy) = world_to_screen(area, Vec2 { x: a.pos.x + dir.x * 2.0, y: a.pos.y + dir.y * 2.0 });
+            let (hx, hy) = world_to_screen(fitted, Vec2 { x: a.pos.x + dir.x * 2.0, y: a.pos.y + dir.y * 2.0 });
             draw_line(px, py, hx, hy, 2.0, BLUE);
         }
 
@@ -71,7 +73,7 @@ pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, _member_speci
                 match food_t {
                     Some(t) => {
                         let sense_pt = Vec2 { x: a.pos.x + r.x * t, y: a.pos.y + r.y * t };
-                        let (sx, sy) = world_to_screen(area, sense_pt);
+                        let (sx, sy) = world_to_screen(fitted, sense_pt);
                         // draw sensed segment in green up to the food point
                         let green = Color::new(0.2, 1.0, 0.2, 0.9);
                         draw_line(px, py, sx, sy, 2.0, green);
@@ -79,19 +81,19 @@ pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, _member_speci
                         draw_circle(sx, sy, 3.0, green);
                         // faint remainder to max range (lighter green)
                         let end = Vec2 { x: a.pos.x + r.x * VISION_RANGE, y: a.pos.y + r.y * VISION_RANGE };
-                        let (x2, y2) = world_to_screen(area, end);
+                        let (x2, y2) = world_to_screen(fitted, end);
                         draw_line(sx, sy, x2, y2, 1.0, Color::new(0.2, 1.0, 0.2, 0.25));
                     }
                     None => {
                         let end = Vec2 { x: a.pos.x + r.x * VISION_RANGE, y: a.pos.y * 1.0 + r.y * VISION_RANGE };
-                        let (x2, y2) = world_to_screen(area, end);
+                        let (x2, y2) = world_to_screen(fitted, end);
                         draw_line(px, py, x2, y2, 1.0, Color::new(0.2, 1.0, 0.2, 0.35));
                     }
                 }
                 // Overlay meat hit (orange) if present on this ray
                 if let Some(tm) = meat_t {
                     let mpt = Vec2 { x: a.pos.x + r.x * tm, y: a.pos.y + r.y * tm };
-                    let (mx, my) = world_to_screen(area, mpt);
+                    let (mx, my) = world_to_screen(fitted, mpt);
                     let orange = Color::new(1.0, 0.6, 0.1, 0.95);
                     draw_line(px, py, mx, my, 2.0, orange);
                     draw_circle(mx, my, 3.0, orange);
@@ -121,7 +123,7 @@ pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, _member_speci
             if edible_near {
                 // Draw a directional line to the nearest edible target (orange), with a marker dot (no arrowheads)
                 if let Some(tp) = best_target {
-                    let (tx, ty) = world_to_screen(area, tp);
+                    let (tx, ty) = world_to_screen(fitted, tp);
                     let col = Color::new(1.0, 0.6, 0.1, 0.95);
                     draw_line(px, py, tx, ty, 2.5, col);
                     draw_circle(tx, ty, 3.0, col);
@@ -152,8 +154,8 @@ pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, _member_speci
                     let dir_world_x = right_x * ang_local.cos() + fwd_x * ang_local.sin();
                     let dir_world_y = right_y * ang_local.cos() + fwd_y * ang_local.sin();
                     let len = base_len + v * 28.0;
-                    let end_world = Vec2 { x: a.pos.x + dir_world_x * (len / area.w * WORLD_W), y: a.pos.y + dir_world_y * (len / area.h * WORLD_H) };
-                    let (ex, ey) = world_to_screen(area, end_world);
+                    let end_world = Vec2 { x: a.pos.x + dir_world_x * (len / fitted.w * WORLD_W), y: a.pos.y + dir_world_y * (len / fitted.h * WORLD_H) };
+                    let (ex, ey) = world_to_screen(fitted, end_world);
                     draw_line(px, py, ex, ey, 2.0, Color::new(0.1, 1.0, 1.0, 0.8));
                 }
             }
@@ -164,10 +166,10 @@ pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, _member_speci
                     let right_x = -snt; let right_y = c;
                     let fwd_x = c; let fwd_y = snt;
                     let scale = 60.0; // pixels
-                    let world_dx = (right_x * lx + fwd_x * ly) * (scale / area.w * WORLD_W);
-                    let world_dy = (right_y * lx + fwd_y * ly) * (scale / area.h * WORLD_H);
+                    let world_dx = (right_x * lx + fwd_x * ly) * (scale / fitted.w * WORLD_W);
+                    let world_dy = (right_y * lx + fwd_y * ly) * (scale / fitted.h * WORLD_H);
                     let end = Vec2 { x: a.pos.x + world_dx, y: a.pos.y + world_dy };
-                    let (ex, ey) = world_to_screen(area, end);
+                    let (ex, ey) = world_to_screen(fitted, end);
                     draw_line(px, py, ex, ey, 2.0, color);
                     // arrow head
                     let hx = ex + (px - ex) * 0.15 + (ey - py) * 0.12;
