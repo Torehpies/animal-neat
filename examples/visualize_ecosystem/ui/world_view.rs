@@ -7,8 +7,33 @@ use crate::dir_from_theta;
 
 pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, _member_species: &[usize], show_density_overlay: bool, show_vector_overlay: bool, mouse_world: Option<Vec2>) {
     let fitted = fit_world_rect(area);
-    // background
-    draw_rectangle(fitted.x, fitted.y, fitted.w, fitted.h, DARKGREEN);
+    // background: draw biome bands with seasonal tinting
+    // Biomes split across X using BIOME_X_SPLITS; use episode.steps as season time
+    let splits = BIOME_X_SPLITS;
+    let bands = [0.0, splits[0], splits[1], 1.0];
+    for b in 0..3 {
+        let x0w = bands[b] * WORLD_W;
+        let x1w = bands[b + 1] * WORLD_W;
+        let (x0, _) = world_to_screen(fitted, Vec2 { x: x0w, y: 0.0 });
+        let (x1, _) = world_to_screen(fitted, Vec2 { x: x1w, y: 0.0 });
+        let w = (x1 - x0).abs();
+        // Base tint per biome + seasonal brightness
+        let base = match b {
+            0 => Color::new(0.08, 0.20, 0.08, 1.0),
+            1 => Color::new(0.09, 0.24, 0.09, 1.0),
+            _ => Color::new(0.10, 0.28, 0.10, 1.0),
+        };
+    let (mut r, mut g, mut bl, a) = (base.r, base.g, base.b, 1.0);
+        if SEASONAL_ENABLED && SEASONAL_PERIOD_STEPS > 0 {
+            let t = episode.steps as f32 * std::f32::consts::TAU / (SEASONAL_PERIOD_STEPS as f32) + BIOME_SEASON_PHASE[b];
+            let s = (1.0 + SEASONAL_AMPLITUDE * t.sin()).max(0.0);
+            let brighten = 0.15 * (s - 1.0); // modest seasonal effect
+            r = (r + brighten).clamp(0.0, 1.0);
+            g = (g + brighten * 1.3).clamp(0.0, 1.0);
+            bl = (bl + brighten).clamp(0.0, 1.0);
+        }
+        draw_rectangle(x0.min(x1), fitted.y, w, fitted.h, Color::new(r, g, bl, a));
+    }
     // border
     draw_rectangle_lines(fitted.x, fitted.y, fitted.w, fitted.h, 2.0, BLACK);
     let px_per_world = world_scale(fitted);
