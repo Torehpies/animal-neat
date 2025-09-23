@@ -114,8 +114,11 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         last_food_mem: Vec2 { x: 0.0, y: 0.0 },
         last_danger_mem: Vec2 { x: 0.0, y: 0.0 },
     }).collect();
+    // Track exploration (unique grid cells) and explicit shaping buckets
     let mut visited: Vec<std::collections::HashSet<u32>> = vec![std::collections::HashSet::new(); agents.len()];
-    let mut avoid_penalty: Vec<f32> = vec![0.0; agents.len()];
+    let mut crowding_penalty: Vec<f32> = vec![0.0; agents.len()];
+    let mut spin_penalty: Vec<f32> = vec![0.0; agents.len()];
+    let mut approach_reward: Vec<f32> = vec![0.0; agents.len()];
 
     let mut steps = 0usize;
     // Headless-only shaping trackers
@@ -194,11 +197,11 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
                 if let Some(d) = sensing::nearest_food_distance(a.pos, &food) {
                     if last_food_d[i].is_finite() && d.is_finite() && d < APPROACH_MAX_RANGE {
                         let delta = (last_food_d[i] - d).clamp(-10.0, 10.0);
-                        avoid_penalty[i] -= delta * APPROACH_REWARD_SCALE; // subtract negative to add reward
+                        approach_reward[i] += delta * APPROACH_REWARD_SCALE; // positive when getting closer
                     }
                     last_food_d[i] = d;
                 }
-                avoid_penalty[i] += turn.abs() * SPIN_PENALTY_SCALE;
+                spin_penalty[i] += turn.abs() * SPIN_PENALTY_SCALE;
             }
         }
         // Resolve predation and tick corpse/flash decay (shared)
@@ -215,7 +218,7 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
                     let dx = pj.x - pi.x; let dy = pj.y - pi.y; let d2 = dx*dx + dy*dy; let r2 = AVOID_RADIUS * AVOID_RADIUS;
                     if d2 < r2 { let d = d2.sqrt(); let m = (AVOID_RADIUS - d) / AVOID_RADIUS; pen += m * AVOID_PENALTY_SCALE; }
                 }
-                avoid_penalty[i] += pen;
+                crowding_penalty[i] += pen;
             }
         }
         // Plants grow/spread over time
@@ -223,9 +226,18 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         steps += 1;
     }
 
+    // Compose final fitness with optional normalized exploration and sublinear eaten term
+    let total_cells = ((WORLD_W / EXPL_CELL_SIZE).ceil() * (WORLD_H / EXPL_CELL_SIZE).ceil()) as f32;
     agents.iter().enumerate().map(|(i, a)| {
-        let expl = visited[i].len() as f32 * EXPL_REWARD_PER_CELL;
-        (a.eaten as f32) * EAT_WEIGHT + (steps as f32) * STEP_WEIGHT + expl - avoid_penalty[i]
+        let eaten_term = if EAT_EXPONENT == 1.0 { (a.eaten as f32) * EAT_WEIGHT }
+                         else { (a.eaten as f32).powf(EAT_EXPONENT) * EAT_WEIGHT };
+        let expl = if EXPL_NORMALIZE {
+            let frac = if total_cells > 0.0 { (visited[i].len() as f32) / total_cells } else { 0.0 };
+            frac * EXPL_WEIGHT
+        } else {
+            visited[i].len() as f32 * EXPL_REWARD_PER_CELL
+        };
+        eaten_term + (steps as f32) * STEP_WEIGHT + expl + approach_reward[i] - crowding_penalty[i] - spin_penalty[i]
     }).collect()
 }
 

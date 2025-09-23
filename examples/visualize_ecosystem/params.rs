@@ -74,7 +74,12 @@ pub const OUTPUTS: usize = 4;
 // Exploration and avoidance
 // ==========================
 pub const EXPL_CELL_SIZE: f32 = 12.0;
-pub const EXPL_REWARD_PER_CELL: f32 = 0.06;
+// Exploration reward. Two modes:
+// 1) Per-cell reward (legacy): EXPL_REWARD_PER_CELL per unique grid cell visited.
+// 2) Normalized reward: fraction of world cells visited multiplied by EXPL_WEIGHT.
+pub const EXPL_REWARD_PER_CELL: f32 = 0.06; // used when EXPL_NORMALIZE == false
+pub const EXPL_NORMALIZE: bool = true;      // when true, use normalized exploration reward
+pub const EXPL_WEIGHT: f32 = 10.0;          // total reward when covering 100% of the world (if EXPL_NORMALIZE)
 pub const AVOID_RADIUS: f32 = 3.0;
 pub const AVOID_PENALTY_SCALE: f32 = 0.003;
 pub const AVOID_CHECK_EVERY: usize = 2;
@@ -88,12 +93,15 @@ pub const FOOD_VECTOR_MAX_RANGE: f32 = 150.0;
 pub const TURN_COST: f32 = 0.02;
 pub const EAT_WEIGHT: f32 = 4.5;
 pub const STEP_WEIGHT: f32 = 0.001;
+// Optional: sublinear gains for eaten count to reduce single-strategy domination.
+// 1.0 keeps legacy linear behavior; 0.5 approximates sqrt.
+pub const EAT_EXPONENT: f32 = 1.0;
 
 // Headless-only shaping to reduce circling and radar scanning
 // Reward getting closer to the nearest food, and penalize sustained turning.
 pub const APPROACH_MAX_RANGE: f32 = FOOD_VECTOR_MAX_RANGE; // only count approach within this range
 pub const APPROACH_REWARD_SCALE: f32 = 0.003;               // reward per unit distance improvement
-pub const SPIN_PENALTY_SCALE: f32 = 0.0;                  // penalty per unit of |turn| per step
+pub const SPIN_PENALTY_SCALE: f32 = 0.001;                  // penalty per unit of |turn| per step
 
 // =====================
 // Predation/scavenging
