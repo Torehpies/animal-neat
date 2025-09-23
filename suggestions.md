@@ -64,3 +64,40 @@ This document lists concrete, incremental upgrades to make the ecosystem richer,
 ---
 
 We’ll start with Phase 1: HUD overhaul + best-network visualization, then proceed sequentially. Each phase includes HUD/telemetry to make tuning tractable.
+
+---
+
+## Realism upgrades (additional)
+
+- Close the energy loop
+	- [ ] Replacement-only plant spawning (respawn near eaten location)
+	- [ ] Energy budget: slow/stop growth when total world energy is high
+	- [ ] Corpses → nutrients that bias local plant regrowth
+
+- In-episode reproduction (with costs)
+	- [ ] Energy threshold + large transfer to offspring; cooldown
+	- [ ] Carrying capacity K; newborn fragility for N steps
+	- [ ] Attribute fitness to ancestor to avoid multiplicative reward
+
+- Predation realism
+	- [ ] Handling time to eat; capture probability based on speed/angle/distance
+	- [ ] Injury risk; prey defense; scavenging competition
+
+- Perception and navigation
+	- [ ] Occlusion (obstacles) for rays; sensor noise ∝ distance; memory decay
+	- [ ] Add short-range smell/gradient sensing; attention limits on hits
+
+- Movement energetics
+	- [ ] Inertia/acceleration; higher turn costs at speed; fatigue/recovery
+	- [ ] Terrain types with different costs and cover effects
+
+- Behavior and state
+	- [ ] Derived states (forage/rest/flee/hunt); optional state input node
+	- [ ] Home range/territory preference and defense
+
+- Trophic structure
+	- [ ] Diet specialization efficiencies; decomposers that reclaim unused corpses
+
+- Fitness & evaluation
+	- [ ] Fitness = survival + successful reproduction + exploration (less on raw intake)
+	- [ ] Episode curricula with varied seeds; keep multi-episode averaging

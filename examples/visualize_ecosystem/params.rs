@@ -25,12 +25,12 @@ pub const AGENT_RADIUS: f32 = 1.5;
 // =====
 // Food
 // =====
-pub const FOOD_COUNT: usize = 100;
+pub const FOOD_COUNT: usize = 150;
 pub const FOOD_RADIUS: f32 = 1.2;
 pub const FOOD_ENERGY: f32 = 60.0;
 
 // Plant/food dynamics
-pub const MAX_FOOD: usize = 160;
+pub const MAX_FOOD: usize = 250;
 pub const FOOD_MIN_SEP: f32 = 2.5;
 pub const FOOD_RESPAWN_PROB: f32 = 0.01;
 pub const FOOD_SPREAD_CHANCE: f32 = 0.01;
