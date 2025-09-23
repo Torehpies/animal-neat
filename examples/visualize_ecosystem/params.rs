@@ -83,7 +83,8 @@ pub const DENSITY_RADIUS: f32 = 40.0;
 // - DENSITY_SECTORS (alive-neighbor density bins)
 pub const INPUTS: usize = VISION_RAYS * 3 + 1 + 4 + DENSITY_SECTORS;
 // Outputs: [turn, thrust, sprint, brake]
-pub const OUTPUTS: usize = 4;
+// Vector-drive locomotion (Option C): outputs = [vel_x, vel_y]
+pub const OUTPUTS: usize = 2;
 
 // ==========================
 // Exploration (simplified)
@@ -116,17 +117,16 @@ pub const PREDATION_ENABLED: bool = true;
 pub const SCAVENGE_ENABLED: bool = true;
 
 // ===============================
-// Motor model (sprint/brake)
+// Motor model (vector drive)
 // ===============================
-// Sprint increases speed but adds extra energy cost; brake reduces speed with small cost.
-pub const SPRINT_MULT: f32 = 1.6;
-pub const BRAKE_MULT: f32 = 0.45;
-pub const SPRINT_COST: f32 = 0.18;
-pub const BRAKE_COST: f32 = 0.03;
-pub const SPRINT_THRESHOLD: f32 = 0.5;
-pub const BRAKE_THRESHOLD: f32 = 0.5;
-// Small noise to motor outputs to improve robustness (uniform in [-NOISE, NOISE])
-pub const MOTOR_NOISE: f32 = 0.05;
+// Network outputs a desired 2D velocity vector (vx, vy) each in [-1,1].
+// We derive speed = |v| (clamped to 1) and direction = normalized(v).
+// Heading either snaps or smoothly turns toward velocity direction.
+pub const MOTOR_NOISE: f32 = 0.05;              // still add small noise to each component
+pub const SMOOTH_HEADING: bool = true;           // when true, rotate gradually toward desired direction
+pub const MAX_HEADING_DELTA: f32 = std::f32::consts::PI / 18.0; // max radians change per step if smoothing
+pub const MOVE_ENERGY_SCALE: f32 = 0.2;          // energy cost per unit normalized speed
+pub const TURN_ENERGY_SCALE: f32 = 0.01;         // additional cost proportional to fraction of MAX_HEADING_DELTA used
 
 // ==============================
 // Digestion / Corpse decay

@@ -76,10 +76,8 @@ struct Episode {
     first_eat_step: Option<usize>,
     // Motor usage stats (for HUD): aggregated over agent-steps this episode
     total_agent_steps: usize,
-    sprint_used: usize,
-    brake_used: usize,
-    thrust_sum: f32,
-    abs_turn_sum: f32,
+    avg_speed_accum: f32,
+    heading_change_accum: f32,
 }
 
 fn dir_from_theta(theta: f32) -> Vec2 { Vec2 { x: theta.cos(), y: theta.sin() } }
@@ -135,30 +133,34 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             let energy_in = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
             let inputs = sensing::build_inputs(a.pos, a.theta, &food, energy_in, a.last_food_mem, a.last_danger_mem, &density, &snapshot, i);
             let out = population[i].evaluate_slice(&inputs);
-            let mut turn = out.get(0).copied().unwrap_or(0.0);
-            let mut thrust = out.get(1).copied().unwrap_or(0.0);
-            let mut sprint_sig = out.get(2).copied().unwrap_or(0.0);
-            let mut brake_sig = out.get(3).copied().unwrap_or(0.0);
+            // Vector drive: two outputs -> (vx, vy) in [-1,1]
+            let mut vx = out.get(0).copied().unwrap_or(0.0);
+            let mut vy = out.get(1).copied().unwrap_or(0.0);
             // Noise
-            turn += rng.random_range(-MOTOR_NOISE..MOTOR_NOISE);
-            thrust += rng.random_range(-MOTOR_NOISE..MOTOR_NOISE);
-            sprint_sig += rng.random_range(-MOTOR_NOISE..MOTOR_NOISE);
-            brake_sig += rng.random_range(-MOTOR_NOISE..MOTOR_NOISE);
-            // Clamp ranges
-            let turn = turn.clamp(-1.0, 1.0);
-            let thrust = thrust.clamp(0.0, 1.0);
-            let sprint_sig = sprint_sig.clamp(0.0, 1.0);
-            let brake_sig = brake_sig.clamp(0.0, 1.0);
-            // Decide sprint/brake (prioritize strongest)
-            let sprint = sprint_sig >= SPRINT_THRESHOLD && sprint_sig >= brake_sig;
-            let brake = !sprint && (brake_sig >= BRAKE_THRESHOLD);
-            // Coupling: reduce thrust when turning strongly
-            let thrust_eff = (thrust * (1.0 - THRUST_TURN_COUPLING * turn.abs())).clamp(0.0, 1.0);
-            a.theta += turn * MAX_TURN;
-            let mut speed_scale = 1.0;
-            if sprint { speed_scale = SPRINT_MULT; } else if brake { speed_scale = BRAKE_MULT; }
-            let dir = dir_from_theta(a.theta);
-            let vel = dir.mul(thrust_eff * MAX_SPEED * speed_scale);
+            vx += rng.random_range(-MOTOR_NOISE..MOTOR_NOISE);
+            vy += rng.random_range(-MOTOR_NOISE..MOTOR_NOISE);
+            vx = vx.clamp(-1.0, 1.0);
+            vy = vy.clamp(-1.0, 1.0);
+            let mut speed = (vx * vx + vy * vy).sqrt();
+            let mut dir = if speed > 1e-4 { Vec2 { x: vx / speed, y: vy / speed } } else { dir_from_theta(a.theta) };
+            if speed > 1.0 { speed = 1.0; }
+            // Smooth heading toward desired direction if enabled
+            if SMOOTH_HEADING && speed > 1e-4 {
+                let desired = vy.atan2(vx); // atan2(y, x)
+                let mut delta = desired - a.theta;
+                // wrap to (-PI, PI]
+                while delta > std::f32::consts::PI { delta -= 2.0 * std::f32::consts::PI; }
+                while delta <= -std::f32::consts::PI { delta += 2.0 * std::f32::consts::PI; }
+                let limited = delta.clamp(-MAX_HEADING_DELTA, MAX_HEADING_DELTA);
+                a.theta += limited;
+                // recompute direction from updated heading for movement & sensors
+                dir = dir_from_theta(a.theta);
+            } else if speed > 1e-4 {
+                // Instant heading mode (if SMOOTH_HEADING == false)
+                a.theta = vy.atan2(vx);
+                dir = dir_from_theta(a.theta);
+            }
+            let vel = dir.mul(speed * MAX_SPEED);
             let prev = a.pos;
             a.pos = a.pos.add(vel).clamp_to_world();
             if world::eat_along_path(&mut food, prev, a.pos) || world::eat_if_near(&mut food, a.pos) {
@@ -178,9 +180,14 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
                 }
                 prey_targets[i] = target;
             }
-            let mut extra_cost = 0.0;
-            if sprint { extra_cost += SPRINT_COST; } else if brake { extra_cost += BRAKE_COST; }
-            a.energy -= ENERGY_DRAIN_PER_STEP + thrust_eff * 0.2 + TURN_COST * turn.abs() + extra_cost;
+            // Energy cost: base + movement + optional turning if smoothing
+            let mut energy_cost = ENERGY_DRAIN_PER_STEP + speed * MOVE_ENERGY_SCALE;
+            if SMOOTH_HEADING && speed > 1e-4 {
+                // approximate used heading fraction by how much direction deviated this step
+                // (simplified: constant small turn cost when moving)
+                energy_cost += TURN_ENERGY_SCALE;
+            }
+            a.energy -= energy_cost;
             if a.energy <= 0.0 { if a.dead_since.is_none() { a.dead_since = Some(steps); a.corpse_energy = CORPSE_INITIAL_ENERGY; } }
             // Update memories after acting
             a.last_food_mem = Vec2 { x: cur_fx, y: cur_fy };
@@ -235,11 +242,9 @@ impl Episode {
         agents,
         steps: 0,
         first_eat_step: None,
-        total_agent_steps: 0,
-        sprint_used: 0,
-        brake_used: 0,
-        thrust_sum: 0.0,
-        abs_turn_sum: 0.0,
+    total_agent_steps: 0,
+    avg_speed_accum: 0.0,
+    heading_change_accum: 0.0,
     }
     }
 
@@ -260,30 +265,27 @@ impl Episode {
             let energy_in = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
             let inputs = sensing::build_inputs(a.pos, a.theta, &self.food, energy_in, a.last_food_mem, a.last_danger_mem, &density, &snapshot, i);
             let out = population[a.id.0].evaluate_slice(&inputs);
-            let mut turn = out.get(0).copied().unwrap_or(0.0);
-            let mut thrust = out.get(1).copied().unwrap_or(0.0);
-            let mut sprint_sig = out.get(2).copied().unwrap_or(0.0);
-            let mut brake_sig = out.get(3).copied().unwrap_or(0.0);
-            // Noise
+            // Vector drive (live episode): outputs -> (vx, vy)
             let mut rng_local = ::rand::rng();
-            turn += rng_local.random_range(-MOTOR_NOISE..MOTOR_NOISE);
-            thrust += rng_local.random_range(-MOTOR_NOISE..MOTOR_NOISE);
-            sprint_sig += rng_local.random_range(-MOTOR_NOISE..MOTOR_NOISE);
-            brake_sig += rng_local.random_range(-MOTOR_NOISE..MOTOR_NOISE);
-            // Clamp ranges
-            let turn = turn.clamp(-1.0, 1.0);
-            let thrust = thrust.clamp(0.0, 1.0);
-            let sprint_sig = sprint_sig.clamp(0.0, 1.0);
-            let brake_sig = brake_sig.clamp(0.0, 1.0);
-            let sprint = sprint_sig >= SPRINT_THRESHOLD && sprint_sig >= brake_sig;
-            let brake = !sprint && (brake_sig >= BRAKE_THRESHOLD);
-            // Coupling: reduce thrust when turning strongly
-            let thrust_eff = (thrust * (1.0 - THRUST_TURN_COUPLING * turn.abs())).clamp(0.0, 1.0);
-            a.theta += turn * MAX_TURN;
-            let mut speed_scale = 1.0;
-            if sprint { speed_scale = SPRINT_MULT; } else if brake { speed_scale = BRAKE_MULT; }
+            let mut vx = out.get(0).copied().unwrap_or(0.0) + rng_local.random_range(-MOTOR_NOISE..MOTOR_NOISE);
+            let mut vy = out.get(1).copied().unwrap_or(0.0) + rng_local.random_range(-MOTOR_NOISE..MOTOR_NOISE);
+            vx = vx.clamp(-1.0, 1.0); vy = vy.clamp(-1.0, 1.0);
+            let mut speed = (vx*vx + vy*vy).sqrt();
+            if speed > 1.0 { speed = 1.0; }
+            let mut heading_delta_used = 0.0f32;
+            if SMOOTH_HEADING && speed > 1e-4 {
+                let desired = vy.atan2(vx);
+                let mut delta = desired - a.theta;
+                while delta > std::f32::consts::PI { delta -= 2.0 * std::f32::consts::PI; }
+                while delta <= -std::f32::consts::PI { delta += 2.0 * std::f32::consts::PI; }
+                let limited = delta.clamp(-MAX_HEADING_DELTA, MAX_HEADING_DELTA);
+                a.theta += limited;
+                heading_delta_used = limited.abs();
+            } else if speed > 1e-4 {
+                a.theta = vy.atan2(vx);
+            }
             let dir = dir_from_theta(a.theta);
-            let vel = dir.mul(thrust_eff * MAX_SPEED * speed_scale);
+            let vel = dir.mul(speed * MAX_SPEED);
             let prev = a.pos;
             a.pos = a.pos.add(vel).clamp_to_world();
             // eat along the path (continuous) to prevent tunneling; fallback to near check
@@ -306,12 +308,13 @@ impl Episode {
                 }
                 prey_targets[i] = target;
             }
-            let mut extra_cost = 0.0;
-            if sprint { extra_cost += SPRINT_COST; self.sprint_used += 1; } else if brake { extra_cost += BRAKE_COST; self.brake_used += 1; }
+            // Energy & stats
             self.total_agent_steps += 1;
-            self.thrust_sum += thrust_eff;
-            self.abs_turn_sum += turn.abs();
-            a.energy -= ENERGY_DRAIN_PER_STEP + thrust_eff * 0.2 + TURN_COST * turn.abs() + extra_cost;
+            self.avg_speed_accum += speed;
+            if SMOOTH_HEADING { self.heading_change_accum += heading_delta_used; }
+            let mut energy_cost = ENERGY_DRAIN_PER_STEP + speed * MOVE_ENERGY_SCALE;
+            if SMOOTH_HEADING && speed > 1e-4 { energy_cost += TURN_ENERGY_SCALE; }
+            a.energy -= energy_cost;
             if a.energy <= 0.0 { if a.dead_since.is_none() { a.dead_since = Some(self.steps); a.corpse_energy = CORPSE_INITIAL_ENERGY; } }
             // Update memories after acting
             a.last_food_mem = Vec2 { x: cur_fx, y: cur_fy };
