@@ -92,6 +92,8 @@ pub const FOOD_VECTOR_MAX_RANGE: f32 = 150.0;
 // ========================
 pub const TURN_COST: f32 = 0.02;
 pub const EAT_WEIGHT: f32 = 4.5;
+// Additional reward for meat-eating events (predation or scavenging)
+pub const MEAT_WEIGHT: f32 = 4.0;
 pub const STEP_WEIGHT: f32 = 0.001;
 // Optional: sublinear gains for eaten count to reduce single-strategy domination.
 // 1.0 keeps legacy linear behavior; 0.5 approximates sqrt.

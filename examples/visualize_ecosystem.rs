@@ -229,8 +229,13 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
     // Compose final fitness with optional normalized exploration and sublinear eaten term
     let total_cells = ((WORLD_W / EXPL_CELL_SIZE).ceil() * (WORLD_H / EXPL_CELL_SIZE).ceil()) as f32;
     agents.iter().enumerate().map(|(i, a)| {
-        let eaten_term = if EAT_EXPONENT == 1.0 { (a.eaten as f32) * EAT_WEIGHT }
-                         else { (a.eaten as f32).powf(EAT_EXPONENT) * EAT_WEIGHT };
+        let eaten_plants = a.eaten.saturating_sub(a.kills) as f32; // plant eats only
+        let eaten_meat = a.kills as f32; // meat events (predation or scavenging)
+        let eaten_term = if EAT_EXPONENT == 1.0 {
+            eaten_plants * EAT_WEIGHT + eaten_meat * MEAT_WEIGHT
+        } else {
+            eaten_plants.powf(EAT_EXPONENT) * EAT_WEIGHT + eaten_meat.powf(EAT_EXPONENT) * MEAT_WEIGHT
+        };
         let expl = if EXPL_NORMALIZE {
             let frac = if total_cells > 0.0 { (visited[i].len() as f32) / total_cells } else { 0.0 };
             frac * EXPL_WEIGHT
