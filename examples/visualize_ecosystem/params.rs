@@ -1,25 +1,25 @@
 // Centralized simulation parameters
 pub const WORLD_W: f32 = 500.0;
 pub const WORLD_H: f32 = 500.0;
-pub const FOOD_COUNT: usize = 50;
+pub const FOOD_COUNT: usize = 30;
 pub const FOOD_RADIUS: f32 = 1.2;
 pub const AGENT_RADIUS: f32 = 1.5;
-pub const INITIAL_ENERGY: f32 = 300.0;
-pub const ENERGY_DRAIN_PER_STEP: f32 = 0.4;
-pub const FOOD_ENERGY: f32 = 60.0;
+pub const INITIAL_ENERGY: f32 = 500.0;
+pub const ENERGY_DRAIN_PER_STEP: f32 = 0.25;
+pub const FOOD_ENERGY: f32 = 40.0;
 pub const MAX_STEPS: usize = 500;
 
 // Plant/food dynamics
-pub const MAX_FOOD: usize = 100;
+pub const MAX_FOOD: usize = 60;
 pub const FOOD_MIN_SEP: f32 = 2.5;
-pub const FOOD_RESPAWN_PROB: f32 = 0.06;
-pub const FOOD_SPREAD_CHANCE: f32 = 0.02;
+pub const FOOD_RESPAWN_PROB: f32 = 0.01;
+pub const FOOD_SPREAD_CHANCE: f32 = 0.01;
 pub const FOOD_SPREAD_RADIUS: f32 = 15.0;
 
 // Vision cone parameters
-pub const VISION_RAYS: usize = 7;
-pub const VISION_ANGLE_DEG: f32 = 90.0;
-pub const VISION_RANGE: f32 = 200.0;
+pub const VISION_RAYS: usize = 5;
+pub const VISION_ANGLE_DEG: f32 = 100.0;
+pub const VISION_RANGE: f32 = 100.0;
 
 // Movement
 pub const MAX_TURN: f32 = std::f32::consts::PI / 18.0;
@@ -30,7 +30,7 @@ pub const THRUST_TURN_COUPLING: f32 = 0.7;
 
 // Predation/scavenging
 pub const EAT_AGENT_RADIUS: f32 = AGENT_RADIUS + AGENT_RADIUS;
-pub const MEAT_ENERGY: f32 = 100.0;
+pub const MEAT_ENERGY: f32 = 80.0;
 pub const PREDATION_ENABLED: bool = true;
 pub const SCAVENGE_ENABLED: bool = true;
 
@@ -49,8 +49,8 @@ pub const INPUTS: usize = VISION_RAYS * 3 + 1 + 4 + DENSITY_SECTORS;
 pub const OUTPUTS: usize = 4;
 
 // Exploration and avoidance
-pub const EXPL_CELL_SIZE: f32 = 10.0;
-pub const EXPL_REWARD_PER_CELL: f32 = 0.02;
+pub const EXPL_CELL_SIZE: f32 = 12.0;
+pub const EXPL_REWARD_PER_CELL: f32 = 0.04;
 pub const AVOID_RADIUS: f32 = 3.0;
 pub const AVOID_PENALTY_SCALE: f32 = 0.003;
 pub const AVOID_CHECK_EVERY: usize = 2;
@@ -67,7 +67,7 @@ pub const STEP_WEIGHT: f32 = 0.001;
 // Headless-only shaping to reduce circling and radar scanning
 // Reward getting closer to the nearest food, and penalize sustained turning.
 pub const APPROACH_MAX_RANGE: f32 = FOOD_VECTOR_MAX_RANGE; // only count approach within this range
-pub const APPROACH_REWARD_SCALE: f32 = 0.0;               // reward per unit distance improvement
+pub const APPROACH_REWARD_SCALE: f32 = 0.003;               // reward per unit distance improvement
 pub const SPIN_PENALTY_SCALE: f32 = 0.0;                  // penalty per unit of |turn| per step
 
 // Phase 4: motor model expansion
@@ -83,11 +83,11 @@ pub const MOTOR_NOISE: f32 = 0.05;
 
 // Phase 2: corpse decay and digestive lag
 pub const CORPSE_INITIAL_ENERGY: f32 = MEAT_ENERGY;
-pub const CORPSE_DECAY_RATE: f32 = 0.02;
+pub const CORPSE_DECAY_RATE: f32 = 0.08;
 pub const DIGEST_STEPS_PLANT: u16 = 25;
-pub const DIGEST_STEPS_MEAT: u16 = 35;
+pub const DIGEST_STEPS_MEAT: u16 = 65;
 
 // Speciation tuning (visualizer)
 // Target number of species and adaptation rate for the compatibility threshold.
-pub const SPECIES_TARGET: usize = 12;     // e.g., aim for ~8 species
-pub const SPECIES_ADAPT_RATE: f32 = 0.05; // how fast the threshold adapts towards target
+pub const SPECIES_TARGET: usize = 24;     // e.g., aim for ~8 species
+pub const SPECIES_ADAPT_RATE: f32 = 0.1; // how fast the threshold adapts towards target
