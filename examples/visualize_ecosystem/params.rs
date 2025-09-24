@@ -110,6 +110,10 @@ pub const EXPL_WEIGHT: f32 = 8.0;                // reward for 100% coverage (ty
 pub const PLANT_FITNESS: f32 = 4.0;            // reward per plant eaten
 pub const MEAT_FITNESS: f32 = 8.0;             // reward per meat (kill or scavenged corpse) event
 pub const SURVIVAL_STEP_FITNESS: f32 = 0.05;  // reward per simulation step survived (alive or not? counted via total steps for now)
+// Updated: SURVIVAL_STEP_FITNESS now applied per-agent using alive_steps^SURVIVAL_TIME_EXP
+pub const SURVIVAL_TIME_EXP: f32 = 0.5;       // 0.5 => sqrt diminishing returns; 1.0 would be linear
+// Communication economics
+pub const CALL_COST: f32 = 0.003;             // linear energy cost per step scaled by call_intensity (0..1)
 // Rationale: focus on emergent behavior; keep only outcome-based signals (resource intake, exploration, longevity).
 
 // =====================
@@ -166,3 +170,8 @@ pub const DIGEST_STEPS_MEAT: u16 = 65;
 // Target number of species and adaptation rate for the compatibility threshold.
 pub const SPECIES_TARGET: usize = 24;     // e.g., aim for ~8 species
 pub const SPECIES_ADAPT_RATE: f32 = 0.1; // how fast the threshold adapts towards target
+// =============================
+// Snapshotting
+// =============================
+// If > 0, automatically save a population snapshot every N generations.
+pub const SNAPSHOT_INTERVAL: usize = 0; // set to e.g. 500 to enable periodic saves

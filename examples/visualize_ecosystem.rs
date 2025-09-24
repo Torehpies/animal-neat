@@ -4,6 +4,7 @@ use neat::neat::{
     evolution,
     genome::Genome,
     innovation_tracker::InnovationTracker,
+    io,
     speciator::Speciator,
 };
 use neat::neat::species::Species;
@@ -56,6 +57,7 @@ struct Agent {
     vel: Vec2,
     theta: f32,
     energy: f32,
+    alive_steps: u32,
     eaten: usize,
     consumed: bool, // true if this agent's body has been eaten and removed from world
     kills: usize,                // number of agents eaten (live or dead) in this episode
@@ -125,6 +127,7 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         vel: Vec2 { x: 0.0, y: 0.0 },
         theta: -std::f32::consts::FRAC_PI_2,
         energy: INITIAL_ENERGY,
+        alive_steps: 0,
         eaten: 0,
         consumed: false,
         kills: 0,
@@ -228,7 +231,9 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
                 }
                 prey_targets[i] = target;
             }
-            // Energy cost: base + movement + optional turning if smoothing
+            // Count survival time
+            a.alive_steps += 1;
+            // Energy cost: base + movement/velocity + turn + call
             let mut energy_cost = ENERGY_DRAIN_PER_STEP;
             if USE_INERTIA {
                 let vmag = a.vel.length();
@@ -238,6 +243,8 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             }
             let turn_fraction = (raw_turn.abs()).min(1.0);
             if turn_fraction > 0.0 && speed_for_stats > 1e-4 { energy_cost += TURN_ENERGY_SCALE * turn_fraction; }
+            // Call cost (scaled by intensity)
+            energy_cost += a.call_intensity * CALL_COST;
             a.energy -= energy_cost;
             if a.energy <= 0.0 { if a.dead_since.is_none() { a.dead_since = Some(steps); a.corpse_energy = CORPSE_INITIAL_ENERGY; } }
             // Update memories after acting
@@ -269,7 +276,8 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         let intake = eaten_plants * PLANT_FITNESS + eaten_meat * MEAT_FITNESS;
         let frac = if total_cells > 0.0 { (visited[i].len() as f32) / total_cells } else { 0.0 };
         let exploration = frac * EXPL_WEIGHT;
-        intake + exploration + (steps as f32) * SURVIVAL_STEP_FITNESS
+        let survival = (a.alive_steps as f32).powf(SURVIVAL_TIME_EXP) * SURVIVAL_STEP_FITNESS;
+        intake + exploration + survival
     }).collect()
 }
 
@@ -283,6 +291,7 @@ impl Episode {
                 vel: Vec2 { x: 0.0, y: 0.0 },
                 theta: -std::f32::consts::FRAC_PI_2,
                 energy: INITIAL_ENERGY,
+                alive_steps: 0,
                 eaten: 0,
                 consumed: false,
                 kills: 0,
@@ -389,6 +398,8 @@ impl Episode {
             self.total_agent_steps += 1;
             if USE_INERTIA { self.avg_speed_accum += a.vel.length() / MAX_SPEED; } else { /* speed already normalized */ self.avg_speed_accum += (raw_thrust + 1.0) * 0.5; }
             self.heading_change_accum += turn_delta.abs();
+            // Increment survival counter
+            a.alive_steps += 1;
             let mut energy_cost = ENERGY_DRAIN_PER_STEP;
             if USE_INERTIA {
                 let vmag = a.vel.length();
@@ -399,6 +410,7 @@ impl Episode {
                 energy_cost += speed * MOVE_ENERGY_SCALE;
                 if turn_delta.abs() > 0.0 && speed > 1e-4 { energy_cost += TURN_ENERGY_SCALE * raw_turn.abs().min(1.0); }
             }
+            energy_cost += a.call_intensity * CALL_COST;
             a.energy -= energy_cost;
             if a.energy <= 0.0 { if a.dead_since.is_none() { a.dead_since = Some(self.steps); a.corpse_energy = CORPSE_INITIAL_ENERGY; } }
             // Update memories after acting
@@ -554,6 +566,15 @@ impl AppState {
             }
             map
         };
+        // Optional periodic snapshotting after evolution completes this generation
+        if SNAPSHOT_INTERVAL > 0 && self.generation % SNAPSHOT_INTERVAL == 0 {
+            let filename = format!("snapshots/auto_pop_snapshot_gen{:0>6}.json", self.generation);
+            if let Err(e) = io::save_population_snapshot(&filename, self.generation, &self.population, &self.innov) {
+                eprintln!("Auto-snapshot failed: {e}");
+            } else {
+                println!("Auto-saved population snapshot to {filename}");
+            }
+        }
     }
 }
 
@@ -602,6 +623,15 @@ async fn main() {
     if is_key_pressed(KeyCode::R) { let mut rng = ::rand::rng(); state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species); }
         if is_key_pressed(KeyCode::V) { state.show_cones = !state.show_cones; }
     if is_key_pressed(KeyCode::U) { state.show_unified_overlay = !state.show_unified_overlay; }
+    if is_key_pressed(KeyCode::S) {
+        // Save a non-blocking snapshot of genomes + innovation state.
+        // Filename pattern: snapshots/pop_snapshot_genXXXX.json
+        let filename = format!("snapshots/pop_snapshot_gen{:0>6}.json", state.generation);
+        match io::save_population_snapshot(&filename, state.generation, &state.population, &state.innov) {
+            Ok(_) => println!("Saved population snapshot to {filename}"),
+            Err(e) => eprintln!("Failed to save snapshot: {e}"),
+        }
+    }
         // Removed population size controls
 
         if running {
