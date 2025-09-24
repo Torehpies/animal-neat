@@ -127,12 +127,13 @@ pub fn meat_vector_from_rays(pos: Vec2, theta: f32, snapshot: &[(Vec2, bool, boo
 }
 
 pub fn density_sectors(pos: Vec2, theta: f32, snapshot: &[(Vec2, bool, bool, usize, bool)], self_idx: usize) -> [f32; DENSITY_SECTORS] {
-    // Custom 5-bin layout:
-    // 0: side-left (90°..180° left of forward)
-    // 1: side-right (90°..180° right of forward)
-    // 2: back-left (45°..90° left of backward)
-    // 3: back-right (45°..90° right of backward)
-    // 4: back-center (within 45° of directly behind)
+    // 6-bin layout:
+    // 0: forward (within 45° of forward)
+    // 1: side-left (45°..135° left)
+    // 2: side-right (45°..135° right)
+    // 3: back-left (135°..180° / -180°..-135° left region folded)
+    // 4: back-right (135°..180° / -180°..-135° right region folded)
+    // 5: back-center (within 45° of directly behind)
     let mut bins = [0.0f32; DENSITY_SECTORS];
     for (j, (p, alive, consumed, _species, _is_corpse)) in snapshot.iter().enumerate() {
         if j == self_idx { continue; }
@@ -143,26 +144,20 @@ pub fn density_sectors(pos: Vec2, theta: f32, snapshot: &[(Vec2, bool, bool, usi
         let c = theta.cos(); let s = theta.sin();
         let fwd = dx * c + dy * s; // forward component
         let right = dx * (-s) + dy * c; // right component
-        let ang = fwd.atan2(right); // local angle: right=0, forward=+PI/2, left=PI or -PI, back=-PI/2
-        // Convert to forward-centered angle (-PI..PI] where 0 = forward
-        let mut forward_ang = ang - std::f32::consts::FRAC_PI_2; // now 0 ~ forward
-        while forward_ang <= -std::f32::consts::PI { forward_ang += 2.0 * std::f32::consts::PI; }
-        while forward_ang > std::f32::consts::PI { forward_ang -= 2.0 * std::f32::consts::PI; }
-        // We only fill rear & side bins (ignore forward quadrant for compressed density)
+        // local angle where 0 = forward, positive = left (we construct using atan2(left,right) style)
+        let ang = right.atan2(fwd); // range -PI..PI, 0 forward, +PI/2 left, -PI/2 right
         let w = (1.0 - (d / DENSITY_RADIUS)).clamp(0.0, 1.0);
-        // Determine bin
-        if forward_ang > 0.0 { // left side in local forward frame
-            if forward_ang >= std::f32::consts::FRAC_PI_2 { // behind-left hemisphere
-                let delta = forward_ang - std::f32::consts::FRAC_PI_2; // 0..PI/2 maps to back region
-                if delta <= std::f32::consts::FRAC_PI_4 { bins[4] = (bins[4] + w).clamp(0.0, 1.0); } // back-center
-                else { bins[2] = (bins[2] + w).clamp(0.0, 1.0); } // back-left outer
-            } else { bins[0] = (bins[0] + w).clamp(0.0, 1.0); } // side-left
-        } else { // right side or negative angles
-            if forward_ang <= -std::f32::consts::FRAC_PI_2 { // behind-right hemisphere
-                let delta = -std::f32::consts::FRAC_PI_2 - forward_ang; // 0..PI/2
-                if delta <= std::f32::consts::FRAC_PI_4 { bins[4] = (bins[4] + w).clamp(0.0, 1.0); }
-                else { bins[3] = (bins[3] + w).clamp(0.0, 1.0); }
-            } else { bins[1] = (bins[1] + w).clamp(0.0, 1.0); } // side-right
+        use std::f32::consts::{FRAC_PI_4, FRAC_PI_2, PI};
+        let a = ang;
+        let add = |bin: &mut f32, val: f32| { *bin = (*bin + val).clamp(0.0, 1.0); };
+        if a.abs() <= FRAC_PI_4 { add(&mut bins[0], w); } // forward
+        else if a > FRAC_PI_4 && a <= FRAC_PI_2 + FRAC_PI_4 { add(&mut bins[1], w); } // side-left
+        else if a < -FRAC_PI_4 && a >= -FRAC_PI_2 - FRAC_PI_4 { add(&mut bins[2], w); } // side-right
+        else {
+            // back hemisphere: distinguish center vs sides
+            let back_ang = if a >= 0.0 { PI - a } else { PI + a }; // 0 at directly back
+            if back_ang <= FRAC_PI_4 { add(&mut bins[5], w); } // back-center
+            else if a > 0.0 { add(&mut bins[3], w); } else { add(&mut bins[4], w); }
         }
     }
     bins
@@ -222,7 +217,7 @@ pub fn compute_sector_pools(pos: Vec2, theta: f32, food: &[Vec2], snapshot: &[(V
         let dist = dist2.sqrt().max(1e-6);
         let fwd_comp = dx * fwd.x + dy * fwd.y; if fwd_comp <= 0.0 { continue; }
         let right_comp = dx * right_vec.x + dy * right_vec.y; let ang = right_comp.atan2(fwd_comp);
-        if let Some(si) = sector_index(ang) { let w = (1.0 - dist / VISION_RANGE).clamp(0.0,1.0); if w > plant_carc[si] { plant_carc[si] = w; } }
+    if let Some(si) = sector_index(ang) { let base = (1.0 - dist / VISION_RANGE).clamp(0.0,1.0); let w = base * base; if w > plant_carc[si] { plant_carc[si] = w; } }
     }
 
     // Agents / carcasses
@@ -233,7 +228,7 @@ pub fn compute_sector_pools(pos: Vec2, theta: f32, food: &[Vec2], snapshot: &[(V
         let fwd_comp = dx * fwd.x + dy * fwd.y; if fwd_comp <= 0.0 { continue; }
         let right_comp = dx * right_vec.x + dy * right_vec.y; let ang = right_comp.atan2(fwd_comp);
         if let Some(si) = sector_index(ang) {
-            let w = (1.0 - dist / VISION_RANGE).clamp(0.0,1.0);
+            let base = (1.0 - dist / VISION_RANGE).clamp(0.0,1.0); let w = base * base;
             if *alive {
                 if *species_id == my_species { if w > same_alive[si] { same_alive[si] = w; } }
                 else { if w > other_alive[si] { other_alive[si] = w; } }
@@ -248,7 +243,7 @@ pub fn compute_sector_pools(pos: Vec2, theta: f32, food: &[Vec2], snapshot: &[(V
     for (si, off) in sector_dirs.iter().enumerate() {
         let ang_world = theta + *off; let dir = Vec2 { x: ang_world.cos(), y: ang_world.sin() };
         let t = ray_wall_distance(pos, dir);
-        if t.is_finite() && t>0.0 && t<=VISION_RANGE { let w = (1.0 - t / VISION_RANGE).clamp(0.0,1.0); wall_prox[si] = w; }
+    if t.is_finite() && t>0.0 && t<=VISION_RANGE { let base = (1.0 - t / VISION_RANGE).clamp(0.0,1.0); let w = base * base; wall_prox[si] = w; }
     }
 
     SectorPools { plant_carc, same_alive, other_alive, wall: wall_prox }

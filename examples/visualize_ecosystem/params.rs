@@ -68,10 +68,12 @@ pub const MAX_SPEED: f32 = 2.5; // legacy MAX_TURN & coupling removed (angle+spe
 // Sensing / Memory
 // ==============
 pub const DANGER_VECTOR_MAX_RANGE: f32 = 150.0;
-// Density sectors reduced: 5 custom bins (side-left, side-right, back-left, back-right, back-center)
-// Rationale: compress spatial crowding signal while keeping coarse directional awareness.
-pub const DENSITY_SECTORS: usize = 5;
+// Density sectors: now 6 bins (forward, side-left, side-right, back-left, back-right, back-center)
+// Added forward bin to give explicit congestion awareness straight ahead.
+pub const DENSITY_SECTORS: usize = 6;
 pub const DENSITY_RADIUS: f32 = 40.0;
+// Memory decay factor applied each step AFTER new memories are written (closer to 1.0 = slower decay)
+pub const MEMORY_DECAY: f32 = 0.90;
 
 // Inputs layout (directional pooled proximities):
 // Directional pooled proximities (updated): 3 angular sectors (Left, Forward, Right) each with 4 categories:
@@ -80,8 +82,8 @@ pub const DENSITY_RADIUS: f32 = 40.0;
 //   - OtherAlive (alive heterospecific)
 //   - Wall (boundary)
 // Per sector features: 4 proximities -> 3 * 4 = 12.
-// Remaining standard features: energy (1) + memories (4) + density sectors (5) = 10.
-// Total INPUTS = 12 + 10 = 22.
+// Remaining standard features: energy (1) + memories (4) + density sectors (6) = 11.
+// Total INPUTS = 12 + 11 = 23.
 pub const INPUTS: usize = 12 + 1 + 4 + DENSITY_SECTORS;
 // Movement controller outputs now: [ turn, speed ] (relative turn model)
 // turn in [-1,1] -> applied delta heading in [-MAX_TURN_PER_STEP, MAX_TURN_PER_STEP]
@@ -122,10 +124,17 @@ pub const SCAVENGE_ENABLED: bool = true;
 // ===================================
 // Output[0] gives a turn command each step; we scale it by MAX_TURN_PER_STEP and add to heading.
 // Output[1] gives speed scalar. Heading is wrapped to (-PI, PI] to avoid drift.
-pub const MOTOR_NOISE: f32 = 0.03;               // small exploratory noise
+pub const MOTOR_NOISE: f32 = 0.0;                // noise disabled (was 0.03) for deterministic control
 pub const MAX_TURN_PER_STEP: f32 = std::f32::consts::PI / 18.0; // same numeric value as previous smoothing limit
 pub const MOVE_ENERGY_SCALE: f32 = 0.2;           // energy cost per unit normalized speed
 pub const TURN_ENERGY_SCALE: f32 = 0.01;          // energy cost added proportional to |turn_fraction|
+
+// ==============================
+// Sensing smoothing
+// ==============================
+// Exponential moving average factor for sector pooled proximities (0..1].
+// Higher = follow current frame more closely, lower = smoother / more lag.
+pub const POOL_EMA_ALPHA: f32 = 0.5;
 
 // ==============================
 // Digestion / Corpse decay

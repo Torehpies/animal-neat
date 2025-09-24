@@ -5,7 +5,7 @@ use crate::sensing;
 use crate::ui_common::{world_to_screen, fit_world_rect, world_scale};
 use crate::dir_from_theta;
 
-pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, _member_species: &[usize], show_density_overlay: bool, show_vector_overlay: bool, show_pooled: bool, mouse_world: Option<Vec2>) {
+pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, _member_species: &[usize], unified_overlay: bool, mouse_world: Option<Vec2>) {
     let fitted = fit_world_rect(area);
     // background: draw biome bands with seasonal tinting
     // Biomes split across X using BIOME_X_SPLITS; use episode.steps as season time
@@ -166,102 +166,45 @@ pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, _member_speci
 
         // Overlays for the focused agent
         if Some(idx) == focused_idx && a.energy > 0.0 {
-            if show_density_overlay {
-                let bins = sensing::density_sectors(a.pos, a.theta, &snapshot, idx);
-                let two_pi = std::f32::consts::PI * 2.0;
-                let sector = two_pi / (DENSITY_SECTORS as f32);
-                let base_len = 18.0_f32.max(agent_r + 4.0);
-                for s in 0..DENSITY_SECTORS {
-                    let v = bins[s].clamp(0.0, 1.0);
-                    if v <= 0.0 { continue; }
-                    // mid-angle of sector in local frame: 0 = right, +pi/2 = forward
-                    let ang_local = -std::f32::consts::PI + sector * (s as f32 + 0.5);
-                    // Convert local dir to world delta with scale
-                    let c = a.theta.cos(); let snt = a.theta.sin();
-                    let right_x = -snt; let right_y = c;
-                    let fwd_x = c; let fwd_y = snt;
-                    let dir_world_x = right_x * ang_local.cos() + fwd_x * ang_local.sin();
-                    let dir_world_y = right_y * ang_local.cos() + fwd_y * ang_local.sin();
-                    let len = base_len + v * 28.0;
-                    let end_world = Vec2 { x: a.pos.x + dir_world_x * (len / fitted.w * WORLD_W), y: a.pos.y + dir_world_y * (len / fitted.h * WORLD_H) };
-                    let (ex, ey) = world_to_screen(fitted, end_world);
-                    draw_line(px, py, ex, ey, 2.0, Color::new(0.1, 1.0, 1.0, 0.8));
-                }
-            }
-            if show_vector_overlay {
-                // Helper to draw an arrow for a local vector
-                let draw_local_arrow = |_label: &str, lx: f32, ly: f32, color: Color| {
-                    let c = a.theta.cos(); let snt = a.theta.sin();
-                    let right_x = -snt; let right_y = c;
-                    let fwd_x = c; let fwd_y = snt;
-                    let scale = 60.0; // pixels
-                    let world_dx = (right_x * lx + fwd_x * ly) * (scale / fitted.w * WORLD_W);
-                    let world_dy = (right_y * lx + fwd_y * ly) * (scale / fitted.h * WORLD_H);
-                    let end = Vec2 { x: a.pos.x + world_dx, y: a.pos.y + world_dy };
-                    let (ex, ey) = world_to_screen(fitted, end);
-                    draw_line(px, py, ex, ey, 2.0, color);
-                    // arrow head
-                    let hx = ex + (px - ex) * 0.15 + (ey - py) * 0.12;
-                    let hy = ey + (py - ey) * 0.15 - (ex - px) * 0.12;
-                    draw_line(ex, ey, hx, hy, 2.0, color);
-                    let hx2 = ex + (px - ex) * 0.15 - (ey - py) * 0.12;
-                    let hy2 = ey + (py - ey) * 0.15 + (ex - px) * 0.12;
-                    draw_line(ex, ey, hx2, hy2, 2.0, color);
-                };
-                // Current food vector (green) derived from rays
-                let (fx, fy) = sensing::food_vector_from_rays(a.pos, a.theta, &episode.food);
-                draw_local_arrow("food", fx, fy, Color::new(0.2, 1.0, 0.2, 0.95));
-                // Current meat vector (orange) derived from rays (edible agents or corpses)
-                let (mx, my) = sensing::meat_vector_from_rays(a.pos, a.theta, &snapshot, idx);
-                draw_local_arrow("meat", mx, my, Color::new(1.0, 0.6, 0.1, 0.95));
-                // Current danger vector (red)
-                let (dx, dy) = sensing::nearest_agent_vector_local(a.pos, a.theta, &snapshot, idx);
-                draw_local_arrow("danger", dx, dy, Color::new(1.0, 0.2, 0.2, 0.9));
-                // Memory vectors (yellow/orange)
-                draw_local_arrow("last_food", a.last_food_mem.x, a.last_food_mem.y, Color::new(1.0, 0.9, 0.2, 0.95));
-                draw_local_arrow("last_danger", a.last_danger_mem.x, a.last_danger_mem.y, Color::new(1.0, 0.6, 0.2, 0.95));
-            }
-            if show_pooled {
-                // Use unified pooling logic
-                let pools = sensing::compute_sector_pools(a.pos, a.theta, &episode.food, &snapshot, idx, 0); // species id 0 placeholder
+            if unified_overlay {
+                // Unified overlay: smoothed sector bars + memory vectors + density radial ticks
+                // Draw sector bars using agent's smoothed pooled_* fields
                 let (ax, ay) = world_to_screen(fitted, a.pos);
-                // Draw sector arc outlines for orientation
-                let cone_half = VISION_ANGLE_DEG.to_radians() * 0.5;
-                let radii = [AGENT_RADIUS * 4.0, AGENT_RADIUS * 8.0];
-                for r_mult in radii { // faint guide rings
-                    let r_world = r_mult;
-                    let r_px = r_world * px_per_world;
-                    draw_circle_lines(ax, ay, r_px, 1.0, Color::new(0.2,0.2,0.25,0.35));
-                }
-                // Sector boundary lines
-                let sector_bounds = [-cone_half, 0.0, cone_half];
-                for ang in sector_bounds {
-                    let ang_world = a.theta + ang;
-                    let end = Vec2 { x: a.pos.x + ang_world.cos() * (AGENT_RADIUS*8.0), y: a.pos.y + ang_world.sin() * (AGENT_RADIUS*8.0) };
-                    let (ex, ey) = world_to_screen(fitted, end);
-                    draw_line(ax, ay, ex, ey, 1.0, Color::new(0.25,0.25,0.3,0.5));
-                }
-                // Bar stacks per sector with labels
-                let w_sector = 54.0; let bar_h = 7.0; let gap = 3.0;
-                let labels = ["Plant/Carc", "Same", "Other", "Wall"];
+                let w_sector = 56.0; let bar_h = 7.0; let gap = 3.0;
                 let colors = [Color::new(0.25,1.0,0.25,0.95), Color::new(0.1,0.85,1.0,0.95), Color::new(1.0,0.3,0.9,0.95), Color::new(0.75,0.75,0.75,0.95)];
-                let rows = [pools.plant_carc, pools.same_alive, pools.other_alive, pools.wall];
-                // Position bars slightly above agent
-                for (sector_i, _sector_label) in ["L","F","R"].iter().enumerate() {
+                let rows: [[f32;3];4] = [a.pooled_plant, a.pooled_same, a.pooled_other, a.pooled_wall];
+                for (sector_i, _) in ["L","F","R"].iter().enumerate() {
                     let x0 = ax - w_sector * 1.6 + sector_i as f32 * (w_sector + 16.0);
                     for (row_i, arr) in rows.iter().enumerate() {
                         let v = arr[sector_i].clamp(0.0,1.0);
-                        let y0 = ay - 24.0 - (row_i as f32) * (bar_h + gap);
-                        draw_rectangle(x0, y0, w_sector, bar_h, Color::new(0.08,0.09,0.11,0.7));
+                        let y0 = ay - 28.0 - (row_i as f32) * (bar_h + gap);
+                        draw_rectangle(x0, y0, w_sector, bar_h, Color::new(0.07,0.08,0.1,0.7));
                         draw_rectangle(x0, y0, w_sector * v, bar_h, colors[row_i]);
                     }
                 }
-                // Legend (compact) to right of agent
-                let legend_x = ax + w_sector * 1.4 + 8.0;
-                for (i, lab) in labels.iter().enumerate() {
-                    let ly = ay - 24.0 - (i as f32) * (bar_h + gap);
-                    draw_rectangle(legend_x, ly, 10.0, bar_h, colors[i]);
-                    draw_text(lab, legend_x + 14.0, ly + bar_h - 1.0, 14.0, GRAY);
+                // Memory vectors (food=yellow, danger=orange)
+                let draw_mem_vec = |vx: f32, vy: f32, color: Color| {
+                    let cth = a.theta.cos(); let sth = a.theta.sin();
+                    let right_x = -sth; let right_y = cth; let fwd_x = cth; let fwd_y = sth;
+                    let scale = 55.0;
+                    let world_dx = (right_x * vx + fwd_x * vy) * (scale / fitted.w * WORLD_W);
+                    let world_dy = (right_y * vx + fwd_y * vy) * (scale / fitted.h * WORLD_H);
+                    let end = Vec2 { x: a.pos.x + world_dx, y: a.pos.y + world_dy };
+                    let (ex, ey) = world_to_screen(fitted, end);
+                    draw_line(ax, ay, ex, ey, 2.0, color);
+                };
+                draw_mem_vec(a.last_food_mem.x, a.last_food_mem.y, Color::new(1.0,0.95,0.3,0.9));
+                draw_mem_vec(a.last_danger_mem.x, a.last_danger_mem.y, Color::new(1.0,0.6,0.2,0.9));
+                // Density rays (scaled magnitude) using current snapshot
+                let bins = sensing::density_sectors(a.pos, a.theta, &snapshot, idx);
+                // Radial density lines (cyan) using bins array mapping: forward, side-L, side-R, back-L, back-R, back-center
+                let dir_angles = [0.0, std::f32::consts::FRAC_PI_2*0.66, -std::f32::consts::FRAC_PI_2*0.66, std::f32::consts::PI*0.75, -std::f32::consts::PI*0.75, std::f32::consts::PI];
+                for (bi, val) in bins.iter().enumerate() { if *val <= 0.0 { continue; }
+                    let ang_world = a.theta + dir_angles[bi];
+                    let len = (AGENT_RADIUS * 4.0) + *val * (AGENT_RADIUS * 6.0);
+                    let end = Vec2 { x: a.pos.x + ang_world.cos() * len, y: a.pos.y + ang_world.sin() * len };
+                    let (ex, ey) = world_to_screen(fitted, end);
+                    draw_line(ax, ay, ex, ey, 2.0, Color::new(0.1,1.0,1.0,0.85));
                 }
             }
         }

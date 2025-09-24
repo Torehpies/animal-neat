@@ -65,6 +65,11 @@ struct Agent {
     last_food_mem: Vec2,         // memory of last step's nearest-food local vector
     last_danger_mem: Vec2,       // memory of last step's nearest-agent local vector
     species_id: usize,           // stable species index captured at episode start
+    // Smoothed pooled sensing (Left, Forward, Right) × categories (Plant/Carc, Same, Other, Wall)
+    pooled_plant: [f32;3],
+    pooled_same: [f32;3],
+    pooled_other: [f32;3],
+    pooled_wall: [f32;3],
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -106,7 +111,10 @@ fn build_species_map(speciator: &Speciator, pop_len: usize) -> Vec<usize> {
 fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
     let mut rng = ::rand::rng();
     let mut food = world::build_world(&mut rng);
-    // For evaluation (fitness) we don't have access to a live Speciator; treat all as one species (0) for now.
+    // Lightweight speciation for evaluation to provide species differentiation signal
+    let mut temp_speciator = Speciator::new(1.0);
+    temp_speciator.speciate(population);
+    let species_map = build_species_map(&temp_speciator, population.len());
     let mut agents: Vec<Agent> = population.iter().enumerate().map(|(i, _)| Agent {
         id: AgentId(i),
         pos: world::rand_pos(&mut rng),
@@ -121,7 +129,8 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         digest: VecDeque::new(),
         last_food_mem: Vec2 { x: 0.0, y: 0.0 },
         last_danger_mem: Vec2 { x: 0.0, y: 0.0 },
-        species_id: 0,
+        species_id: *species_map.get(i).unwrap_or(&0),
+        pooled_plant: [0.0;3], pooled_same: [0.0;3], pooled_other: [0.0;3], pooled_wall: [0.0;3],
     }).collect();
     // Track exploration (unique grid cells); shaping buckets removed for simplification
     let mut visited: Vec<std::collections::HashSet<u32>> = vec![std::collections::HashSet::new(); agents.len()];
@@ -132,7 +141,7 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         if agents.iter().all(|a| a.energy <= 0.0) { break; }
         // Snapshot for predation decisions to avoid borrow conflicts
         // Extended snapshot: (pos, alive, consumed_flag, species_id, is_corpse)
-    let species_ids: Vec<usize> = vec![0; agents.len()]; // placeholder (evaluation path species collapse)
+    let species_ids: Vec<usize> = species_map.clone();
         let snapshot: Vec<(Vec2, bool, bool, usize, bool)> = agents.iter().enumerate().map(|(i,a)| {
             let alive = a.energy > 0.0; let is_corpse = !alive && !a.consumed && a.corpse_energy > 0.1;
             (a.pos, alive, a.consumed, *species_ids.get(i).unwrap_or(&0), is_corpse)
@@ -142,6 +151,12 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             if a.energy <= 0.0 { continue; }
             // Build extended inputs (ray-first): per-ray signals + energy + memory + density
             let (cur_fx, cur_fy) = sensing::food_vector_from_rays(a.pos, a.theta, &food);
+            // Update pooled sensing smoothing
+            let pools = sensing::compute_sector_pools(a.pos, a.theta, &food, &snapshot, i, a.species_id);
+            for si in 0..3 { let alpha = POOL_EMA_ALPHA; a.pooled_plant[si] = a.pooled_plant[si] + alpha * (pools.plant_carc[si] - a.pooled_plant[si]); }
+            for si in 0..3 { let alpha = POOL_EMA_ALPHA; a.pooled_same[si]  = a.pooled_same[si]  + alpha * (pools.same_alive[si]  - a.pooled_same[si]); }
+            for si in 0..3 { let alpha = POOL_EMA_ALPHA; a.pooled_other[si] = a.pooled_other[si] + alpha * (pools.other_alive[si] - a.pooled_other[si]); }
+            for si in 0..3 { let alpha = POOL_EMA_ALPHA; a.pooled_wall[si]  = a.pooled_wall[si]  + alpha * (pools.wall[si]       - a.pooled_wall[si]); }
             let density = sensing::density_sectors(a.pos, a.theta, &snapshot, i);
             // Digest before acting (shared)
             sim::apply_digestion(a);
@@ -153,8 +168,7 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             // Movement outputs: [turn, speed] (relative turn model)
             let mut raw_turn = out.get(0).copied().unwrap_or(0.0);
             let mut raw_speed = out.get(1).copied().unwrap_or(0.0);
-            raw_turn += rng.random_range(-MOTOR_NOISE..MOTOR_NOISE);
-            raw_speed += rng.random_range(-MOTOR_NOISE..MOTOR_NOISE);
+            // motor noise disabled
             raw_turn = raw_turn.clamp(-1.0, 1.0);
             raw_speed = raw_speed.clamp(-1.0, 1.0);
             let turn_delta = raw_turn * MAX_TURN_PER_STEP;
@@ -195,6 +209,9 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             a.last_food_mem = Vec2 { x: cur_fx, y: cur_fy };
             let (dx_mem, dy_mem) = sensing::nearest_agent_vector_local(a.pos, a.theta, &snapshot, i);
             a.last_danger_mem = Vec2 { x: dx_mem, y: dy_mem };
+            // Memory decay
+            a.last_food_mem.x *= MEMORY_DECAY; a.last_food_mem.y *= MEMORY_DECAY;
+            a.last_danger_mem.x *= MEMORY_DECAY; a.last_danger_mem.y *= MEMORY_DECAY;
             // (Removed approach reward & spin penalty accumulation)
         }
         // Resolve predation and tick corpse/flash decay (shared)
@@ -238,6 +255,7 @@ impl Episode {
                 last_food_mem: Vec2 { x: 0.0, y: 0.0 },
                 last_danger_mem: Vec2 { x: 0.0, y: 0.0 },
                 species_id: *species_map.get(i).unwrap_or(&0),
+                pooled_plant: [0.0;3], pooled_same: [0.0;3], pooled_other: [0.0;3], pooled_wall: [0.0;3],
             });
         }
     Self {
@@ -266,6 +284,11 @@ impl Episode {
             if a.energy <= 0.0 { continue; }
             // Build extended inputs (Phase 3): rays + current food vec + energy + memory + density
             let (cur_fx, cur_fy) = sensing::food_vector_from_rays(a.pos, a.theta, &self.food);
+            let pools = sensing::compute_sector_pools(a.pos, a.theta, &self.food, &snapshot, i, a.species_id);
+            for si in 0..3 { let alpha = POOL_EMA_ALPHA; a.pooled_plant[si] = a.pooled_plant[si] + alpha * (pools.plant_carc[si] - a.pooled_plant[si]); }
+            for si in 0..3 { let alpha = POOL_EMA_ALPHA; a.pooled_same[si]  = a.pooled_same[si]  + alpha * (pools.same_alive[si]  - a.pooled_same[si]); }
+            for si in 0..3 { let alpha = POOL_EMA_ALPHA; a.pooled_other[si] = a.pooled_other[si] + alpha * (pools.other_alive[si] - a.pooled_other[si]); }
+            for si in 0..3 { let alpha = POOL_EMA_ALPHA; a.pooled_wall[si]  = a.pooled_wall[si]  + alpha * (pools.wall[si]       - a.pooled_wall[si]); }
             let (_cur_dx, _cur_dy) = sensing::nearest_agent_vector_local(a.pos, a.theta, &snapshot, i);
             let density = sensing::density_sectors(a.pos, a.theta, &snapshot, i);
             // Digestive intake before action (shared)
@@ -274,9 +297,8 @@ impl Episode {
             let inputs = sensing::build_inputs(a.pos, a.theta, &self.food, energy_in, a.last_food_mem, a.last_danger_mem, &density, &snapshot, i, a.species_id);
             let out = population[a.id.0].evaluate_slice(&inputs);
             // Movement scheme: [turn, speed] (relative turn)
-            let mut rng_local = ::rand::rng();
-            let mut raw_turn = out.get(0).copied().unwrap_or(0.0) + rng_local.random_range(-MOTOR_NOISE..MOTOR_NOISE);
-            let mut raw_speed = out.get(1).copied().unwrap_or(0.0) + rng_local.random_range(-MOTOR_NOISE..MOTOR_NOISE);
+            let mut raw_turn = out.get(0).copied().unwrap_or(0.0);
+            let mut raw_speed = out.get(1).copied().unwrap_or(0.0);
             raw_turn = raw_turn.clamp(-1.0, 1.0);
             raw_speed = raw_speed.clamp(-1.0, 1.0);
             let turn_delta = raw_turn * MAX_TURN_PER_STEP;
@@ -322,6 +344,9 @@ impl Episode {
             // For now, we only store danger memory; current danger not part of inputs to keep size down
             let (dx_mem, dy_mem) = sensing::nearest_agent_vector_local(a.pos, a.theta, &snapshot, i);
             a.last_danger_mem = Vec2 { x: dx_mem, y: dy_mem };
+            // Memory decay
+            a.last_food_mem.x *= MEMORY_DECAY; a.last_food_mem.y *= MEMORY_DECAY;
+            a.last_danger_mem.x *= MEMORY_DECAY; a.last_danger_mem.y *= MEMORY_DECAY;
         }
         // Resolve predation after movement and decay (shared)
         sim::resolve_predation(&mut self.agents, &prey_targets, self.steps);
@@ -362,9 +387,7 @@ struct AppState {
     last_best_generation: usize,
     last_best_genome: Option<Genome>,
     // Debug overlays
-    show_density_overlay: bool,
-    show_vector_overlay: bool,
-    show_pooled_sensing_overlay: bool,
+    show_unified_overlay: bool,
 }
 
 impl AppState {
@@ -404,9 +427,7 @@ impl AppState {
             best_ever_genome: None,
             last_best_generation: 0,
             last_best_genome: None,
-            show_density_overlay: false,
-            show_vector_overlay: false,
-                show_pooled_sensing_overlay: false,
+            show_unified_overlay: false,
         }
     }
 
@@ -516,9 +537,7 @@ async fn main() {
         if is_key_pressed(KeyCode::F) { fast_mode = !fast_mode; }
     if is_key_pressed(KeyCode::R) { let mut rng = ::rand::rng(); state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species); }
         if is_key_pressed(KeyCode::V) { state.show_cones = !state.show_cones; }
-    if is_key_pressed(KeyCode::D) { state.show_density_overlay = !state.show_density_overlay; }
-    if is_key_pressed(KeyCode::B) { state.show_vector_overlay = !state.show_vector_overlay; }
-            if is_key_pressed(KeyCode::S) { state.show_pooled_sensing_overlay = !state.show_pooled_sensing_overlay; }
+    if is_key_pressed(KeyCode::U) { state.show_unified_overlay = !state.show_unified_overlay; }
         // Removed population size controls
 
         if running {
@@ -570,9 +589,7 @@ async fn main() {
         &state.episode,
         state.show_cones,
         &state.member_species,
-        state.show_density_overlay,
-        state.show_vector_overlay,
-            state.show_pooled_sensing_overlay,
+        state.show_unified_overlay,
         mouse_world,
     );
     ui_hud::draw_hud(hud_area, &state, running, fast_mode, &state.member_species);
