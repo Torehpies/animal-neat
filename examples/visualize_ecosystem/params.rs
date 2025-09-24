@@ -82,12 +82,9 @@ pub const DENSITY_RADIUS: f32 = 40.0;
 // - 4 (memory vectors: last_food x,y and last_danger x,y)
 // - DENSITY_SECTORS (alive-neighbor density bins)
 pub const INPUTS: usize = VISION_RAYS * 3 + 1 + 4 + DENSITY_SECTORS;
-// Movement controller outputs now use a semantic triple:
-// [ angle, speed, action ]
-// angle  in [-1,1] mapped to [-PI, PI] absolute world heading (after optional smoothing)
-// speed  in [-1,1] mapped to [0,1]
-// action in [-1,1] interpreted via ACTION_THRESHOLD for predation attempts (plants always edible)
-pub const OUTPUTS: usize = 3;
+// Movement controller outputs now: [ angle, speed ]
+// angle in [-1,1] -> [-PI, PI] absolute heading; speed in [-1,1] -> [0,1]
+pub const OUTPUTS: usize = 2;
 
 // ==========================
 // Exploration (simplified)
@@ -119,20 +116,18 @@ pub const PREDATION_ENABLED: bool = true;
 pub const SCAVENGE_ENABLED: bool = true;
 
 // ===============================
-// Motor model (angle + speed + action)
+// Motor model (angle + speed)
 // ===============================
-// Network outputs 3 values:
+// Network outputs 2 values:
 //  0: desired absolute heading angle in [-1,1] -> scaled to [-PI, PI]
 //  1: speed scalar in [-1,1] -> scaled to [0,1]
-//  2: action activation in [-1,1]; > ACTION_THRESHOLD => attempt predation (live target) this step
 // Heading can rotate smoothly toward target angle (SMOOTH_HEADING) or snap instantly.
 pub const MOTOR_NOISE: f32 = 0.03;              // small noise to angle & speed for exploration
 pub const SMOOTH_HEADING: bool = true;           // smooth turning enabled
 pub const MAX_HEADING_DELTA: f32 = std::f32::consts::PI / 18.0; // max radians change per step if smoothing
 pub const MOVE_ENERGY_SCALE: f32 = 0.2;          // energy cost per unit normalized speed
 pub const TURN_ENERGY_SCALE: f32 = 0.01;         // additional cost when turning (if smoothing)
-pub const ACTION_THRESHOLD: f32 = 0.5;           // raw action output > threshold => predation attempt
-pub const ACTION_ENERGY_COST: f32 = 0.2;         // extra energy cost when action is triggered
+// (Removed separate action output; predation attempts occur automatically if target in range.)
 
 // ==============================
 // Digestion / Corpse decay

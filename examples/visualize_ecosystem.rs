@@ -78,7 +78,6 @@ struct Episode {
     total_agent_steps: usize,
     avg_speed_accum: f32,
     heading_change_accum: f32,
-    action_trigger_count: usize,
 }
 
 fn dir_from_theta(theta: f32) -> Vec2 { Vec2 { x: theta.cos(), y: theta.sin() } }
@@ -134,15 +133,13 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             let energy_in = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
             let inputs = sensing::build_inputs(a.pos, a.theta, &food, energy_in, a.last_food_mem, a.last_danger_mem, &density, &snapshot, i);
             let out = population[i].evaluate_slice(&inputs);
-            // New movement outputs: [angle, speed, action]
+            // Movement outputs: [angle, speed]
             let mut raw_angle = out.get(0).copied().unwrap_or(0.0);
             let mut raw_speed = out.get(1).copied().unwrap_or(0.0);
-            let mut raw_action = out.get(2).copied().unwrap_or(-1.0);
             raw_angle += rng.random_range(-MOTOR_NOISE..MOTOR_NOISE);
             raw_speed += rng.random_range(-MOTOR_NOISE..MOTOR_NOISE);
             raw_angle = raw_angle.clamp(-1.0, 1.0);
             raw_speed = raw_speed.clamp(-1.0, 1.0);
-            raw_action = raw_action.clamp(-1.0, 1.0);
             let target_theta = raw_angle * std::f32::consts::PI; // map [-1,1] -> [-PI, PI]
             let mut speed = (raw_speed + 1.0) * 0.5; // map [-1,1] -> [0,1]
             if speed > 1.0 { speed = 1.0; }
@@ -166,22 +163,19 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             // Predation/scavenging: choose a nearby target (record only)
             if PREDATION_ENABLED || SCAVENGE_ENABLED {
                 let mut target: Option<usize> = None;
-                if raw_action > ACTION_THRESHOLD { // only attempt if action fired
-                    for j in 0..snapshot.len() {
-                        if j == i { continue; }
-                        let (pos_j, alive_j, consumed_j) = snapshot[j];
-                        if consumed_j { continue; }
-                        if (alive_j && !PREDATION_ENABLED) || (!alive_j && !SCAVENGE_ENABLED) { continue; }
-                        let dx = pos_j.x - a.pos.x; let dy = pos_j.y - a.pos.y;
-                        if (dx*dx + dy*dy).sqrt() <= EAT_AGENT_RADIUS { target = Some(j); break; }
-                    }
+                for j in 0..snapshot.len() {
+                    if j == i { continue; }
+                    let (pos_j, alive_j, consumed_j) = snapshot[j];
+                    if consumed_j { continue; }
+                    if (alive_j && !PREDATION_ENABLED) || (!alive_j && !SCAVENGE_ENABLED) { continue; }
+                    let dx = pos_j.x - a.pos.x; let dy = pos_j.y - a.pos.y;
+                    if (dx*dx + dy*dy).sqrt() <= EAT_AGENT_RADIUS { target = Some(j); break; }
                 }
                 prey_targets[i] = target;
             }
             // Energy cost: base + movement + optional turning if smoothing
             let mut energy_cost = ENERGY_DRAIN_PER_STEP + speed * MOVE_ENERGY_SCALE;
             if SMOOTH_HEADING && speed > 1e-4 { energy_cost += TURN_ENERGY_SCALE; }
-            if raw_action > ACTION_THRESHOLD { energy_cost += ACTION_ENERGY_COST; }
             a.energy -= energy_cost;
             if a.energy <= 0.0 { if a.dead_since.is_none() { a.dead_since = Some(steps); a.corpse_energy = CORPSE_INITIAL_ENERGY; } }
             // Update memories after acting
@@ -240,7 +234,6 @@ impl Episode {
     total_agent_steps: 0,
     avg_speed_accum: 0.0,
     heading_change_accum: 0.0,
-    action_trigger_count: 0,
     }
     }
 
@@ -261,14 +254,12 @@ impl Episode {
             let energy_in = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
             let inputs = sensing::build_inputs(a.pos, a.theta, &self.food, energy_in, a.last_food_mem, a.last_danger_mem, &density, &snapshot, i);
             let out = population[a.id.0].evaluate_slice(&inputs);
-            // New scheme: [angle, speed, action]
+            // Movement outputs: [angle, speed]
             let mut rng_local = ::rand::rng();
             let mut raw_angle = out.get(0).copied().unwrap_or(0.0) + rng_local.random_range(-MOTOR_NOISE..MOTOR_NOISE);
             let mut raw_speed = out.get(1).copied().unwrap_or(0.0) + rng_local.random_range(-MOTOR_NOISE..MOTOR_NOISE);
-            let mut raw_action = out.get(2).copied().unwrap_or(-1.0); // action less likely by default
             raw_angle = raw_angle.clamp(-1.0, 1.0);
             raw_speed = raw_speed.clamp(-1.0, 1.0);
-            raw_action = raw_action.clamp(-1.0, 1.0);
             let target_theta = raw_angle * std::f32::consts::PI;
             let mut speed = (raw_speed + 1.0) * 0.5; // [0,1]
             if speed > 1.0 { speed = 1.0; }
@@ -297,16 +288,13 @@ impl Episode {
             // Predation/scavenging: choose a target to apply after the loop
             if PREDATION_ENABLED || SCAVENGE_ENABLED {
                 let mut target: Option<usize> = None;
-                if raw_action > ACTION_THRESHOLD { // attempt only when action triggered
-                    self.action_trigger_count += 1;
-                    for j in 0..snapshot.len() {
-                        if j == i { continue; }
-                        let (pos_j, alive_j, consumed_j) = snapshot[j];
-                        if consumed_j { continue; }
-                        if (alive_j && !PREDATION_ENABLED) || (!alive_j && !SCAVENGE_ENABLED) { continue; }
-                        let dx = pos_j.x - a.pos.x; let dy = pos_j.y - a.pos.y;
-                        if (dx*dx + dy*dy).sqrt() <= EAT_AGENT_RADIUS { target = Some(j); break; }
-                    }
+                for j in 0..snapshot.len() {
+                    if j == i { continue; }
+                    let (pos_j, alive_j, consumed_j) = snapshot[j];
+                    if consumed_j { continue; }
+                    if (alive_j && !PREDATION_ENABLED) || (!alive_j && !SCAVENGE_ENABLED) { continue; }
+                    let dx = pos_j.x - a.pos.x; let dy = pos_j.y - a.pos.y;
+                    if (dx*dx + dy*dy).sqrt() <= EAT_AGENT_RADIUS { target = Some(j); break; }
                 }
                 prey_targets[i] = target;
             }
@@ -316,7 +304,6 @@ impl Episode {
             if SMOOTH_HEADING { self.heading_change_accum += heading_delta_used; }
             let mut energy_cost = ENERGY_DRAIN_PER_STEP + speed * MOVE_ENERGY_SCALE;
             if SMOOTH_HEADING && speed > 1e-4 { energy_cost += TURN_ENERGY_SCALE; }
-            if raw_action > ACTION_THRESHOLD { energy_cost += ACTION_ENERGY_COST; }
             a.energy -= energy_cost;
             if a.energy <= 0.0 { if a.dead_since.is_none() { a.dead_since = Some(self.steps); a.corpse_energy = CORPSE_INITIAL_ENERGY; } }
             // Update memories after acting
