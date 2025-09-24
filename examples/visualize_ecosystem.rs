@@ -78,6 +78,7 @@ struct Episode {
     total_agent_steps: usize,
     avg_speed_accum: f32,
     heading_change_accum: f32,
+    action_trigger_count: usize,
 }
 
 fn dir_from_theta(theta: f32) -> Vec2 { Vec2 { x: theta.cos(), y: theta.sin() } }
@@ -133,33 +134,28 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             let energy_in = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
             let inputs = sensing::build_inputs(a.pos, a.theta, &food, energy_in, a.last_food_mem, a.last_danger_mem, &density, &snapshot, i);
             let out = population[i].evaluate_slice(&inputs);
-            // Vector drive: two outputs -> (vx, vy) in [-1,1]
-            let mut vx = out.get(0).copied().unwrap_or(0.0);
-            let mut vy = out.get(1).copied().unwrap_or(0.0);
-            // Noise
-            vx += rng.random_range(-MOTOR_NOISE..MOTOR_NOISE);
-            vy += rng.random_range(-MOTOR_NOISE..MOTOR_NOISE);
-            vx = vx.clamp(-1.0, 1.0);
-            vy = vy.clamp(-1.0, 1.0);
-            let mut speed = (vx * vx + vy * vy).sqrt();
-            let mut dir = if speed > 1e-4 { Vec2 { x: vx / speed, y: vy / speed } } else { dir_from_theta(a.theta) };
+            // New movement outputs: [angle, speed, action]
+            let mut raw_angle = out.get(0).copied().unwrap_or(0.0);
+            let mut raw_speed = out.get(1).copied().unwrap_or(0.0);
+            let mut raw_action = out.get(2).copied().unwrap_or(-1.0);
+            raw_angle += rng.random_range(-MOTOR_NOISE..MOTOR_NOISE);
+            raw_speed += rng.random_range(-MOTOR_NOISE..MOTOR_NOISE);
+            raw_angle = raw_angle.clamp(-1.0, 1.0);
+            raw_speed = raw_speed.clamp(-1.0, 1.0);
+            raw_action = raw_action.clamp(-1.0, 1.0);
+            let target_theta = raw_angle * std::f32::consts::PI; // map [-1,1] -> [-PI, PI]
+            let mut speed = (raw_speed + 1.0) * 0.5; // map [-1,1] -> [0,1]
             if speed > 1.0 { speed = 1.0; }
-            // Smooth heading toward desired direction if enabled
-            if SMOOTH_HEADING && speed > 1e-4 {
-                let desired = vy.atan2(vx); // atan2(y, x)
-                let mut delta = desired - a.theta;
-                // wrap to (-PI, PI]
+            if SMOOTH_HEADING {
+                let mut delta = target_theta - a.theta;
                 while delta > std::f32::consts::PI { delta -= 2.0 * std::f32::consts::PI; }
                 while delta <= -std::f32::consts::PI { delta += 2.0 * std::f32::consts::PI; }
                 let limited = delta.clamp(-MAX_HEADING_DELTA, MAX_HEADING_DELTA);
                 a.theta += limited;
-                // recompute direction from updated heading for movement & sensors
-                dir = dir_from_theta(a.theta);
-            } else if speed > 1e-4 {
-                // Instant heading mode (if SMOOTH_HEADING == false)
-                a.theta = vy.atan2(vx);
-                dir = dir_from_theta(a.theta);
+            } else {
+                a.theta = target_theta;
             }
+            let dir = dir_from_theta(a.theta);
             let vel = dir.mul(speed * MAX_SPEED);
             let prev = a.pos;
             a.pos = a.pos.add(vel).clamp_to_world();
@@ -170,23 +166,22 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             // Predation/scavenging: choose a nearby target (record only)
             if PREDATION_ENABLED || SCAVENGE_ENABLED {
                 let mut target: Option<usize> = None;
-                for j in 0..snapshot.len() {
-                    if j == i { continue; }
-                    let (pos_j, alive_j, consumed_j) = snapshot[j];
-                    if consumed_j { continue; }
-                    if (alive_j && !PREDATION_ENABLED) || (!alive_j && !SCAVENGE_ENABLED) { continue; }
-                    let dx = pos_j.x - a.pos.x; let dy = pos_j.y - a.pos.y;
-                    if (dx*dx + dy*dy).sqrt() <= EAT_AGENT_RADIUS { target = Some(j); break; }
+                if raw_action > ACTION_THRESHOLD { // only attempt if action fired
+                    for j in 0..snapshot.len() {
+                        if j == i { continue; }
+                        let (pos_j, alive_j, consumed_j) = snapshot[j];
+                        if consumed_j { continue; }
+                        if (alive_j && !PREDATION_ENABLED) || (!alive_j && !SCAVENGE_ENABLED) { continue; }
+                        let dx = pos_j.x - a.pos.x; let dy = pos_j.y - a.pos.y;
+                        if (dx*dx + dy*dy).sqrt() <= EAT_AGENT_RADIUS { target = Some(j); break; }
+                    }
                 }
                 prey_targets[i] = target;
             }
             // Energy cost: base + movement + optional turning if smoothing
             let mut energy_cost = ENERGY_DRAIN_PER_STEP + speed * MOVE_ENERGY_SCALE;
-            if SMOOTH_HEADING && speed > 1e-4 {
-                // approximate used heading fraction by how much direction deviated this step
-                // (simplified: constant small turn cost when moving)
-                energy_cost += TURN_ENERGY_SCALE;
-            }
+            if SMOOTH_HEADING && speed > 1e-4 { energy_cost += TURN_ENERGY_SCALE; }
+            if raw_action > ACTION_THRESHOLD { energy_cost += ACTION_ENERGY_COST; }
             a.energy -= energy_cost;
             if a.energy <= 0.0 { if a.dead_since.is_none() { a.dead_since = Some(steps); a.corpse_energy = CORPSE_INITIAL_ENERGY; } }
             // Update memories after acting
@@ -245,6 +240,7 @@ impl Episode {
     total_agent_steps: 0,
     avg_speed_accum: 0.0,
     heading_change_accum: 0.0,
+    action_trigger_count: 0,
     }
     }
 
@@ -265,24 +261,27 @@ impl Episode {
             let energy_in = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
             let inputs = sensing::build_inputs(a.pos, a.theta, &self.food, energy_in, a.last_food_mem, a.last_danger_mem, &density, &snapshot, i);
             let out = population[a.id.0].evaluate_slice(&inputs);
-            // Vector drive (live episode): outputs -> (vx, vy)
+            // New scheme: [angle, speed, action]
             let mut rng_local = ::rand::rng();
-            let mut vx = out.get(0).copied().unwrap_or(0.0) + rng_local.random_range(-MOTOR_NOISE..MOTOR_NOISE);
-            let mut vy = out.get(1).copied().unwrap_or(0.0) + rng_local.random_range(-MOTOR_NOISE..MOTOR_NOISE);
-            vx = vx.clamp(-1.0, 1.0); vy = vy.clamp(-1.0, 1.0);
-            let mut speed = (vx*vx + vy*vy).sqrt();
+            let mut raw_angle = out.get(0).copied().unwrap_or(0.0) + rng_local.random_range(-MOTOR_NOISE..MOTOR_NOISE);
+            let mut raw_speed = out.get(1).copied().unwrap_or(0.0) + rng_local.random_range(-MOTOR_NOISE..MOTOR_NOISE);
+            let mut raw_action = out.get(2).copied().unwrap_or(-1.0); // action less likely by default
+            raw_angle = raw_angle.clamp(-1.0, 1.0);
+            raw_speed = raw_speed.clamp(-1.0, 1.0);
+            raw_action = raw_action.clamp(-1.0, 1.0);
+            let target_theta = raw_angle * std::f32::consts::PI;
+            let mut speed = (raw_speed + 1.0) * 0.5; // [0,1]
             if speed > 1.0 { speed = 1.0; }
             let mut heading_delta_used = 0.0f32;
-            if SMOOTH_HEADING && speed > 1e-4 {
-                let desired = vy.atan2(vx);
-                let mut delta = desired - a.theta;
+            if SMOOTH_HEADING {
+                let mut delta = target_theta - a.theta;
                 while delta > std::f32::consts::PI { delta -= 2.0 * std::f32::consts::PI; }
                 while delta <= -std::f32::consts::PI { delta += 2.0 * std::f32::consts::PI; }
                 let limited = delta.clamp(-MAX_HEADING_DELTA, MAX_HEADING_DELTA);
                 a.theta += limited;
                 heading_delta_used = limited.abs();
-            } else if speed > 1e-4 {
-                a.theta = vy.atan2(vx);
+            } else {
+                a.theta = target_theta;
             }
             let dir = dir_from_theta(a.theta);
             let vel = dir.mul(speed * MAX_SPEED);
@@ -298,13 +297,16 @@ impl Episode {
             // Predation/scavenging: choose a target to apply after the loop
             if PREDATION_ENABLED || SCAVENGE_ENABLED {
                 let mut target: Option<usize> = None;
-                for j in 0..snapshot.len() {
-                    if j == i { continue; }
-                    let (pos_j, alive_j, consumed_j) = snapshot[j];
-                    if consumed_j { continue; }
-                    if (alive_j && !PREDATION_ENABLED) || (!alive_j && !SCAVENGE_ENABLED) { continue; }
-                    let dx = pos_j.x - a.pos.x; let dy = pos_j.y - a.pos.y;
-                    if (dx*dx + dy*dy).sqrt() <= EAT_AGENT_RADIUS { target = Some(j); break; }
+                if raw_action > ACTION_THRESHOLD { // attempt only when action triggered
+                    self.action_trigger_count += 1;
+                    for j in 0..snapshot.len() {
+                        if j == i { continue; }
+                        let (pos_j, alive_j, consumed_j) = snapshot[j];
+                        if consumed_j { continue; }
+                        if (alive_j && !PREDATION_ENABLED) || (!alive_j && !SCAVENGE_ENABLED) { continue; }
+                        let dx = pos_j.x - a.pos.x; let dy = pos_j.y - a.pos.y;
+                        if (dx*dx + dy*dy).sqrt() <= EAT_AGENT_RADIUS { target = Some(j); break; }
+                    }
                 }
                 prey_targets[i] = target;
             }
@@ -314,6 +316,7 @@ impl Episode {
             if SMOOTH_HEADING { self.heading_change_accum += heading_delta_used; }
             let mut energy_cost = ENERGY_DRAIN_PER_STEP + speed * MOVE_ENERGY_SCALE;
             if SMOOTH_HEADING && speed > 1e-4 { energy_cost += TURN_ENERGY_SCALE; }
+            if raw_action > ACTION_THRESHOLD { energy_cost += ACTION_ENERGY_COST; }
             a.energy -= energy_cost;
             if a.energy <= 0.0 { if a.dead_since.is_none() { a.dead_since = Some(self.steps); a.corpse_energy = CORPSE_INITIAL_ENERGY; } }
             // Update memories after acting

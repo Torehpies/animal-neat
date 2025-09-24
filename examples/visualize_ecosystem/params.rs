@@ -82,9 +82,12 @@ pub const DENSITY_RADIUS: f32 = 40.0;
 // - 4 (memory vectors: last_food x,y and last_danger x,y)
 // - DENSITY_SECTORS (alive-neighbor density bins)
 pub const INPUTS: usize = VISION_RAYS * 3 + 1 + 4 + DENSITY_SECTORS;
-// Outputs: [turn, thrust, sprint, brake]
-// Vector-drive locomotion (Option C): outputs = [vel_x, vel_y]
-pub const OUTPUTS: usize = 2;
+// Movement controller outputs now use a semantic triple:
+// [ angle, speed, action ]
+// angle  in [-1,1] mapped to [-PI, PI] absolute world heading (after optional smoothing)
+// speed  in [-1,1] mapped to [0,1]
+// action in [-1,1] interpreted via ACTION_THRESHOLD for predation attempts (plants always edible)
+pub const OUTPUTS: usize = 3;
 
 // ==========================
 // Exploration (simplified)
@@ -100,11 +103,10 @@ pub const FOOD_VECTOR_MAX_RANGE: f32 = 150.0;
 // ========================
 // Core movement & fitness (simplified)
 // ========================
-pub const TURN_COST: f32 = 0.02;               // energy cost per unit of absolute turn (kept – impacts dynamics)
 // Fitness: we collapse plant/meat shaping into two simple weights.
 pub const PLANT_FITNESS: f32 = 4.0;            // reward per plant eaten
-pub const MEAT_FITNESS: f32 = 6.0;             // reward per meat (kill or scavenged corpse) event
-pub const SURVIVAL_STEP_FITNESS: f32 = 0.001;  // reward per simulation step survived (alive or not? counted via total steps for now)
+pub const MEAT_FITNESS: f32 = 4.0;             // reward per meat (kill or scavenged corpse) event
+pub const SURVIVAL_STEP_FITNESS: f32 = 0.01;  // reward per simulation step survived (alive or not? counted via total steps for now)
 // Removed: approach reward, spin penalty, crowding penalty, sublinear exponent.
 // Rationale: focus on emergent behavior; keep only outcome-based signals (resource intake, exploration, longevity).
 
@@ -117,16 +119,20 @@ pub const PREDATION_ENABLED: bool = true;
 pub const SCAVENGE_ENABLED: bool = true;
 
 // ===============================
-// Motor model (vector drive)
+// Motor model (angle + speed + action)
 // ===============================
-// Network outputs a desired 2D velocity vector (vx, vy) each in [-1,1].
-// We derive speed = |v| (clamped to 1) and direction = normalized(v).
-// Heading either snaps or smoothly turns toward velocity direction.
-pub const MOTOR_NOISE: f32 = 0.05;              // still add small noise to each component
-pub const SMOOTH_HEADING: bool = true;           // when true, rotate gradually toward desired direction
+// Network outputs 3 values:
+//  0: desired absolute heading angle in [-1,1] -> scaled to [-PI, PI]
+//  1: speed scalar in [-1,1] -> scaled to [0,1]
+//  2: action activation in [-1,1]; > ACTION_THRESHOLD => attempt predation (live target) this step
+// Heading can rotate smoothly toward target angle (SMOOTH_HEADING) or snap instantly.
+pub const MOTOR_NOISE: f32 = 0.03;              // small noise to angle & speed for exploration
+pub const SMOOTH_HEADING: bool = true;           // smooth turning enabled
 pub const MAX_HEADING_DELTA: f32 = std::f32::consts::PI / 18.0; // max radians change per step if smoothing
 pub const MOVE_ENERGY_SCALE: f32 = 0.2;          // energy cost per unit normalized speed
-pub const TURN_ENERGY_SCALE: f32 = 0.01;         // additional cost proportional to fraction of MAX_HEADING_DELTA used
+pub const TURN_ENERGY_SCALE: f32 = 0.01;         // additional cost when turning (if smoothing)
+pub const ACTION_THRESHOLD: f32 = 0.5;           // raw action output > threshold => predation attempt
+pub const ACTION_ENERGY_COST: f32 = 0.2;         // extra energy cost when action is triggered
 
 // ==============================
 // Digestion / Corpse decay

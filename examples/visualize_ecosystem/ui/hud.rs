@@ -66,10 +66,11 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
         let steps = state.episode.total_agent_steps.max(1) as f32;
         let avg_speed = state.episode.avg_speed_accum / steps;
         let avg_heading_change = if SMOOTH_HEADING { state.episode.heading_change_accum / steps } else { 0.0 };
+        let action_rate = (state.episode.action_trigger_count as f32) / steps;
         let motor = if SMOOTH_HEADING {
-            format!("Movement: speed {:.2} • avg dθ {:.3} rad", avg_speed, avg_heading_change)
+            format!("Move: v {:.2} • dθ {:.3} • act {:.2}", avg_speed, avg_heading_change, action_rate)
         } else {
-            format!("Movement: speed {:.2}", avg_speed)
+            format!("Move: v {:.2} • act {:.2}", avg_speed, action_rate)
         };
         draw_text_clamped(&motor, x, y, font, WHITE, max_w);
         y += line_h;
