@@ -8,7 +8,7 @@
 // Evolution / Population
 // =====================
 /// Number of agents/genomes in the population and per episode
-pub const POPULATION_SIZE: usize = 100;
+pub const POPULATION_SIZE: usize = 5;
 /// Episodes per generation for fitness averaging
 pub const EPISODES_PER_GEN: usize = 3;
 
@@ -40,7 +40,7 @@ pub const SEASONAL_ENABLED: bool = true;
 pub const SEASONAL_PERIOD_STEPS: usize = 4000; // higher = slower seasons
 pub const SEASONAL_AMPLITUDE: f32 = 0.35;      // 0.0..1.0; multiplies growth by (1 + A*sin(...))
 pub const BIOME_SEASON_PHASE: [f32; 3] = [0.0, 1.2, 2.4]; // radians offset per biome
-pub const FOOD_COUNT: usize = 100;
+pub const FOOD_COUNT: usize = 0;
 pub const FOOD_RADIUS: f32 = 1.2;
 pub const FOOD_ENERGY: f32 = 60.0;
 
@@ -91,6 +91,15 @@ pub const INPUTS: usize = 12 + 1 + 4 + DENSITY_SECTORS + HEARING_SECTORS + 2;
 // Outputs: [ turn, speed, call ]
 // call in [-1,1] mapped to [0,1] intensity broadcast this step (available to others next step)
 pub const OUTPUTS: usize = 3;
+
+// ==============================
+// Input modality enable flags (compile-time)
+// Set these before running to include (true) or mask out (false) a modality.
+// Masking zeroes that segment of the input vector but keeps layout/length stable.
+pub const ENABLE_VISION_INPUTS: bool = true;   // pooled sector proximities (plant/same/other/wall)
+pub const ENABLE_HEARING_INPUTS: bool = true;  // heard call energy sectors
+pub const ENABLE_MEMORY_INPUTS: bool = true;   // last food & danger memory vectors (4 floats)
+pub const ENABLE_DENSITY_INPUTS: bool = true;  // local crowding / density sectors
 
 // ==========================
 // Exploration (simplified)
@@ -159,8 +168,8 @@ pub const USE_INERTIA: bool = true;               // feature flag to revert easi
 pub const DRAG_COEFF: f32 = 0.10;                 // fraction of velocity lost per step (0.1 -> ~63% after 10 steps)
 pub const MAX_THRUST: f32 = 0.9;                  // units of velocity added when thrust output = 1.0
 pub const MAX_VELOCITY: f32 = 4.5;                // hard cap on velocity magnitude (pre world scaling)
-pub const EXTRA_VEL_ENERGY_C1: f32 = 0.02;        // linear velocity cost term
-pub const EXTRA_VEL_ENERGY_C2: f32 = 0.004;       // cubic velocity cost term (penalize high bursts)
+pub const EXTRA_VEL_ENERGY_C1: f32 = 0.1;        // linear velocity cost term
+pub const EXTRA_VEL_ENERGY_C2: f32 = 0.01;       // cubic velocity cost term (penalize high bursts)
 
 // ==============================
 // Sensing smoothing

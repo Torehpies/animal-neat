@@ -5,7 +5,19 @@ use crate::sensing;
 use crate::ui_common::{world_to_screen, fit_world_rect, world_scale};
 use crate::dir_from_theta;
 
-pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, _member_species: &[usize], unified_overlay: bool, mouse_world: Option<Vec2>) {
+pub fn draw_world(
+    area: Rect,
+    episode: &Episode,
+    show_cones: bool,
+    _member_species: &[usize],
+    unified_overlay: bool,
+    mouse_world: Option<Vec2>,
+    show_energy_overlay: bool,
+    show_vis_inputs: bool,
+    show_hearing_inputs: bool,
+    show_memory_inputs: bool,
+    show_density_inputs: bool,
+) {
     let fitted = fit_world_rect(area);
     // background: draw biome bands with seasonal tinting
     // Biomes split across X using BIOME_X_SPLITS; use episode.steps as season time
@@ -177,6 +189,27 @@ pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, _member_speci
 
         // Overlays for the focused agent
         if Some(idx) == focused_idx && a.energy > 0.0 {
+            // Basic energy overlay (always shown when hovering) -- draw first
+            if show_energy_overlay {
+            let energy_frac = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
+            let bar_w = 70.0; let bar_h = 7.0; let pad = 3.0;
+            let bx = px - bar_w * 0.5; let by = py - agent_r - 18.0;
+            // background box
+            draw_rectangle(bx - pad, by - pad - 10.0, bar_w + pad * 2.0, bar_h + pad * 2.0 + 10.0, Color::new(0.05,0.05,0.08,0.80));
+            // bar background
+            draw_rectangle(bx, by, bar_w, bar_h, Color::new(0.15,0.15,0.2,0.9));
+            // bar fill (gradient-ish: lerp red->yellow->green via fraction)
+            let (r,g,b) = if energy_frac < 0.5 {
+                // red (low) to yellow (mid)
+                let t = energy_frac / 0.5; (1.0, 0.2 + 0.6*t, 0.1)
+            } else {
+                // yellow to green
+                let t = (energy_frac - 0.5) / 0.5; (1.0 - 0.5*t, 0.8 + 0.2*t, 0.1 + 0.4*t)
+            };
+            draw_rectangle(bx, by, bar_w * energy_frac, bar_h, Color::new(r,g,b,0.95));
+            let energy_text = format!("E: {:.0}/{:.0}", a.energy.max(0.0), INITIAL_ENERGY);
+            draw_text(&energy_text, bx, by - 2.0, 14.0, WHITE);
+            }
             if unified_overlay {
                 // Unified overlay: smoothed sector bars + memory vectors + density radial ticks
                 // Draw sector bars using agent's smoothed pooled_* fields
@@ -184,30 +217,31 @@ pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, _member_speci
                 let w_sector = 56.0; let bar_h = 7.0; let gap = 3.0;
                 let colors = [Color::new(0.25,1.0,0.25,0.95), Color::new(0.1,0.85,1.0,0.95), Color::new(1.0,0.3,0.9,0.95), Color::new(0.75,0.75,0.75,0.95)];
                 let rows: [[f32;3];4] = [a.pooled_plant, a.pooled_same, a.pooled_other, a.pooled_wall];
-                for (sector_i, _) in ["L","F","R"].iter().enumerate() {
-                    let x0 = ax - w_sector * 1.6 + sector_i as f32 * (w_sector + 16.0);
-                    for (row_i, arr) in rows.iter().enumerate() {
-                        let v = arr[sector_i].clamp(0.0,1.0);
-                        let y0 = ay - 28.0 - (row_i as f32) * (bar_h + gap);
-                        draw_rectangle(x0, y0, w_sector, bar_h, Color::new(0.07,0.08,0.1,0.7));
-                        draw_rectangle(x0, y0, w_sector * v, bar_h, colors[row_i]);
+                if show_vis_inputs {
+                    for (sector_i, _) in ["L","F","R"].iter().enumerate() {
+                        let x0 = ax - w_sector * 1.6 + sector_i as f32 * (w_sector + 16.0);
+                        for (row_i, arr) in rows.iter().enumerate() {
+                            let v = arr[sector_i].clamp(0.0,1.0);
+                            let y0 = ay - 28.0 - (row_i as f32) * (bar_h + gap);
+                            draw_rectangle(x0, y0, w_sector, bar_h, Color::new(0.07,0.08,0.1,0.7));
+                            draw_rectangle(x0, y0, w_sector * v, bar_h, colors[row_i]);
+                        }
                     }
                 }
-                // Hearing sector bars (magenta) single row below others
-                for (sector_i, _) in ["L","F","R"].iter().enumerate() {
-                    let x0 = ax - w_sector * 1.6 + sector_i as f32 * (w_sector + 16.0);
-                    let hear_v = a.heard_sectors[sector_i].clamp(0.0, 1.0);
-                    let y0 = ay - 28.0 - (4.0_f32) * (bar_h + gap); // one extra row beneath existing 4 rows
-                    // background
-                    draw_rectangle(x0, y0, w_sector, bar_h, Color::new(0.08,0.05,0.10,0.65));
-                    // filled
-                    draw_rectangle(x0, y0, w_sector * hear_v, bar_h, Color::new(0.95,0.3,1.0,0.9));
+                if show_hearing_inputs {
+                    for (sector_i, _) in ["L","F","R"].iter().enumerate() {
+                        let x0 = ax - w_sector * 1.6 + sector_i as f32 * (w_sector + 16.0);
+                        let hear_v = a.heard_sectors[sector_i].clamp(0.0, 1.0);
+                        let y0 = ay - 28.0 - (4.0_f32) * (bar_h + gap);
+                        draw_rectangle(x0, y0, w_sector, bar_h, Color::new(0.08,0.05,0.10,0.65));
+                        draw_rectangle(x0, y0, w_sector * hear_v, bar_h, Color::new(0.95,0.3,1.0,0.9));
+                    }
+                    let label_x = ax + w_sector * 1.6 + 10.0;
+                    let label_y = ay - 28.0 - (4.0_f32) * (bar_h + gap) + bar_h - 1.0;
+                    draw_text("H", label_x, label_y, 16.0, Color::new(0.95,0.3,1.0,0.9));
                 }
-                // Hearing label H to the right side
-                let label_x = ax + w_sector * 1.6 + 10.0;
-                let label_y = ay - 28.0 - (4.0_f32) * (bar_h + gap) + bar_h - 1.0;
-                draw_text("H", label_x, label_y, 16.0, Color::new(0.95,0.3,1.0,0.9));
                 // Memory vectors (food=yellow, danger=orange)
+                if show_memory_inputs {
                 let draw_mem_vec = |vx: f32, vy: f32, color: Color| {
                     let cth = a.theta.cos(); let sth = a.theta.sin();
                     let right_x = -sth; let right_y = cth; let fwd_x = cth; let fwd_y = sth;
@@ -220,16 +254,18 @@ pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, _member_speci
                 };
                 draw_mem_vec(a.last_food_mem.x, a.last_food_mem.y, Color::new(1.0,0.95,0.3,0.9));
                 draw_mem_vec(a.last_danger_mem.x, a.last_danger_mem.y, Color::new(1.0,0.6,0.2,0.9));
+                }
                 // Density rays (scaled magnitude) using current snapshot
-                let bins = sensing::density_sectors(a.pos, a.theta, &snapshot, idx);
-                // Radial density lines (cyan) using bins array mapping: forward, side-L, side-R, back-L, back-R, back-center
-                let dir_angles = [0.0, std::f32::consts::FRAC_PI_2*0.66, -std::f32::consts::FRAC_PI_2*0.66, std::f32::consts::PI*0.75, -std::f32::consts::PI*0.75, std::f32::consts::PI];
-                for (bi, val) in bins.iter().enumerate() { if *val <= 0.0 { continue; }
-                    let ang_world = a.theta + dir_angles[bi];
-                    let len = (AGENT_RADIUS * 4.0) + *val * (AGENT_RADIUS * 6.0);
-                    let end = Vec2 { x: a.pos.x + ang_world.cos() * len, y: a.pos.y + ang_world.sin() * len };
-                    let (ex, ey) = world_to_screen(fitted, end);
-                    draw_line(ax, ay, ex, ey, 2.0, Color::new(0.1,1.0,1.0,0.85));
+                if show_density_inputs {
+                    let bins = sensing::density_sectors(a.pos, a.theta, &snapshot, idx);
+                    let dir_angles = [0.0, std::f32::consts::FRAC_PI_2*0.66, -std::f32::consts::FRAC_PI_2*0.66, std::f32::consts::PI*0.75, -std::f32::consts::PI*0.75, std::f32::consts::PI];
+                    for (bi, val) in bins.iter().enumerate() { if *val <= 0.0 { continue; }
+                        let ang_world = a.theta + dir_angles[bi];
+                        let len = (AGENT_RADIUS * 4.0) + *val * (AGENT_RADIUS * 6.0);
+                        let end = Vec2 { x: a.pos.x + ang_world.cos() * len, y: a.pos.y + ang_world.sin() * len };
+                        let (ex, ey) = world_to_screen(fitted, end);
+                        draw_line(ax, ay, ex, ey, 2.0, Color::new(0.1,1.0,1.0,0.85));
+                    }
                 }
             }
         }

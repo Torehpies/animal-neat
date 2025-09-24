@@ -126,6 +126,19 @@ fn build_species_map(speciator: &Speciator, pop_len: usize) -> Vec<usize> {
     map
 }
 
+fn mask_inputs(inputs: &mut [f32; INPUTS]) {
+    // Layout: 0..12 vision (3 sectors * 4 categories), 12 energy, 13..17 memory(4), 17..(17+DENSITY_SECTORS) density,
+    // then hearing (3), then position (2) at end.
+    if !params::ENABLE_VISION_INPUTS { for i in 0..12 { inputs[i] = 0.0; } }
+    if !params::ENABLE_MEMORY_INPUTS { for i in 13..17 { inputs[i] = 0.0; } }
+    let density_start = 17;
+    let density_end = density_start + DENSITY_SECTORS;
+    if !params::ENABLE_DENSITY_INPUTS { for i in density_start..density_end { inputs[i] = 0.0; } }
+    let hearing_start = density_end;
+    let hearing_end = hearing_start + HEARING_SECTORS;
+    if !params::ENABLE_HEARING_INPUTS { for i in hearing_start..hearing_end { inputs[i] = 0.0; } }
+}
+
 fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
     let mut rng = ::rand::rng();
     let mut food = world::build_world(&mut rng);
@@ -190,7 +203,8 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             visited[i].insert(grid_index(a.pos));
             let energy_in = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
             let my_species = a.species_id;
-            let inputs = sensing::build_inputs(a.pos, a.theta, &food, energy_in, a.last_food_mem, a.last_danger_mem, &density, &snapshot, i, my_species, a.heard_sectors);
+            let mut inputs = sensing::build_inputs(a.pos, a.theta, &food, energy_in, a.last_food_mem, a.last_danger_mem, &density, &snapshot, i, my_species, a.heard_sectors);
+            mask_inputs(&mut inputs);
             let out = population[i].evaluate_slice(&inputs);
             // Movement + communication outputs: [turn, thrust(or speed), call]
             let mut raw_turn = out.get(0).copied().unwrap_or(0.0);
@@ -393,7 +407,8 @@ impl Episode {
             // Digestive intake before action (shared)
             sim::apply_digestion(a);
             let energy_in = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
-            let inputs = sensing::build_inputs(a.pos, a.theta, &self.food, energy_in, a.last_food_mem, a.last_danger_mem, &density, &snapshot, i, a.species_id, a.heard_sectors);
+            let mut inputs = sensing::build_inputs(a.pos, a.theta, &self.food, energy_in, a.last_food_mem, a.last_danger_mem, &density, &snapshot, i, a.species_id, a.heard_sectors);
+            mask_inputs(&mut inputs);
             let out = population[a.id.0].evaluate_slice(&inputs);
             // Movement + communication scheme: [turn, thrust(or speed), call]
             let mut raw_turn = out.get(0).copied().unwrap_or(0.0);
@@ -532,6 +547,12 @@ struct AppState {
     show_unified_overlay: bool,
     // Communication stats over last evaluated generation (aggregated after eval)
     last_comm_reward_sum: f32,
+    show_energy_overlay: bool,
+    // Input visualization toggles
+    show_vis_inputs: bool,
+    show_hearing_inputs: bool,
+    show_memory_inputs: bool,
+    show_density_inputs: bool,
 }
 
 impl AppState {
@@ -572,6 +593,11 @@ impl AppState {
             last_best_generation: 0,
             last_best_genome: None,
             show_unified_overlay: false,
+            show_energy_overlay: true,
+            show_vis_inputs: true,
+            show_hearing_inputs: true,
+            show_memory_inputs: true,
+            show_density_inputs: true,
             last_comm_reward_sum: 0.0,
         }
     }
@@ -692,7 +718,13 @@ async fn main() {
         if is_key_pressed(KeyCode::F) { fast_mode = !fast_mode; }
     if is_key_pressed(KeyCode::R) { let mut rng = ::rand::rng(); state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species); }
         if is_key_pressed(KeyCode::V) { state.show_cones = !state.show_cones; }
-    if is_key_pressed(KeyCode::U) { state.show_unified_overlay = !state.show_unified_overlay; }
+        if is_key_pressed(KeyCode::U) { state.show_unified_overlay = !state.show_unified_overlay; }
+        if is_key_pressed(KeyCode::E) { state.show_energy_overlay = !state.show_energy_overlay; }
+    // Input component toggles (only affect unified overlay rendering)
+    if is_key_pressed(KeyCode::Key1) { state.show_vis_inputs = !state.show_vis_inputs; }
+    if is_key_pressed(KeyCode::Key2) { state.show_hearing_inputs = !state.show_hearing_inputs; }
+    if is_key_pressed(KeyCode::Key3) { state.show_memory_inputs = !state.show_memory_inputs; }
+    if is_key_pressed(KeyCode::Key4) { state.show_density_inputs = !state.show_density_inputs; }
     if is_key_pressed(KeyCode::S) {
         // Save a non-blocking snapshot of genomes + innovation state.
         // Filename pattern: snapshots/pop_snapshot_genXXXX.json
@@ -755,6 +787,11 @@ async fn main() {
         &state.member_species,
         state.show_unified_overlay,
         mouse_world,
+        state.show_energy_overlay,
+        state.show_vis_inputs,
+        state.show_hearing_inputs,
+        state.show_memory_inputs,
+        state.show_density_inputs,
     );
     ui_hud::draw_hud(hud_area, &state, running, fast_mode, &state.member_species);
 
