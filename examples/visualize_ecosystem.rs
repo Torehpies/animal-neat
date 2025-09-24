@@ -133,25 +133,20 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             let energy_in = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
             let inputs = sensing::build_inputs(a.pos, a.theta, &food, energy_in, a.last_food_mem, a.last_danger_mem, &density, &snapshot, i);
             let out = population[i].evaluate_slice(&inputs);
-            // Movement outputs: [angle, speed]
-            let mut raw_angle = out.get(0).copied().unwrap_or(0.0);
+            // Movement outputs: [turn, speed] (relative turn model)
+            let mut raw_turn = out.get(0).copied().unwrap_or(0.0);
             let mut raw_speed = out.get(1).copied().unwrap_or(0.0);
-            raw_angle += rng.random_range(-MOTOR_NOISE..MOTOR_NOISE);
+            raw_turn += rng.random_range(-MOTOR_NOISE..MOTOR_NOISE);
             raw_speed += rng.random_range(-MOTOR_NOISE..MOTOR_NOISE);
-            raw_angle = raw_angle.clamp(-1.0, 1.0);
+            raw_turn = raw_turn.clamp(-1.0, 1.0);
             raw_speed = raw_speed.clamp(-1.0, 1.0);
-            let target_theta = raw_angle * std::f32::consts::PI; // map [-1,1] -> [-PI, PI]
-            let mut speed = (raw_speed + 1.0) * 0.5; // map [-1,1] -> [0,1]
+            let turn_delta = raw_turn * MAX_TURN_PER_STEP;
+            a.theta += turn_delta;
+            // wrap heading
+            while a.theta > std::f32::consts::PI { a.theta -= 2.0 * std::f32::consts::PI; }
+            while a.theta <= -std::f32::consts::PI { a.theta += 2.0 * std::f32::consts::PI; }
+            let mut speed = (raw_speed + 1.0) * 0.5; // [0,1]
             if speed > 1.0 { speed = 1.0; }
-            if SMOOTH_HEADING {
-                let mut delta = target_theta - a.theta;
-                while delta > std::f32::consts::PI { delta -= 2.0 * std::f32::consts::PI; }
-                while delta <= -std::f32::consts::PI { delta += 2.0 * std::f32::consts::PI; }
-                let limited = delta.clamp(-MAX_HEADING_DELTA, MAX_HEADING_DELTA);
-                a.theta += limited;
-            } else {
-                a.theta = target_theta;
-            }
             let dir = dir_from_theta(a.theta);
             let vel = dir.mul(speed * MAX_SPEED);
             let prev = a.pos;
@@ -175,7 +170,8 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             }
             // Energy cost: base + movement + optional turning if smoothing
             let mut energy_cost = ENERGY_DRAIN_PER_STEP + speed * MOVE_ENERGY_SCALE;
-            if SMOOTH_HEADING && speed > 1e-4 { energy_cost += TURN_ENERGY_SCALE; }
+            let turn_fraction = (raw_turn.abs()).min(1.0);
+            if turn_fraction > 0.0 && speed > 1e-4 { energy_cost += TURN_ENERGY_SCALE * turn_fraction; }
             a.energy -= energy_cost;
             if a.energy <= 0.0 { if a.dead_since.is_none() { a.dead_since = Some(steps); a.corpse_energy = CORPSE_INITIAL_ENERGY; } }
             // Update memories after acting
@@ -254,26 +250,18 @@ impl Episode {
             let energy_in = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
             let inputs = sensing::build_inputs(a.pos, a.theta, &self.food, energy_in, a.last_food_mem, a.last_danger_mem, &density, &snapshot, i);
             let out = population[a.id.0].evaluate_slice(&inputs);
-            // Movement outputs: [angle, speed]
+            // Movement scheme: [turn, speed] (relative turn)
             let mut rng_local = ::rand::rng();
-            let mut raw_angle = out.get(0).copied().unwrap_or(0.0) + rng_local.random_range(-MOTOR_NOISE..MOTOR_NOISE);
+            let mut raw_turn = out.get(0).copied().unwrap_or(0.0) + rng_local.random_range(-MOTOR_NOISE..MOTOR_NOISE);
             let mut raw_speed = out.get(1).copied().unwrap_or(0.0) + rng_local.random_range(-MOTOR_NOISE..MOTOR_NOISE);
-            raw_angle = raw_angle.clamp(-1.0, 1.0);
+            raw_turn = raw_turn.clamp(-1.0, 1.0);
             raw_speed = raw_speed.clamp(-1.0, 1.0);
-            let target_theta = raw_angle * std::f32::consts::PI;
+            let turn_delta = raw_turn * MAX_TURN_PER_STEP;
+            a.theta += turn_delta;
+            while a.theta > std::f32::consts::PI { a.theta -= 2.0 * std::f32::consts::PI; }
+            while a.theta <= -std::f32::consts::PI { a.theta += 2.0 * std::f32::consts::PI; }
             let mut speed = (raw_speed + 1.0) * 0.5; // [0,1]
             if speed > 1.0 { speed = 1.0; }
-            let mut heading_delta_used = 0.0f32;
-            if SMOOTH_HEADING {
-                let mut delta = target_theta - a.theta;
-                while delta > std::f32::consts::PI { delta -= 2.0 * std::f32::consts::PI; }
-                while delta <= -std::f32::consts::PI { delta += 2.0 * std::f32::consts::PI; }
-                let limited = delta.clamp(-MAX_HEADING_DELTA, MAX_HEADING_DELTA);
-                a.theta += limited;
-                heading_delta_used = limited.abs();
-            } else {
-                a.theta = target_theta;
-            }
             let dir = dir_from_theta(a.theta);
             let vel = dir.mul(speed * MAX_SPEED);
             let prev = a.pos;
@@ -301,9 +289,9 @@ impl Episode {
             // Energy & stats
             self.total_agent_steps += 1;
             self.avg_speed_accum += speed;
-            if SMOOTH_HEADING { self.heading_change_accum += heading_delta_used; }
+            self.heading_change_accum += turn_delta.abs();
             let mut energy_cost = ENERGY_DRAIN_PER_STEP + speed * MOVE_ENERGY_SCALE;
-            if SMOOTH_HEADING && speed > 1e-4 { energy_cost += TURN_ENERGY_SCALE; }
+            if turn_delta.abs() > 0.0 && speed > 1e-4 { energy_cost += TURN_ENERGY_SCALE * raw_turn.abs().min(1.0); }
             a.energy -= energy_cost;
             if a.energy <= 0.0 { if a.dead_since.is_none() { a.dead_since = Some(self.steps); a.corpse_energy = CORPSE_INITIAL_ENERGY; } }
             // Update memories after acting

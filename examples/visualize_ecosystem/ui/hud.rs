@@ -61,16 +61,12 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
         y = draw_text_wrapped(&biome_line, x, y, 16.0, GRAY, max_w, 6.0);
     }
 
-    // Movement stats (vector drive)
+    // Movement stats (relative turn + speed)
     if y <= max_y {
         let steps = state.episode.total_agent_steps.max(1) as f32;
         let avg_speed = state.episode.avg_speed_accum / steps;
-        let avg_heading_change = if SMOOTH_HEADING { state.episode.heading_change_accum / steps } else { 0.0 };
-        let motor = if SMOOTH_HEADING {
-            format!("Move: v {:.2} • dθ {:.3}", avg_speed, avg_heading_change)
-        } else {
-            format!("Move: v {:.2}", avg_speed)
-        };
+        let avg_heading_change = state.episode.heading_change_accum / steps; // mean absolute turn delta
+        let motor = format!("Move: v {:.2} • dθ {:.3}", avg_speed, avg_heading_change);
         draw_text_clamped(&motor, x, y, font, WHITE, max_w);
         y += line_h;
     }

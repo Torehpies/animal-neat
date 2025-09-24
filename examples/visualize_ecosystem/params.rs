@@ -77,8 +77,9 @@ pub const DENSITY_RADIUS: f32 = 40.0;
 // - 4 (memory vectors: last_food x,y and last_danger x,y)
 // - DENSITY_SECTORS (alive-neighbor density bins)
 pub const INPUTS: usize = VISION_RAYS * 3 + 1 + 4 + DENSITY_SECTORS;
-// Movement controller outputs now: [ angle, speed ]
-// angle in [-1,1] -> [-PI, PI] absolute heading; speed in [-1,1] -> [0,1]
+// Movement controller outputs now: [ turn, speed ] (relative turn model)
+// turn in [-1,1] -> applied delta heading in [-MAX_TURN_PER_STEP, MAX_TURN_PER_STEP]
+// speed in [-1,1] -> [0,1]
 pub const OUTPUTS: usize = 2;
 
 // ==========================
@@ -111,18 +112,14 @@ pub const PREDATION_ENABLED: bool = true;
 pub const SCAVENGE_ENABLED: bool = true;
 
 // ===============================
-// Motor model (angle + speed)
-// ===============================
-// Network outputs 2 values:
-//  0: desired absolute heading angle in [-1,1] -> scaled to [-PI, PI]
-//  1: speed scalar in [-1,1] -> scaled to [0,1]
-// Heading can rotate smoothly toward target angle (SMOOTH_HEADING) or snap instantly.
-pub const MOTOR_NOISE: f32 = 0.03;              // small noise to angle & speed for exploration
-pub const SMOOTH_HEADING: bool = true;           // smooth turning enabled
-pub const MAX_HEADING_DELTA: f32 = std::f32::consts::PI / 18.0; // max radians change per step if smoothing
-pub const MOVE_ENERGY_SCALE: f32 = 0.2;          // energy cost per unit normalized speed
-pub const TURN_ENERGY_SCALE: f32 = 0.01;         // additional cost when turning (if smoothing)
-// (Removed separate action output; predation attempts occur automatically if target in range.)
+// Motor model (relative turn + speed)
+// ===================================
+// Output[0] gives a turn command each step; we scale it by MAX_TURN_PER_STEP and add to heading.
+// Output[1] gives speed scalar. Heading is wrapped to (-PI, PI] to avoid drift.
+pub const MOTOR_NOISE: f32 = 0.03;               // small exploratory noise
+pub const MAX_TURN_PER_STEP: f32 = std::f32::consts::PI / 18.0; // same numeric value as previous smoothing limit
+pub const MOVE_ENERGY_SCALE: f32 = 0.2;           // energy cost per unit normalized speed
+pub const TURN_ENERGY_SCALE: f32 = 0.01;          // energy cost added proportional to |turn_fraction|
 
 // ==============================
 // Digestion / Corpse decay
