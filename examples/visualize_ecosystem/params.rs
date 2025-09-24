@@ -58,16 +58,11 @@ pub const VISION_RAYS: usize = 5;
 pub const VISION_ANGLE_DEG: f32 = 90.0;
 pub const VISION_RANGE: f32 = 100.0;
 /// Derived: radians for convenience if needed by math
-pub const VISION_ANGLE_RAD: f32 = VISION_ANGLE_DEG.to_radians();
 
 // ========
 // Movement
 // ========
-pub const MAX_TURN: f32 = std::f32::consts::PI / 18.0;
-pub const MAX_SPEED: f32 = 2.5;
-
-// Reduce circling
-pub const THRUST_TURN_COUPLING: f32 = 0.7;
+pub const MAX_SPEED: f32 = 2.5; // legacy MAX_TURN & coupling removed (angle+speed model)
 
 // ==============
 // Sensing / Memory
@@ -95,7 +90,7 @@ pub const EXPL_CELL_SIZE: f32 = 12.0;            // grid resolution for explorat
 pub const EXPL_WEIGHT: f32 = 8.0;                // reward for 100% coverage (typically unreachable)
 
 // Legacy food-direction vector parameters (used for approach shaping)
-pub const FOOD_VECTOR_MAX_RANGE: f32 = 150.0;
+// (Removed FOOD_VECTOR_MAX_RANGE; nearest_food_vector_local unused)
 
 // ========================
 // Core movement & fitness (simplified)

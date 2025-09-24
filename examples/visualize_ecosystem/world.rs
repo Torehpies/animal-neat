@@ -40,11 +40,7 @@ fn biome_index_for_x(x: f32) -> usize {
     else { 2 }
 }
 
-pub fn try_spawn_food_random<R: Rng>(food: &mut Vec<Vec2>, rng: &mut R) {
-    if food.len() >= MAX_FOOD { return; }
-    let p = rand_pos(rng);
-    if can_place_food(food, p) { food.push(p); }
-}
+// Removed unused try_spawn_food_random (random spawns handled in food_growth_step)
 
 pub fn try_spawn_food_near<R: Rng>(food: &mut Vec<Vec2>, rng: &mut R, center: Vec2) {
     if food.len() >= MAX_FOOD { return; }

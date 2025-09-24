@@ -1,4 +1,4 @@
-use super::params::{VISION_RAYS, VISION_ANGLE_DEG, VISION_RANGE, FOOD_RADIUS, FOOD_VECTOR_MAX_RANGE, DANGER_VECTOR_MAX_RANGE, DENSITY_SECTORS, DENSITY_RADIUS, INPUTS, WORLD_W, WORLD_H, PREDATION_ENABLED, SCAVENGE_ENABLED};
+use super::params::{VISION_RAYS, VISION_ANGLE_DEG, VISION_RANGE, FOOD_RADIUS, DANGER_VECTOR_MAX_RANGE, DENSITY_SECTORS, DENSITY_RADIUS, INPUTS, WORLD_W, WORLD_H, PREDATION_ENABLED, SCAVENGE_ENABLED};
 use super::Vec2;
 
 fn dir_from_theta(theta: f32) -> Vec2 { Vec2 { x: theta.cos(), y: theta.sin() } }
@@ -52,25 +52,7 @@ pub fn nearest_meat_along_ray(p: Vec2, dir: Vec2, snapshot: &[(Vec2, bool, bool)
     best
 }
 
-pub fn nearest_food_vector_local(pos: Vec2, theta: f32, food: &[Vec2]) -> (f32, f32) {
-    let mut best_d2 = f32::INFINITY;
-    let mut best_v = Vec2 { x: 0.0, y: 0.0 };
-    for f in food {
-        let dx = f.x - pos.x; let dy = f.y - pos.y;
-        let d2 = dx*dx + dy*dy;
-        if d2 < best_d2 { best_d2 = d2; best_v = Vec2 { x: dx, y: dy }; }
-    }
-    if !best_d2.is_finite() || best_d2.is_infinite() || food.is_empty() { return (0.0, 0.0); }
-    let d = best_d2.sqrt();
-    let att = (1.0 - (d / FOOD_VECTOR_MAX_RANGE)).clamp(0.0, 1.0);
-    if att <= 0.0 { return (0.0, 0.0); }
-    let c = theta.cos(); let s = theta.sin();
-    let fwd_x = c; let fwd_y = s;
-    let right_x = -s; let right_y = c;
-    let dot_fwd = (best_v.x * fwd_x + best_v.y * fwd_y) / (d.max(1e-6));
-    let dot_right = (best_v.x * right_x + best_v.y * right_y) / (d.max(1e-6));
-    (dot_right * att, dot_fwd * att)
-}
+// Removed unused nearest_food_vector_local (legacy shaping vector) to reduce warnings.
 
 pub fn nearest_agent_vector_local(pos: Vec2, theta: f32, snapshot: &[(Vec2, bool, bool)], self_idx: usize) -> (f32, f32) {
     let mut best_d2 = f32::INFINITY;
@@ -168,15 +150,7 @@ pub fn density_sectors(pos: Vec2, theta: f32, snapshot: &[(Vec2, bool, bool)], s
     bins
 }
 
-pub fn nearest_food_distance(pos: Vec2, food: &[Vec2]) -> Option<f32> {
-    let mut best_d2 = f32::INFINITY;
-    for f in food {
-        let dx = f.x - pos.x; let dy = f.y - pos.y;
-        let d2 = dx*dx + dy*dy;
-        if d2 < best_d2 { best_d2 = d2; }
-    }
-    if best_d2.is_finite() && best_d2 < f32::INFINITY { Some(best_d2.sqrt()) } else { None }
-}
+// Removed unused nearest_food_distance (legacy diagnostic) to reduce warnings.
 
 pub fn build_inputs(pos: Vec2, theta: f32, food: &[Vec2], energy: f32, last_food_mem: Vec2, last_danger_mem: Vec2, density: &[f32], snapshot: &[(Vec2, bool, bool)], self_idx: usize) -> [f32; INPUTS] {
     let mut inputs = [0.0f32; INPUTS];
