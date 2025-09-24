@@ -181,6 +181,9 @@ pub fn build_inputs(pos: Vec2, theta: f32, food: &[Vec2], energy: f32, last_food
     for s in 0..DENSITY_SECTORS { inputs[k] = *density.get(s).unwrap_or(&0.0); k += 1; }
     // hearing sectors (already smoothed)
     for si in 0..HEARING_SECTORS { inputs[k] = heard[si].clamp(0.0, 1.0); k += 1; }
+    // normalized absolute position (helps with navigation / region strategies)
+    inputs[k] = (pos.x / WORLD_W).clamp(0.0, 1.0); k += 1;
+    inputs[k] = (pos.y / WORLD_H).clamp(0.0, 1.0); k += 1;
     inputs
 }
 

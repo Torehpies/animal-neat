@@ -53,6 +53,7 @@ struct AgentId(usize);
 struct Agent {
     id: AgentId,
     pos: Vec2,
+    vel: Vec2,
     theta: f32,
     energy: f32,
     eaten: usize,
@@ -121,6 +122,7 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
     let mut agents: Vec<Agent> = population.iter().enumerate().map(|(i, _)| Agent {
         id: AgentId(i),
         pos: world::rand_pos(&mut rng),
+        vel: Vec2 { x: 0.0, y: 0.0 },
         theta: -std::f32::consts::FRAC_PI_2,
         energy: INITIAL_ENERGY,
         eaten: 0,
@@ -169,13 +171,13 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             let my_species = a.species_id;
             let inputs = sensing::build_inputs(a.pos, a.theta, &food, energy_in, a.last_food_mem, a.last_danger_mem, &density, &snapshot, i, my_species, a.heard_sectors);
             let out = population[i].evaluate_slice(&inputs);
-            // Movement + communication outputs: [turn, speed, call]
+            // Movement + communication outputs: [turn, thrust(or speed), call]
             let mut raw_turn = out.get(0).copied().unwrap_or(0.0);
-            let mut raw_speed = out.get(1).copied().unwrap_or(0.0);
+            let mut raw_thrust = out.get(1).copied().unwrap_or(0.0);
             let mut raw_call = out.get(2).copied().unwrap_or(0.0);
             // motor noise disabled
             raw_turn = raw_turn.clamp(-1.0, 1.0);
-            raw_speed = raw_speed.clamp(-1.0, 1.0);
+            raw_thrust = raw_thrust.clamp(-1.0, 1.0);
             raw_call = raw_call.clamp(-1.0, 1.0);
             a.call_intensity = (raw_call + 1.0) * 0.5;
             let turn_delta = raw_turn * MAX_TURN_PER_STEP;
@@ -183,12 +185,32 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             // wrap heading
             while a.theta > std::f32::consts::PI { a.theta -= 2.0 * std::f32::consts::PI; }
             while a.theta <= -std::f32::consts::PI { a.theta += 2.0 * std::f32::consts::PI; }
-            let mut speed = (raw_speed + 1.0) * 0.5; // [0,1]
-            if speed > 1.0 { speed = 1.0; }
             let dir = dir_from_theta(a.theta);
-            let vel = dir.mul(speed * MAX_SPEED);
+            let speed_for_stats: f32; // actual scalar speed (world units/step) for cost/stats
             let prev = a.pos;
-            a.pos = a.pos.add(vel).clamp_to_world();
+            if USE_INERTIA {
+                // drag
+                a.vel = a.vel.mul(1.0 - DRAG_COEFF);
+                let thrust_scalar = (raw_thrust + 1.0) * 0.5; // 0..1 forward accel
+                let mut dv = dir.mul(thrust_scalar * MAX_THRUST);
+                if raw_thrust < 0.0 { // braking component
+                    let forward_speed = a.vel.dot(dir);
+                    if forward_speed > 0.0 {
+                        let brake = (-raw_thrust).min(1.0) * MAX_THRUST;
+                        dv = dv.add(dir.mul(-brake));
+                    }
+                }
+                a.vel = a.vel.add(dv);
+                let vlen = a.vel.length();
+                if vlen > MAX_VELOCITY { a.vel = a.vel.mul(MAX_VELOCITY / vlen); }
+                a.pos = a.pos.add(a.vel).clamp_to_world();
+                speed_for_stats = a.vel.length();
+            } else {
+                let mut speed = (raw_thrust + 1.0) * 0.5; if speed > 1.0 { speed = 1.0; }
+                speed_for_stats = speed * MAX_SPEED;
+                let vel = dir.mul(speed * MAX_SPEED);
+                a.pos = a.pos.add(vel).clamp_to_world();
+            }
             if world::eat_along_path(&mut food, prev, a.pos) || world::eat_if_near(&mut food, a.pos) {
                 if DIGEST_STEPS_PLANT > 0 { a.digest.push_back(DigestEvent { remaining: DIGEST_STEPS_PLANT, per_step: FOOD_ENERGY / (DIGEST_STEPS_PLANT as f32) }); }
                 else { a.energy = (a.energy + FOOD_ENERGY).min(INITIAL_ENERGY); }
@@ -207,9 +229,15 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
                 prey_targets[i] = target;
             }
             // Energy cost: base + movement + optional turning if smoothing
-            let mut energy_cost = ENERGY_DRAIN_PER_STEP + speed * MOVE_ENERGY_SCALE;
+            let mut energy_cost = ENERGY_DRAIN_PER_STEP;
+            if USE_INERTIA {
+                let vmag = a.vel.length();
+                energy_cost += vmag * EXTRA_VEL_ENERGY_C1 + vmag*vmag*vmag * EXTRA_VEL_ENERGY_C2;
+            } else {
+                energy_cost += speed_for_stats / MAX_SPEED * MOVE_ENERGY_SCALE;
+            }
             let turn_fraction = (raw_turn.abs()).min(1.0);
-            if turn_fraction > 0.0 && speed > 1e-4 { energy_cost += TURN_ENERGY_SCALE * turn_fraction; }
+            if turn_fraction > 0.0 && speed_for_stats > 1e-4 { energy_cost += TURN_ENERGY_SCALE * turn_fraction; }
             a.energy -= energy_cost;
             if a.energy <= 0.0 { if a.dead_since.is_none() { a.dead_since = Some(steps); a.corpse_energy = CORPSE_INITIAL_ENERGY; } }
             // Update memories after acting
@@ -252,6 +280,7 @@ impl Episode {
             agents.push(Agent {
                 id: AgentId(i),
                 pos: world::rand_pos(rng),
+                vel: Vec2 { x: 0.0, y: 0.0 },
                 theta: -std::f32::consts::FRAC_PI_2,
                 energy: INITIAL_ENERGY,
                 eaten: 0,
@@ -306,24 +335,36 @@ impl Episode {
             let energy_in = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
             let inputs = sensing::build_inputs(a.pos, a.theta, &self.food, energy_in, a.last_food_mem, a.last_danger_mem, &density, &snapshot, i, a.species_id, a.heard_sectors);
             let out = population[a.id.0].evaluate_slice(&inputs);
-            // Movement + communication scheme: [turn, speed, call]
+            // Movement + communication scheme: [turn, thrust(or speed), call]
             let mut raw_turn = out.get(0).copied().unwrap_or(0.0);
-            let mut raw_speed = out.get(1).copied().unwrap_or(0.0);
+            let mut raw_thrust = out.get(1).copied().unwrap_or(0.0);
             let mut raw_call = out.get(2).copied().unwrap_or(0.0);
             raw_turn = raw_turn.clamp(-1.0, 1.0);
-            raw_speed = raw_speed.clamp(-1.0, 1.0);
+            raw_thrust = raw_thrust.clamp(-1.0, 1.0);
             raw_call = raw_call.clamp(-1.0, 1.0);
             a.call_intensity = (raw_call + 1.0) * 0.5;
             let turn_delta = raw_turn * MAX_TURN_PER_STEP;
             a.theta += turn_delta;
             while a.theta > std::f32::consts::PI { a.theta -= 2.0 * std::f32::consts::PI; }
             while a.theta <= -std::f32::consts::PI { a.theta += 2.0 * std::f32::consts::PI; }
-            let mut speed = (raw_speed + 1.0) * 0.5; // [0,1]
-            if speed > 1.0 { speed = 1.0; }
             let dir = dir_from_theta(a.theta);
-            let vel = dir.mul(speed * MAX_SPEED);
             let prev = a.pos;
-            a.pos = a.pos.add(vel).clamp_to_world();
+            if USE_INERTIA {
+                a.vel = a.vel.mul(1.0 - DRAG_COEFF);
+                let thrust_scalar = (raw_thrust + 1.0) * 0.5;
+                let mut dv = dir.mul(thrust_scalar * MAX_THRUST);
+                if raw_thrust < 0.0 {
+                    let forward_speed = a.vel.dot(dir);
+                    if forward_speed > 0.0 { let brake = (-raw_thrust).min(1.0) * MAX_THRUST; dv = dv.add(dir.mul(-brake)); }
+                }
+                a.vel = a.vel.add(dv);
+                let vlen = a.vel.length(); if vlen > MAX_VELOCITY { a.vel = a.vel.mul(MAX_VELOCITY / vlen); }
+                a.pos = a.pos.add(a.vel).clamp_to_world();
+            } else {
+                let mut speed = (raw_thrust + 1.0) * 0.5; if speed > 1.0 { speed = 1.0; }
+                let vel = dir.mul(speed * MAX_SPEED);
+                a.pos = a.pos.add(vel).clamp_to_world();
+            }
             // eat along the path (continuous) to prevent tunneling; fallback to near check
             if world::eat_along_path(&mut self.food, prev, a.pos) || world::eat_if_near(&mut self.food, a.pos) {
                 if DIGEST_STEPS_PLANT > 0 { a.digest.push_back(DigestEvent { remaining: DIGEST_STEPS_PLANT, per_step: FOOD_ENERGY / (DIGEST_STEPS_PLANT as f32) }); }
@@ -346,10 +387,18 @@ impl Episode {
             }
             // Energy & stats
             self.total_agent_steps += 1;
-            self.avg_speed_accum += speed;
+            if USE_INERTIA { self.avg_speed_accum += a.vel.length() / MAX_SPEED; } else { /* speed already normalized */ self.avg_speed_accum += (raw_thrust + 1.0) * 0.5; }
             self.heading_change_accum += turn_delta.abs();
-            let mut energy_cost = ENERGY_DRAIN_PER_STEP + speed * MOVE_ENERGY_SCALE;
-            if turn_delta.abs() > 0.0 && speed > 1e-4 { energy_cost += TURN_ENERGY_SCALE * raw_turn.abs().min(1.0); }
+            let mut energy_cost = ENERGY_DRAIN_PER_STEP;
+            if USE_INERTIA {
+                let vmag = a.vel.length();
+                energy_cost += vmag * EXTRA_VEL_ENERGY_C1 + vmag*vmag*vmag * EXTRA_VEL_ENERGY_C2;
+                if turn_delta.abs() > 0.0 && vmag > 1e-4 { energy_cost += TURN_ENERGY_SCALE * raw_turn.abs().min(1.0); }
+            } else {
+                let speed = (raw_thrust + 1.0) * 0.5; // reuse mapping
+                energy_cost += speed * MOVE_ENERGY_SCALE;
+                if turn_delta.abs() > 0.0 && speed > 1e-4 { energy_cost += TURN_ENERGY_SCALE * raw_turn.abs().min(1.0); }
+            }
             a.energy -= energy_cost;
             if a.energy <= 0.0 { if a.dead_since.is_none() { a.dead_since = Some(self.steps); a.corpse_energy = CORPSE_INITIAL_ENERGY; } }
             // Update memories after acting

@@ -15,8 +15,8 @@ pub const EPISODES_PER_GEN: usize = 3;
 // ======
 // World
 // ======
-pub const WORLD_W: f32 = 1500.0;
-pub const WORLD_H: f32 = 1500.0;
+pub const WORLD_W: f32 = 750.0;
+pub const WORLD_H: f32 = 750.0;
 pub const INITIAL_ENERGY: f32 = 500.0;
 pub const ENERGY_DRAIN_PER_STEP: f32 = 0.25;
 pub const MAX_STEPS: usize = 500;
@@ -75,16 +75,16 @@ pub const DENSITY_RADIUS: f32 = 40.0;
 // Memory decay factor applied each step AFTER new memories are written (closer to 1.0 = slower decay)
 pub const MEMORY_DECAY: f32 = 0.90;
 
-// Inputs layout (directional pooled proximities + hearing):
-// Directional vision-pooled proximities: 3 angular sectors (Left, Forward, Right) × 4 categories
-//   PlantOrCarcass, SameAlive, OtherAlive, Wall  => 3 * 4 = 12
-// Scalar features: energy (1)
-// Memory vectors (food, danger) as (x,y,x,y) => 4
-// Local density sectors => DENSITY_SECTORS (6)
-// NEW: Hearing sectors (Left, Forward, Right) aggregated perceived call intensity => 3
-// Total INPUTS = 12 + 1 + 4 + DENSITY_SECTORS + 3 = 26
+// Inputs layout (directional pooled proximities + hearing + location):
+//  1. Directional vision-pooled proximities: 3 sectors (L,F,R) × 4 categories (Plant/Carc, Same, Other, Wall) = 12
+//  2. Energy scalar = 1
+//  3. Memory vectors (food_x, food_y, danger_x, danger_y) = 4
+//  4. Local density bins (forward, side-L, side-R, back-L, back-R, back-center) = DENSITY_SECTORS (6)
+//  5. Hearing sectors (L,F,R) smoothed call intensity = HEARING_SECTORS (3)
+//  6. NEW: Normalized absolute position (x/WORLD_W, y/WORLD_H) = 2
+// Total INPUTS = 12 + 1 + 4 + DENSITY_SECTORS + HEARING_SECTORS + 2
 pub const HEARING_SECTORS: usize = 3;
-pub const INPUTS: usize = 12 + 1 + 4 + DENSITY_SECTORS + HEARING_SECTORS;
+pub const INPUTS: usize = 12 + 1 + 4 + DENSITY_SECTORS + HEARING_SECTORS + 2;
 // Movement controller outputs now: [ turn, speed ] (relative turn model)
 // turn in [-1,1] -> applied delta heading in [-MAX_TURN_PER_STEP, MAX_TURN_PER_STEP]
 // speed in [-1,1] -> [0,1]
@@ -129,6 +129,15 @@ pub const MOTOR_NOISE: f32 = 0.0;                // noise disabled (was 0.03) fo
 pub const MAX_TURN_PER_STEP: f32 = std::f32::consts::PI / 18.0; // same numeric value as previous smoothing limit
 pub const MOVE_ENERGY_SCALE: f32 = 0.2;           // energy cost per unit normalized speed
 pub const TURN_ENERGY_SCALE: f32 = 0.01;          // energy cost added proportional to |turn_fraction|
+// Inertia extension (Stage A): treat Output[1] as forward thrust instead of direct speed.
+// v_{t+1} = v_t * (1.0 - DRAG_COEFF) + thrust * MAX_THRUST * forward_dir
+// Speed capped softly by MAX_VELOCITY (explicit clamp)
+pub const USE_INERTIA: bool = true;               // feature flag to revert easily
+pub const DRAG_COEFF: f32 = 0.10;                 // fraction of velocity lost per step (0.1 -> ~63% after 10 steps)
+pub const MAX_THRUST: f32 = 0.9;                  // units of velocity added when thrust output = 1.0
+pub const MAX_VELOCITY: f32 = 4.5;                // hard cap on velocity magnitude (pre world scaling)
+pub const EXTRA_VEL_ENERGY_C1: f32 = 0.02;        // linear velocity cost term
+pub const EXTRA_VEL_ENERGY_C2: f32 = 0.004;       // cubic velocity cost term (penalize high bursts)
 
 // ==============================
 // Sensing smoothing
