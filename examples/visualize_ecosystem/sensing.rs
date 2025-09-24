@@ -1,5 +1,5 @@
-use super::params::{VISION_RAYS, VISION_ANGLE_DEG, VISION_RANGE, FOOD_RADIUS, DANGER_VECTOR_MAX_RANGE, DENSITY_SECTORS, DENSITY_RADIUS, INPUTS, WORLD_W, WORLD_H, PREDATION_ENABLED, SCAVENGE_ENABLED};
-use super::Vec2;
+use super::params::{VISION_RAYS, VISION_ANGLE_DEG, VISION_RANGE, FOOD_RADIUS, DANGER_VECTOR_MAX_RANGE, DENSITY_SECTORS, DENSITY_RADIUS, INPUTS, WORLD_W, WORLD_H, PREDATION_ENABLED, SCAVENGE_ENABLED, HEARING_SECTORS, SOUND_RANGE, SOUND_ATTENUATION_EXP, HEARING_EMA_ALPHA};
+use super::{Agent, Vec2};
 
 fn dir_from_theta(theta: f32) -> Vec2 { Vec2 { x: theta.cos(), y: theta.sin() } }
 
@@ -165,7 +165,7 @@ pub fn density_sectors(pos: Vec2, theta: f32, snapshot: &[(Vec2, bool, bool, usi
 
 // Removed unused nearest_food_distance (legacy diagnostic) to reduce warnings.
 
-pub fn build_inputs(pos: Vec2, theta: f32, food: &[Vec2], energy: f32, last_food_mem: Vec2, last_danger_mem: Vec2, density: &[f32], snapshot: &[(Vec2, bool, bool, usize, bool)], self_idx: usize, my_species: usize) -> [f32; INPUTS] {
+pub fn build_inputs(pos: Vec2, theta: f32, food: &[Vec2], energy: f32, last_food_mem: Vec2, last_danger_mem: Vec2, density: &[f32], snapshot: &[(Vec2, bool, bool, usize, bool)], self_idx: usize, my_species: usize, heard: [f32;3]) -> [f32; INPUTS] {
     let pools = compute_sector_pools(pos, theta, food, snapshot, self_idx, my_species);
     let mut inputs = [0.0f32; INPUTS];
     let mut k = 0;
@@ -179,7 +179,36 @@ pub fn build_inputs(pos: Vec2, theta: f32, food: &[Vec2], energy: f32, last_food
     inputs[k] = last_food_mem.x; k += 1; inputs[k] = last_food_mem.y; k += 1;
     inputs[k] = last_danger_mem.x; k += 1; inputs[k] = last_danger_mem.y; k += 1;
     for s in 0..DENSITY_SECTORS { inputs[k] = *density.get(s).unwrap_or(&0.0); k += 1; }
+    // hearing sectors (already smoothed)
+    for si in 0..HEARING_SECTORS { inputs[k] = heard[si].clamp(0.0, 1.0); k += 1; }
     inputs
+}
+
+/// Update hearing sectors for all agents based on others' call_intensity
+pub fn update_hearing(agents: &mut [Agent]) {
+    if agents.is_empty() { return; }
+    // Precompute facing vectors for sector classification
+    for i in 0..agents.len() {
+        let (c, s) = (agents[i].theta.cos(), agents[i].theta.sin());
+        let fwd = Vec2 { x: c, y: s }; let right = Vec2 { x: -s, y: c };
+        let half = VISION_ANGLE_DEG.to_radians() * 0.5;
+        let forward_band = half / 6.0; // reuse same logic as vision sectors
+        let mut accum = [0.0f32;3];
+        for (j, other) in agents.iter().enumerate() { if i == j { continue; }
+            let dx = other.pos.x - agents[i].pos.x; let dy = other.pos.y - agents[i].pos.y;
+            let d2 = dx*dx + dy*dy; let r2 = SOUND_RANGE * SOUND_RANGE; if d2 > r2 || other.call_intensity <= 1e-6 { continue; }
+            let d = d2.sqrt().max(1e-6);
+            let fwd_comp = dx * fwd.x + dy * fwd.y; if fwd_comp <= 0.0 { continue; } // only front hemisphere for directional hearing (simplification)
+            let right_comp = dx * right.x + dy * right.y; let ang = right_comp.atan2(fwd_comp);
+            if ang < -half || ang > half { continue; }
+            let si = if ang < -forward_band { 0 } else if ang <= forward_band { 1 } else { 2 };
+            let base = (1.0 - (d / SOUND_RANGE)).clamp(0.0, 1.0).powf(SOUND_ATTENUATION_EXP);
+            let weight = base * other.call_intensity; // linear mix; could square intensity if desired
+            accum[si] += weight;
+        }
+        // normalize/clamp and apply smoothing EMA
+        for si in 0..3 { let v = accum[si].min(1.0); agents[i].heard_sectors[si] = agents[i].heard_sectors[si] + HEARING_EMA_ALPHA * (v - agents[i].heard_sectors[si]); }
+    }
 }
 
 // Public struct for pooled sector proximities so UI can reuse without duplicating logic

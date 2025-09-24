@@ -75,20 +75,22 @@ pub const DENSITY_RADIUS: f32 = 40.0;
 // Memory decay factor applied each step AFTER new memories are written (closer to 1.0 = slower decay)
 pub const MEMORY_DECAY: f32 = 0.90;
 
-// Inputs layout (directional pooled proximities):
-// Directional pooled proximities (updated): 3 angular sectors (Left, Forward, Right) each with 4 categories:
-//   - PlantOrCarcass (static edible)
-//   - SameAlive (alive conspecific)
-//   - OtherAlive (alive heterospecific)
-//   - Wall (boundary)
-// Per sector features: 4 proximities -> 3 * 4 = 12.
-// Remaining standard features: energy (1) + memories (4) + density sectors (6) = 11.
-// Total INPUTS = 12 + 11 = 23.
-pub const INPUTS: usize = 12 + 1 + 4 + DENSITY_SECTORS;
+// Inputs layout (directional pooled proximities + hearing):
+// Directional vision-pooled proximities: 3 angular sectors (Left, Forward, Right) × 4 categories
+//   PlantOrCarcass, SameAlive, OtherAlive, Wall  => 3 * 4 = 12
+// Scalar features: energy (1)
+// Memory vectors (food, danger) as (x,y,x,y) => 4
+// Local density sectors => DENSITY_SECTORS (6)
+// NEW: Hearing sectors (Left, Forward, Right) aggregated perceived call intensity => 3
+// Total INPUTS = 12 + 1 + 4 + DENSITY_SECTORS + 3 = 26
+pub const HEARING_SECTORS: usize = 3;
+pub const INPUTS: usize = 12 + 1 + 4 + DENSITY_SECTORS + HEARING_SECTORS;
 // Movement controller outputs now: [ turn, speed ] (relative turn model)
 // turn in [-1,1] -> applied delta heading in [-MAX_TURN_PER_STEP, MAX_TURN_PER_STEP]
 // speed in [-1,1] -> [0,1]
-pub const OUTPUTS: usize = 2;
+// Outputs: [ turn, speed, call ]
+// call in [-1,1] mapped to [0,1] intensity broadcast this step (available to others next step)
+pub const OUTPUTS: usize = 3;
 
 // ==========================
 // Exploration (simplified)
@@ -106,9 +108,8 @@ pub const EXPL_WEIGHT: f32 = 8.0;                // reward for 100% coverage (ty
 // ========================
 // Fitness: we collapse plant/meat shaping into two simple weights.
 pub const PLANT_FITNESS: f32 = 4.0;            // reward per plant eaten
-pub const MEAT_FITNESS: f32 = 4.0;             // reward per meat (kill or scavenged corpse) event
-pub const SURVIVAL_STEP_FITNESS: f32 = 0.01;  // reward per simulation step survived (alive or not? counted via total steps for now)
-// Removed: approach reward, spin penalty, crowding penalty, sublinear exponent.
+pub const MEAT_FITNESS: f32 = 8.0;             // reward per meat (kill or scavenged corpse) event
+pub const SURVIVAL_STEP_FITNESS: f32 = 0.05;  // reward per simulation step survived (alive or not? counted via total steps for now)
 // Rationale: focus on emergent behavior; keep only outcome-based signals (resource intake, exploration, longevity).
 
 // =====================
@@ -135,6 +136,12 @@ pub const TURN_ENERGY_SCALE: f32 = 0.01;          // energy cost added proportio
 // Exponential moving average factor for sector pooled proximities (0..1].
 // Higher = follow current frame more closely, lower = smoother / more lag.
 pub const POOL_EMA_ALPHA: f32 = 0.5;
+// Hearing smoothing (separate in case we want different responsiveness)
+pub const HEARING_EMA_ALPHA: f32 = 0.5;
+// Max range for hearing (sound propagation)
+pub const SOUND_RANGE: f32 = 160.0;
+// Exponent for distance attenuation weight = (1 - d/R)^EXP (then squared by intensity, see implementation)
+pub const SOUND_ATTENUATION_EXP: f32 = 2.0;
 
 // ==============================
 // Digestion / Corpse decay

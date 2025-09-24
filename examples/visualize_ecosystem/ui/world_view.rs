@@ -80,6 +80,16 @@ pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, _member_speci
             let (r, g, b) = crate::ui_common::hsv_to_rgb(hue, sat, val);
             let fill = Color::new(r, g, b, 1.0);
             draw_circle(px, py, agent_r, fill);
+            // Communication: call emission ring (intensity-based)
+            if a.call_intensity > 0.03 {
+                let ring_r = agent_r + 6.0 + a.call_intensity * 22.0;
+                let alpha = 0.15 + 0.55 * a.call_intensity;
+                draw_circle_lines(px, py, ring_r, 2.0, Color::new(0.95, 0.2, 1.0, alpha));
+                // Inner pulse (faint fill) for stronger calls
+                if a.call_intensity > 0.6 {
+                    draw_circle(px, py, agent_r + 4.0, Color::new(0.95, 0.2, 1.0, 0.08 + 0.12 * (a.call_intensity - 0.6)));                    
+                }
+            }
         } else {
             // If corpse is fully consumed or flagged consumed, skip rendering
             if a.consumed || a.corpse_energy <= 0.1 { continue; }
@@ -182,6 +192,20 @@ pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, _member_speci
                         draw_rectangle(x0, y0, w_sector * v, bar_h, colors[row_i]);
                     }
                 }
+                // Hearing sector bars (magenta) single row below others
+                for (sector_i, _) in ["L","F","R"].iter().enumerate() {
+                    let x0 = ax - w_sector * 1.6 + sector_i as f32 * (w_sector + 16.0);
+                    let hear_v = a.heard_sectors[sector_i].clamp(0.0, 1.0);
+                    let y0 = ay - 28.0 - (4.0_f32) * (bar_h + gap); // one extra row beneath existing 4 rows
+                    // background
+                    draw_rectangle(x0, y0, w_sector, bar_h, Color::new(0.08,0.05,0.10,0.65));
+                    // filled
+                    draw_rectangle(x0, y0, w_sector * hear_v, bar_h, Color::new(0.95,0.3,1.0,0.9));
+                }
+                // Hearing label H to the right side
+                let label_x = ax + w_sector * 1.6 + 10.0;
+                let label_y = ay - 28.0 - (4.0_f32) * (bar_h + gap) + bar_h - 1.0;
+                draw_text("H", label_x, label_y, 16.0, Color::new(0.95,0.3,1.0,0.9));
                 // Memory vectors (food=yellow, danger=orange)
                 let draw_mem_vec = |vx: f32, vy: f32, color: Color| {
                     let cth = a.theta.cos(); let sth = a.theta.sin();

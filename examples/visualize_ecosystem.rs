@@ -70,6 +70,9 @@ struct Agent {
     pooled_same: [f32;3],
     pooled_other: [f32;3],
     pooled_wall: [f32;3],
+    // Communication
+    call_intensity: f32,      // emitted this step (0..1)
+    heard_sectors: [f32;3],   // smoothed heard call energy (L,F,R)
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -131,6 +134,7 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         last_danger_mem: Vec2 { x: 0.0, y: 0.0 },
         species_id: *species_map.get(i).unwrap_or(&0),
         pooled_plant: [0.0;3], pooled_same: [0.0;3], pooled_other: [0.0;3], pooled_wall: [0.0;3],
+        call_intensity: 0.0, heard_sectors: [0.0;3],
     }).collect();
     // Track exploration (unique grid cells); shaping buckets removed for simplification
     let mut visited: Vec<std::collections::HashSet<u32>> = vec![std::collections::HashSet::new(); agents.len()];
@@ -163,14 +167,17 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             visited[i].insert(grid_index(a.pos));
             let energy_in = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
             let my_species = a.species_id;
-            let inputs = sensing::build_inputs(a.pos, a.theta, &food, energy_in, a.last_food_mem, a.last_danger_mem, &density, &snapshot, i, my_species);
+            let inputs = sensing::build_inputs(a.pos, a.theta, &food, energy_in, a.last_food_mem, a.last_danger_mem, &density, &snapshot, i, my_species, a.heard_sectors);
             let out = population[i].evaluate_slice(&inputs);
-            // Movement outputs: [turn, speed] (relative turn model)
+            // Movement + communication outputs: [turn, speed, call]
             let mut raw_turn = out.get(0).copied().unwrap_or(0.0);
             let mut raw_speed = out.get(1).copied().unwrap_or(0.0);
+            let mut raw_call = out.get(2).copied().unwrap_or(0.0);
             // motor noise disabled
             raw_turn = raw_turn.clamp(-1.0, 1.0);
             raw_speed = raw_speed.clamp(-1.0, 1.0);
+            raw_call = raw_call.clamp(-1.0, 1.0);
+            a.call_intensity = (raw_call + 1.0) * 0.5;
             let turn_delta = raw_turn * MAX_TURN_PER_STEP;
             a.theta += turn_delta;
             // wrap heading
@@ -214,9 +221,11 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             a.last_danger_mem.x *= MEMORY_DECAY; a.last_danger_mem.y *= MEMORY_DECAY;
             // (Removed approach reward & spin penalty accumulation)
         }
-        // Resolve predation and tick corpse/flash decay (shared)
+    // Resolve predation and tick corpse/flash decay (shared)
         sim::resolve_predation(&mut agents, &prey_targets, steps);
         sim::decay_corpses_and_flashes(&mut agents);
+    // Update hearing after all call intensities set
+    sensing::update_hearing(&mut agents);
         // (Removed avoidance/crowding penalty sampling)
         // Plants grow/spread over time (season-aware)
         world::set_current_step(steps);
@@ -256,6 +265,7 @@ impl Episode {
                 last_danger_mem: Vec2 { x: 0.0, y: 0.0 },
                 species_id: *species_map.get(i).unwrap_or(&0),
                 pooled_plant: [0.0;3], pooled_same: [0.0;3], pooled_other: [0.0;3], pooled_wall: [0.0;3],
+                call_intensity: 0.0, heard_sectors: [0.0;3],
             });
         }
     Self {
@@ -294,13 +304,16 @@ impl Episode {
             // Digestive intake before action (shared)
             sim::apply_digestion(a);
             let energy_in = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
-            let inputs = sensing::build_inputs(a.pos, a.theta, &self.food, energy_in, a.last_food_mem, a.last_danger_mem, &density, &snapshot, i, a.species_id);
+            let inputs = sensing::build_inputs(a.pos, a.theta, &self.food, energy_in, a.last_food_mem, a.last_danger_mem, &density, &snapshot, i, a.species_id, a.heard_sectors);
             let out = population[a.id.0].evaluate_slice(&inputs);
-            // Movement scheme: [turn, speed] (relative turn)
+            // Movement + communication scheme: [turn, speed, call]
             let mut raw_turn = out.get(0).copied().unwrap_or(0.0);
             let mut raw_speed = out.get(1).copied().unwrap_or(0.0);
+            let mut raw_call = out.get(2).copied().unwrap_or(0.0);
             raw_turn = raw_turn.clamp(-1.0, 1.0);
             raw_speed = raw_speed.clamp(-1.0, 1.0);
+            raw_call = raw_call.clamp(-1.0, 1.0);
+            a.call_intensity = (raw_call + 1.0) * 0.5;
             let turn_delta = raw_turn * MAX_TURN_PER_STEP;
             a.theta += turn_delta;
             while a.theta > std::f32::consts::PI { a.theta -= 2.0 * std::f32::consts::PI; }
@@ -349,8 +362,10 @@ impl Episode {
             a.last_danger_mem.x *= MEMORY_DECAY; a.last_danger_mem.y *= MEMORY_DECAY;
         }
         // Resolve predation after movement and decay (shared)
-        sim::resolve_predation(&mut self.agents, &prey_targets, self.steps);
-        sim::decay_corpses_and_flashes(&mut self.agents);
+    sim::resolve_predation(&mut self.agents, &prey_targets, self.steps);
+    sim::decay_corpses_and_flashes(&mut self.agents);
+    // Update hearing after call_intensity set for all agents this step
+    sensing::update_hearing(&mut self.agents);
         // Plants grow/spread over time in the live world too (season-aware)
         world::set_current_step(self.steps);
         world::food_growth_step(&mut self.food, rng);
