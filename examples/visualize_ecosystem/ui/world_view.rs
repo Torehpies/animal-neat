@@ -5,7 +5,7 @@ use crate::sensing;
 use crate::ui_common::{world_to_screen, fit_world_rect, world_scale};
 use crate::dir_from_theta;
 
-pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, _member_species: &[usize], show_density_overlay: bool, show_vector_overlay: bool, mouse_world: Option<Vec2>) {
+pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, _member_species: &[usize], show_density_overlay: bool, show_vector_overlay: bool, show_pooled: bool, mouse_world: Option<Vec2>) {
     let fitted = fit_world_rect(area);
     // background: draw biome bands with seasonal tinting
     // Biomes split across X using BIOME_X_SPLITS; use episode.steps as season time
@@ -44,7 +44,11 @@ pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, _member_speci
         draw_circle(px, py, r, YELLOW);
     }
     // Precompute snapshot for overlays
-    let snapshot: Vec<(Vec2, bool, bool)> = episode.agents.iter().map(|a| (a.pos, a.energy > 0.0, a.consumed)).collect();
+    let snapshot: Vec<(Vec2, bool, bool, usize, bool)> = episode.agents.iter().map(|a| {
+        let alive = a.energy > 0.0;
+        let is_corpse = !alive && !a.consumed && a.corpse_energy > 0.1;
+        (a.pos, alive, a.consumed, 0usize, is_corpse)
+    }).collect();
 
     // Determine focused agent (nearest to mouse)
     let focused_idx: Option<usize> = mouse_world.and_then(|mw| {
@@ -131,11 +135,11 @@ pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, _member_speci
             let mut edible_near = false;
             let mut best_target: Option<Vec2> = None;
             let mut best_d2: f32 = f32::INFINITY;
-            for (j, (p, alive, consumed)) in snapshot.iter().enumerate() {
+            for (j, (p, alive, consumed, _species, is_corpse)) in snapshot.iter().enumerate() {
                 if j == idx { continue; }
                 // edible if alive (predation) or dead but not yet consumed (scavenge)
-                if (*alive && !PREDATION_ENABLED) || (!*alive && !SCAVENGE_ENABLED) { continue; }
-                if !*alive && *consumed { continue; }
+                if (*alive && !PREDATION_ENABLED) || ((*is_corpse || !*alive) && !SCAVENGE_ENABLED) { continue; }
+                if *consumed { continue; }
                 let dx = p.x - a.pos.x; let dy = p.y - a.pos.y; let d2 = dx*dx + dy*dy;
                 if d2 <= eat_r2 {
                     edible_near = true;
@@ -216,6 +220,49 @@ pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, _member_speci
                 // Memory vectors (yellow/orange)
                 draw_local_arrow("last_food", a.last_food_mem.x, a.last_food_mem.y, Color::new(1.0, 0.9, 0.2, 0.95));
                 draw_local_arrow("last_danger", a.last_danger_mem.x, a.last_danger_mem.y, Color::new(1.0, 0.6, 0.2, 0.95));
+            }
+            if show_pooled {
+                // Use unified pooling logic
+                let pools = sensing::compute_sector_pools(a.pos, a.theta, &episode.food, &snapshot, idx, 0); // species id 0 placeholder
+                let (ax, ay) = world_to_screen(fitted, a.pos);
+                // Draw sector arc outlines for orientation
+                let cone_half = VISION_ANGLE_DEG.to_radians() * 0.5;
+                let radii = [AGENT_RADIUS * 4.0, AGENT_RADIUS * 8.0];
+                for r_mult in radii { // faint guide rings
+                    let r_world = r_mult;
+                    let r_px = r_world * px_per_world;
+                    draw_circle_lines(ax, ay, r_px, 1.0, Color::new(0.2,0.2,0.25,0.35));
+                }
+                // Sector boundary lines
+                let sector_bounds = [-cone_half, 0.0, cone_half];
+                for ang in sector_bounds {
+                    let ang_world = a.theta + ang;
+                    let end = Vec2 { x: a.pos.x + ang_world.cos() * (AGENT_RADIUS*8.0), y: a.pos.y + ang_world.sin() * (AGENT_RADIUS*8.0) };
+                    let (ex, ey) = world_to_screen(fitted, end);
+                    draw_line(ax, ay, ex, ey, 1.0, Color::new(0.25,0.25,0.3,0.5));
+                }
+                // Bar stacks per sector with labels
+                let w_sector = 54.0; let bar_h = 7.0; let gap = 3.0;
+                let labels = ["Plant/Carc", "Same", "Other", "Wall"];
+                let colors = [Color::new(0.25,1.0,0.25,0.95), Color::new(0.1,0.85,1.0,0.95), Color::new(1.0,0.3,0.9,0.95), Color::new(0.75,0.75,0.75,0.95)];
+                let rows = [pools.plant_carc, pools.same_alive, pools.other_alive, pools.wall];
+                // Position bars slightly above agent
+                for (sector_i, _sector_label) in ["L","F","R"].iter().enumerate() {
+                    let x0 = ax - w_sector * 1.6 + sector_i as f32 * (w_sector + 16.0);
+                    for (row_i, arr) in rows.iter().enumerate() {
+                        let v = arr[sector_i].clamp(0.0,1.0);
+                        let y0 = ay - 24.0 - (row_i as f32) * (bar_h + gap);
+                        draw_rectangle(x0, y0, w_sector, bar_h, Color::new(0.08,0.09,0.11,0.7));
+                        draw_rectangle(x0, y0, w_sector * v, bar_h, colors[row_i]);
+                    }
+                }
+                // Legend (compact) to right of agent
+                let legend_x = ax + w_sector * 1.4 + 8.0;
+                for (i, lab) in labels.iter().enumerate() {
+                    let ly = ay - 24.0 - (i as f32) * (bar_h + gap);
+                    draw_rectangle(legend_x, ly, 10.0, bar_h, colors[i]);
+                    draw_text(lab, legend_x + 14.0, ly + bar_h - 1.0, 14.0, GRAY);
+                }
             }
         }
     }

@@ -68,15 +68,21 @@ pub const MAX_SPEED: f32 = 2.5; // legacy MAX_TURN & coupling removed (angle+spe
 // Sensing / Memory
 // ==============
 pub const DANGER_VECTOR_MAX_RANGE: f32 = 150.0;
-pub const DENSITY_SECTORS: usize = 8;
+// Density sectors reduced: 5 custom bins (side-left, side-right, back-left, back-right, back-center)
+// Rationale: compress spatial crowding signal while keeping coarse directional awareness.
+pub const DENSITY_SECTORS: usize = 5;
 pub const DENSITY_RADIUS: f32 = 40.0;
 
-// Inputs layout (ray-first, no direct food/meat vectors):
-// - VISION_RAYS * 3 (per ray: food, wall, meat)
-// - 1 (normalized energy)
-// - 4 (memory vectors: last_food x,y and last_danger x,y)
-// - DENSITY_SECTORS (alive-neighbor density bins)
-pub const INPUTS: usize = VISION_RAYS * 3 + 1 + 4 + DENSITY_SECTORS;
+// Inputs layout (directional pooled proximities):
+// Directional pooled proximities (updated): 3 angular sectors (Left, Forward, Right) each with 4 categories:
+//   - PlantOrCarcass (static edible)
+//   - SameAlive (alive conspecific)
+//   - OtherAlive (alive heterospecific)
+//   - Wall (boundary)
+// Per sector features: 4 proximities -> 3 * 4 = 12.
+// Remaining standard features: energy (1) + memories (4) + density sectors (5) = 10.
+// Total INPUTS = 12 + 10 = 22.
+pub const INPUTS: usize = 12 + 1 + 4 + DENSITY_SECTORS;
 // Movement controller outputs now: [ turn, speed ] (relative turn model)
 // turn in [-1,1] -> applied delta heading in [-MAX_TURN_PER_STEP, MAX_TURN_PER_STEP]
 // speed in [-1,1] -> [0,1]

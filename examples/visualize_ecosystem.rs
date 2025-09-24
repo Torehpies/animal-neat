@@ -64,6 +64,7 @@ struct Agent {
     digest: VecDeque<DigestEvent>, // incoming energy deliveries
     last_food_mem: Vec2,         // memory of last step's nearest-food local vector
     last_danger_mem: Vec2,       // memory of last step's nearest-agent local vector
+    species_id: usize,           // stable species index captured at episode start
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -94,12 +95,21 @@ fn grid_index(p: Vec2) -> u32 {
 
 // eat_if_near moved to world.rs
 
+fn build_species_map(speciator: &Speciator, pop_len: usize) -> Vec<usize> {
+    let mut map = vec![0usize; pop_len];
+    for (sidx, s) in speciator.get_species().iter().enumerate() {
+        for &m in &s.members { if m < pop_len { map[m] = sidx; } }
+    }
+    map
+}
+
 fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
     let mut rng = ::rand::rng();
     let mut food = world::build_world(&mut rng);
+    // For evaluation (fitness) we don't have access to a live Speciator; treat all as one species (0) for now.
     let mut agents: Vec<Agent> = population.iter().enumerate().map(|(i, _)| Agent {
         id: AgentId(i),
-    pos: world::rand_pos(&mut rng),
+        pos: world::rand_pos(&mut rng),
         theta: -std::f32::consts::FRAC_PI_2,
         energy: INITIAL_ENERGY,
         eaten: 0,
@@ -111,6 +121,7 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         digest: VecDeque::new(),
         last_food_mem: Vec2 { x: 0.0, y: 0.0 },
         last_danger_mem: Vec2 { x: 0.0, y: 0.0 },
+        species_id: 0,
     }).collect();
     // Track exploration (unique grid cells); shaping buckets removed for simplification
     let mut visited: Vec<std::collections::HashSet<u32>> = vec![std::collections::HashSet::new(); agents.len()];
@@ -120,7 +131,12 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
     while steps < MAX_STEPS {
         if agents.iter().all(|a| a.energy <= 0.0) { break; }
         // Snapshot for predation decisions to avoid borrow conflicts
-        let snapshot: Vec<(Vec2, bool, bool)> = agents.iter().map(|a| (a.pos, a.energy > 0.0, a.consumed)).collect();
+        // Extended snapshot: (pos, alive, consumed_flag, species_id, is_corpse)
+    let species_ids: Vec<usize> = vec![0; agents.len()]; // placeholder (evaluation path species collapse)
+        let snapshot: Vec<(Vec2, bool, bool, usize, bool)> = agents.iter().enumerate().map(|(i,a)| {
+            let alive = a.energy > 0.0; let is_corpse = !alive && !a.consumed && a.corpse_energy > 0.1;
+            (a.pos, alive, a.consumed, *species_ids.get(i).unwrap_or(&0), is_corpse)
+        }).collect();
         let mut prey_targets: Vec<Option<usize>> = vec![None; agents.len()];
         for (i, a) in agents.iter_mut().enumerate() {
             if a.energy <= 0.0 { continue; }
@@ -131,7 +147,8 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             sim::apply_digestion(a);
             visited[i].insert(grid_index(a.pos));
             let energy_in = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
-            let inputs = sensing::build_inputs(a.pos, a.theta, &food, energy_in, a.last_food_mem, a.last_danger_mem, &density, &snapshot, i);
+            let my_species = a.species_id;
+            let inputs = sensing::build_inputs(a.pos, a.theta, &food, energy_in, a.last_food_mem, a.last_danger_mem, &density, &snapshot, i, my_species);
             let out = population[i].evaluate_slice(&inputs);
             // Movement outputs: [turn, speed] (relative turn model)
             let mut raw_turn = out.get(0).copied().unwrap_or(0.0);
@@ -160,9 +177,9 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
                 let mut target: Option<usize> = None;
                 for j in 0..snapshot.len() {
                     if j == i { continue; }
-                    let (pos_j, alive_j, consumed_j) = snapshot[j];
+                    let (pos_j, alive_j, consumed_j, _species_j, is_corpse_j) = snapshot[j];
                     if consumed_j { continue; }
-                    if (alive_j && !PREDATION_ENABLED) || (!alive_j && !SCAVENGE_ENABLED) { continue; }
+                    if (alive_j && !PREDATION_ENABLED) || ((!alive_j || is_corpse_j) && !SCAVENGE_ENABLED) { continue; }
                     let dx = pos_j.x - a.pos.x; let dy = pos_j.y - a.pos.y;
                     if (dx*dx + dy*dy).sqrt() <= EAT_AGENT_RADIUS { target = Some(j); break; }
                 }
@@ -203,7 +220,7 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
 }
 
 impl Episode {
-    fn new<R: Rng>(rng: &mut R, agent_count: usize) -> Self {
+    fn new<R: Rng>(rng: &mut R, agent_count: usize, species_map: &[usize]) -> Self {
         let mut agents = Vec::with_capacity(agent_count);
         for i in 0..agent_count {
             agents.push(Agent {
@@ -220,6 +237,7 @@ impl Episode {
                 digest: VecDeque::new(),
                 last_food_mem: Vec2 { x: 0.0, y: 0.0 },
                 last_danger_mem: Vec2 { x: 0.0, y: 0.0 },
+                species_id: *species_map.get(i).unwrap_or(&0),
             });
         }
     Self {
@@ -237,7 +255,12 @@ impl Episode {
         // Live episode: continue until all agents are dead (ignore max steps and food exhaustion)
         if self.agents.iter().all(|a| a.energy <= 0.0) { return false; }
         // Snapshot for predation decisions
-        let snapshot: Vec<(Vec2, bool, bool)> = self.agents.iter().map(|a| (a.pos, a.energy > 0.0, a.consumed)).collect();
+        // Extended snapshot includes species id mapping
+        // Episode does not have species mapping context; use 0 for same-species grouping during live run step.
+        let snapshot: Vec<(Vec2, bool, bool, usize, bool)> = self.agents.iter().map(|a| {
+            let alive = a.energy > 0.0; let is_corpse = !alive && !a.consumed && a.corpse_energy > 0.1;
+            (a.pos, alive, a.consumed, a.species_id, is_corpse)
+        }).collect();
         let mut prey_targets: Vec<Option<usize>> = vec![None; self.agents.len()];
         for (i, a) in self.agents.iter_mut().enumerate() {
             if a.energy <= 0.0 { continue; }
@@ -248,7 +271,7 @@ impl Episode {
             // Digestive intake before action (shared)
             sim::apply_digestion(a);
             let energy_in = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
-            let inputs = sensing::build_inputs(a.pos, a.theta, &self.food, energy_in, a.last_food_mem, a.last_danger_mem, &density, &snapshot, i);
+            let inputs = sensing::build_inputs(a.pos, a.theta, &self.food, energy_in, a.last_food_mem, a.last_danger_mem, &density, &snapshot, i, a.species_id);
             let out = population[a.id.0].evaluate_slice(&inputs);
             // Movement scheme: [turn, speed] (relative turn)
             let mut rng_local = ::rand::rng();
@@ -278,9 +301,9 @@ impl Episode {
                 let mut target: Option<usize> = None;
                 for j in 0..snapshot.len() {
                     if j == i { continue; }
-                    let (pos_j, alive_j, consumed_j) = snapshot[j];
+                    let (pos_j, alive_j, consumed_j, _species_j, is_corpse_j) = snapshot[j];
                     if consumed_j { continue; }
-                    if (alive_j && !PREDATION_ENABLED) || (!alive_j && !SCAVENGE_ENABLED) { continue; }
+                    if (alive_j && !PREDATION_ENABLED) || ((!alive_j || is_corpse_j) && !SCAVENGE_ENABLED) { continue; }
                     let dx = pos_j.x - a.pos.x; let dy = pos_j.y - a.pos.y;
                     if (dx*dx + dy*dy).sqrt() <= EAT_AGENT_RADIUS { target = Some(j); break; }
                 }
@@ -341,6 +364,7 @@ struct AppState {
     // Debug overlays
     show_density_overlay: bool,
     show_vector_overlay: bool,
+    show_pooled_sensing_overlay: bool,
 }
 
 impl AppState {
@@ -362,7 +386,7 @@ impl AppState {
             }
             map
         };
-        let episode = Episode::new(&mut rng, pop_size);
+    let episode = Episode::new(&mut rng, pop_size, &member_species);
         Self {
             population,
             innov,
@@ -382,6 +406,7 @@ impl AppState {
             last_best_genome: None,
             show_density_overlay: false,
             show_vector_overlay: false,
+                show_pooled_sensing_overlay: false,
         }
     }
 
@@ -434,7 +459,7 @@ impl AppState {
         self.last_species = self.speciator.get_species().clone();
         self.generation += 1;
         let mut rng = ::rand::rng();
-        self.episode = Episode::new(&mut rng, self.population.len());
+    self.episode = Episode::new(&mut rng, self.population.len(), &self.member_species);
         // speciate new population for coloring and update mapping
         self.speciator.speciate(&self.population);
         self.member_species = {
@@ -489,10 +514,11 @@ async fn main() {
     // Controls
         if is_key_pressed(KeyCode::P) { running = !running; }
         if is_key_pressed(KeyCode::F) { fast_mode = !fast_mode; }
-        if is_key_pressed(KeyCode::R) { let mut rng = ::rand::rng(); state.episode = Episode::new(&mut rng, state.population.len()); }
+    if is_key_pressed(KeyCode::R) { let mut rng = ::rand::rng(); state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species); }
         if is_key_pressed(KeyCode::V) { state.show_cones = !state.show_cones; }
     if is_key_pressed(KeyCode::D) { state.show_density_overlay = !state.show_density_overlay; }
     if is_key_pressed(KeyCode::B) { state.show_vector_overlay = !state.show_vector_overlay; }
+            if is_key_pressed(KeyCode::S) { state.show_pooled_sensing_overlay = !state.show_pooled_sensing_overlay; }
         // Removed population size controls
 
         if running {
@@ -502,7 +528,7 @@ async fn main() {
                 for _ in 0..fast_steps_per_frame {
                     if state.episode.is_finished() {
                         state.evolve_one_generation();
-                        state.episode = Episode::new(&mut rng, state.population.len());
+                        state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
                         break;
                     }
                     state.episode.step(&state.population, &mut rng);
@@ -510,7 +536,7 @@ async fn main() {
                 // If it finished exactly on the last step, evolve now
                 if state.episode.is_finished() {
                     state.evolve_one_generation();
-                    state.episode = Episode::new(&mut rng, state.population.len());
+                    state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
                 }
             } else {
                 // Normal mode: advance one simulation step per second
@@ -519,12 +545,12 @@ async fn main() {
                     normal_step_timer -= normal_step_interval;
                     if state.episode.is_finished() {
                         state.evolve_one_generation();
-                        state.episode = Episode::new(&mut rng, state.population.len());
+                        state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
                     } else {
                         state.episode.step(&state.population, &mut rng);
                         if state.episode.is_finished() {
                             state.evolve_one_generation();
-                            state.episode = Episode::new(&mut rng, state.population.len());
+                            state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
                         }
                     }
                 }
@@ -546,6 +572,7 @@ async fn main() {
         &state.member_species,
         state.show_density_overlay,
         state.show_vector_overlay,
+            state.show_pooled_sensing_overlay,
         mouse_world,
     );
     ui_hud::draw_hud(hud_area, &state, running, fast_mode, &state.member_species);

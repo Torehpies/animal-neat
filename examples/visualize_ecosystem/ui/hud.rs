@@ -73,7 +73,8 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
 
     // Controls (compact)
     if y <= max_y {
-        let controls = "Controls: [P] pause  [F] fast  [R] reset  [V] vision  [D] density  [B] vectors";
+    // Updated toggles: Vision Rays(V), Pooled Sectors(S), Density (D), Memory/Target Vectors (B)
+    let controls = "Controls: [P] pause  [F] fast  [R] reset  [V] rays  [S] pooled  [D] density  [B] vectors";
         let _ = draw_text_wrapped(controls, x, y, 16.0, GRAY, max_w, 6.0);
         // no need to update y further; panel starts below
     }

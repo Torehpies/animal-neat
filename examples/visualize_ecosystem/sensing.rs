@@ -35,11 +35,11 @@ pub fn nearest_food_along_ray(p: Vec2, dir: Vec2, food: &[Vec2]) -> Option<f32> 
     best
 }
 
-pub fn nearest_meat_along_ray(p: Vec2, dir: Vec2, snapshot: &[(Vec2, bool, bool)], self_idx: usize) -> Option<f32> {
+pub fn nearest_meat_along_ray(p: Vec2, dir: Vec2, snapshot: &[(Vec2, bool, bool, usize, bool)], self_idx: usize) -> Option<f32> {
     let mut best: Option<f32> = None;
-    for (j, (pos, alive, consumed)) in snapshot.iter().enumerate() {
+    for (j, (pos, alive, consumed, _species, is_corpse)) in snapshot.iter().enumerate() {
         if j == self_idx { continue; }
-        let edible = (*alive && PREDATION_ENABLED) || (!*alive && !*consumed && SCAVENGE_ENABLED);
+        let edible = (*alive && PREDATION_ENABLED) || (*is_corpse && !*consumed && SCAVENGE_ENABLED);
         if !edible { continue; }
         let op = Vec2 { x: pos.x - p.x, y: pos.y - p.y };
         let t = op.x * dir.x + op.y * dir.y;
@@ -54,12 +54,12 @@ pub fn nearest_meat_along_ray(p: Vec2, dir: Vec2, snapshot: &[(Vec2, bool, bool)
 
 // Removed unused nearest_food_vector_local (legacy shaping vector) to reduce warnings.
 
-pub fn nearest_agent_vector_local(pos: Vec2, theta: f32, snapshot: &[(Vec2, bool, bool)], self_idx: usize) -> (f32, f32) {
+pub fn nearest_agent_vector_local(pos: Vec2, theta: f32, snapshot: &[(Vec2, bool, bool, usize, bool)], self_idx: usize) -> (f32, f32) {
     let mut best_d2 = f32::INFINITY;
     let mut best_v = Vec2 { x: 0.0, y: 0.0 };
-    for (j, (p, alive, consumed)) in snapshot.iter().enumerate() {
+    for (j, (p, alive, consumed, _species, is_corpse)) in snapshot.iter().enumerate() {
         if j == self_idx { continue; }
-        if !*alive || *consumed { continue; }
+        if !*alive || *consumed || *is_corpse { continue; }
         let dx = p.x - pos.x; let dy = p.y - pos.y;
         let d2 = dx*dx + dy*dy;
         if d2 < best_d2 { best_d2 = d2; best_v = Vec2 { x: dx, y: dy }; }
@@ -111,7 +111,7 @@ pub fn food_vector_from_rays(pos: Vec2, theta: f32, food: &[Vec2]) -> (f32, f32)
     aggregate_vector_from_rays(theta, &hits)
 }
 
-pub fn meat_vector_from_rays(pos: Vec2, theta: f32, snapshot: &[(Vec2, bool, bool)], self_idx: usize) -> (f32, f32) {
+pub fn meat_vector_from_rays(pos: Vec2, theta: f32, snapshot: &[(Vec2, bool, bool, usize, bool)], self_idx: usize) -> (f32, f32) {
     let dir = dir_from_theta(theta);
     let rays = ray_directions(dir);
     let mut hits: Vec<(Vec2, f32)> = Vec::with_capacity(rays.len());
@@ -126,51 +126,130 @@ pub fn meat_vector_from_rays(pos: Vec2, theta: f32, snapshot: &[(Vec2, bool, boo
     aggregate_vector_from_rays(theta, &hits)
 }
 
-pub fn density_sectors(pos: Vec2, theta: f32, snapshot: &[(Vec2, bool, bool)], self_idx: usize) -> [f32; DENSITY_SECTORS] {
+pub fn density_sectors(pos: Vec2, theta: f32, snapshot: &[(Vec2, bool, bool, usize, bool)], self_idx: usize) -> [f32; DENSITY_SECTORS] {
+    // Custom 5-bin layout:
+    // 0: side-left (90°..180° left of forward)
+    // 1: side-right (90°..180° right of forward)
+    // 2: back-left (45°..90° left of backward)
+    // 3: back-right (45°..90° right of backward)
+    // 4: back-center (within 45° of directly behind)
     let mut bins = [0.0f32; DENSITY_SECTORS];
-    let two_pi = std::f32::consts::PI * 2.0;
-    let sector_size = two_pi / (DENSITY_SECTORS as f32);
-    for (j, (p, alive, consumed)) in snapshot.iter().enumerate() {
+    for (j, (p, alive, consumed, _species, _is_corpse)) in snapshot.iter().enumerate() {
         if j == self_idx { continue; }
         if !*alive || *consumed { continue; }
         let dx = p.x - pos.x; let dy = p.y - pos.y;
-        let d2 = dx*dx + dy*dy; let r2 = DENSITY_RADIUS * DENSITY_RADIUS;
-        if d2 > r2 { continue; }
+        let d2 = dx*dx + dy*dy; let r2 = DENSITY_RADIUS * DENSITY_RADIUS; if d2 > r2 { continue; }
         let d = d2.sqrt().max(1e-6);
         let c = theta.cos(); let s = theta.sin();
-        let right = dx * (-s) + dy * c;
-        let fwd = dx * c + dy * s;
-        let ang = fwd.atan2(right);
-        let mut ang2 = ang + std::f32::consts::PI;
-        if ang2 < 0.0 { ang2 += two_pi; }
-        let idx = (ang2 / sector_size).floor() as usize % DENSITY_SECTORS;
+        let fwd = dx * c + dy * s; // forward component
+        let right = dx * (-s) + dy * c; // right component
+        let ang = fwd.atan2(right); // local angle: right=0, forward=+PI/2, left=PI or -PI, back=-PI/2
+        // Convert to forward-centered angle (-PI..PI] where 0 = forward
+        let mut forward_ang = ang - std::f32::consts::FRAC_PI_2; // now 0 ~ forward
+        while forward_ang <= -std::f32::consts::PI { forward_ang += 2.0 * std::f32::consts::PI; }
+        while forward_ang > std::f32::consts::PI { forward_ang -= 2.0 * std::f32::consts::PI; }
+        // We only fill rear & side bins (ignore forward quadrant for compressed density)
         let w = (1.0 - (d / DENSITY_RADIUS)).clamp(0.0, 1.0);
-        bins[idx] = (bins[idx] + w).clamp(0.0, 1.0);
+        // Determine bin
+        if forward_ang > 0.0 { // left side in local forward frame
+            if forward_ang >= std::f32::consts::FRAC_PI_2 { // behind-left hemisphere
+                let delta = forward_ang - std::f32::consts::FRAC_PI_2; // 0..PI/2 maps to back region
+                if delta <= std::f32::consts::FRAC_PI_4 { bins[4] = (bins[4] + w).clamp(0.0, 1.0); } // back-center
+                else { bins[2] = (bins[2] + w).clamp(0.0, 1.0); } // back-left outer
+            } else { bins[0] = (bins[0] + w).clamp(0.0, 1.0); } // side-left
+        } else { // right side or negative angles
+            if forward_ang <= -std::f32::consts::FRAC_PI_2 { // behind-right hemisphere
+                let delta = -std::f32::consts::FRAC_PI_2 - forward_ang; // 0..PI/2
+                if delta <= std::f32::consts::FRAC_PI_4 { bins[4] = (bins[4] + w).clamp(0.0, 1.0); }
+                else { bins[3] = (bins[3] + w).clamp(0.0, 1.0); }
+            } else { bins[1] = (bins[1] + w).clamp(0.0, 1.0); } // side-right
+        }
     }
     bins
 }
 
 // Removed unused nearest_food_distance (legacy diagnostic) to reduce warnings.
 
-pub fn build_inputs(pos: Vec2, theta: f32, food: &[Vec2], energy: f32, last_food_mem: Vec2, last_danger_mem: Vec2, density: &[f32], snapshot: &[(Vec2, bool, bool)], self_idx: usize) -> [f32; INPUTS] {
+pub fn build_inputs(pos: Vec2, theta: f32, food: &[Vec2], energy: f32, last_food_mem: Vec2, last_danger_mem: Vec2, density: &[f32], snapshot: &[(Vec2, bool, bool, usize, bool)], self_idx: usize, my_species: usize) -> [f32; INPUTS] {
+    let pools = compute_sector_pools(pos, theta, food, snapshot, self_idx, my_species);
     let mut inputs = [0.0f32; INPUTS];
-    let dir = dir_from_theta(theta);
-    let rays = ray_directions(dir);
     let mut k = 0;
-    for r in rays {
-        let len = (r.x * r.x + r.y * r.y).sqrt().max(1e-6);
-        let rdir = Vec2 { x: r.x / len, y: r.y / len };
-        let food_t = nearest_food_along_ray(pos, rdir, food);
-        let food_sig = food_t.map(|t| 1.0 - (t / VISION_RANGE)).unwrap_or(0.0);
-        let wall_t = ray_wall_distance(pos, rdir);
-        let wall_sig = if wall_t.is_finite() { (1.0 - (wall_t / VISION_RANGE)).clamp(0.0, 1.0) } else { 0.0 };
-        let meat_t = nearest_meat_along_ray(pos, rdir, snapshot, self_idx);
-        let meat_sig = meat_t.map(|t| 1.0 - (t / VISION_RANGE)).unwrap_or(0.0);
-        inputs[k] = food_sig; k += 1; inputs[k] = wall_sig; k += 1; inputs[k] = meat_sig; k += 1;
+    for si in 0..3 {
+        inputs[k] = pools.plant_carc[si]; k += 1;
+        inputs[k] = pools.same_alive[si]; k += 1;
+        inputs[k] = pools.other_alive[si]; k += 1;
+        inputs[k] = pools.wall[si]; k += 1;
     }
     inputs[k] = energy.clamp(0.0, 1.0); k += 1;
     inputs[k] = last_food_mem.x; k += 1; inputs[k] = last_food_mem.y; k += 1;
     inputs[k] = last_danger_mem.x; k += 1; inputs[k] = last_danger_mem.y; k += 1;
     for s in 0..DENSITY_SECTORS { inputs[k] = *density.get(s).unwrap_or(&0.0); k += 1; }
     inputs
+}
+
+// Public struct for pooled sector proximities so UI can reuse without duplicating logic
+#[derive(Clone, Copy, Debug)]
+pub struct SectorPools {
+    pub plant_carc: [f32;3],
+    pub same_alive: [f32;3],
+    pub other_alive: [f32;3],
+    pub wall: [f32;3],
+}
+
+impl SectorPools {
+    pub fn empty() -> Self { Self { plant_carc: [0.0;3], same_alive: [0.0;3], other_alive: [0.0;3], wall: [0.0;3] } }
+}
+
+/// Compute directional pooled proximities (Left, Forward, Right) × (Plant/Carcass, Same, Other, Wall)
+pub fn compute_sector_pools(pos: Vec2, theta: f32, food: &[Vec2], snapshot: &[(Vec2, bool, bool, usize, bool)], self_idx: usize, my_species: usize) -> SectorPools {
+    let half_cone = VISION_ANGLE_DEG.to_radians() * 0.5;
+    let forward_band = half_cone / 6.0;
+    let c = theta.cos(); let s = theta.sin();
+    let fwd = Vec2 { x: c, y: s }; let right_vec = Vec2 { x: -s, y: c };
+    let sector_index = |ang: f32| -> Option<usize> {
+        if ang < -half_cone || ang > half_cone { return None; }
+        if ang < -forward_band { Some(0) } else if ang <= forward_band { Some(1) } else { Some(2) }
+    };
+    let mut plant_carc = [0.0f32;3];
+    let mut same_alive = [0.0f32;3];
+    let mut other_alive = [0.0f32;3];
+    let mut wall_prox = [0.0f32;3];
+
+    // Plants
+    for fpos in food {
+        let dx = fpos.x - pos.x; let dy = fpos.y - pos.y;
+        let dist2 = dx*dx + dy*dy; if dist2 > VISION_RANGE * VISION_RANGE { continue; }
+        let dist = dist2.sqrt().max(1e-6);
+        let fwd_comp = dx * fwd.x + dy * fwd.y; if fwd_comp <= 0.0 { continue; }
+        let right_comp = dx * right_vec.x + dy * right_vec.y; let ang = right_comp.atan2(fwd_comp);
+        if let Some(si) = sector_index(ang) { let w = (1.0 - dist / VISION_RANGE).clamp(0.0,1.0); if w > plant_carc[si] { plant_carc[si] = w; } }
+    }
+
+    // Agents / carcasses
+    for (j, (apos, alive, consumed, species_id, is_corpse)) in snapshot.iter().enumerate() {
+        if j == self_idx { continue; }
+        let dx = apos.x - pos.x; let dy = apos.y - pos.y; let dist2 = dx*dx + dy*dy; if dist2 > VISION_RANGE * VISION_RANGE { continue; }
+        let dist = dist2.sqrt().max(1e-6);
+        let fwd_comp = dx * fwd.x + dy * fwd.y; if fwd_comp <= 0.0 { continue; }
+        let right_comp = dx * right_vec.x + dy * right_vec.y; let ang = right_comp.atan2(fwd_comp);
+        if let Some(si) = sector_index(ang) {
+            let w = (1.0 - dist / VISION_RANGE).clamp(0.0,1.0);
+            if *alive {
+                if *species_id == my_species { if w > same_alive[si] { same_alive[si] = w; } }
+                else { if w > other_alive[si] { other_alive[si] = w; } }
+            } else if *is_corpse && !*consumed {
+                if w > plant_carc[si] { plant_carc[si] = w; }
+            }
+        }
+    }
+
+    // Walls (sample sector centers)
+    let sector_dirs = [ -half_cone * 0.66, 0.0, half_cone * 0.66 ];
+    for (si, off) in sector_dirs.iter().enumerate() {
+        let ang_world = theta + *off; let dir = Vec2 { x: ang_world.cos(), y: ang_world.sin() };
+        let t = ray_wall_distance(pos, dir);
+        if t.is_finite() && t>0.0 && t<=VISION_RANGE { let w = (1.0 - t / VISION_RANGE).clamp(0.0,1.0); wall_prox[si] = w; }
+    }
+
+    SectorPools { plant_carc, same_alive, other_alive, wall: wall_prox }
 }
