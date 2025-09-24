@@ -8,16 +8,16 @@
 // Evolution / Population
 // =====================
 /// Number of agents/genomes in the population and per episode
-pub const POPULATION_SIZE: usize = 50;
+pub const POPULATION_SIZE: usize = 100;
 /// Episodes per generation for fitness averaging
 pub const EPISODES_PER_GEN: usize = 3;
 
 // ======
 // World
 // ======
-pub const WORLD_W: f32 = 750.0;
-pub const WORLD_H: f32 = 750.0;
-pub const INITIAL_ENERGY: f32 = 500.0;
+pub const WORLD_W: f32 = 500.0;
+pub const WORLD_H: f32 = 500.0;
+pub const INITIAL_ENERGY: f32 = 1000.0;
 pub const ENERGY_DRAIN_PER_STEP: f32 = 0.25;
 pub const MAX_STEPS: usize = 500;
 pub const AGENT_RADIUS: f32 = 1.5;
@@ -40,12 +40,12 @@ pub const SEASONAL_ENABLED: bool = true;
 pub const SEASONAL_PERIOD_STEPS: usize = 4000; // higher = slower seasons
 pub const SEASONAL_AMPLITUDE: f32 = 0.35;      // 0.0..1.0; multiplies growth by (1 + A*sin(...))
 pub const BIOME_SEASON_PHASE: [f32; 3] = [0.0, 1.2, 2.4]; // radians offset per biome
-pub const FOOD_COUNT: usize = 150;
+pub const FOOD_COUNT: usize = 100;
 pub const FOOD_RADIUS: f32 = 1.2;
 pub const FOOD_ENERGY: f32 = 60.0;
 
 // Plant/food dynamics
-pub const MAX_FOOD: usize = 250;
+pub const MAX_FOOD: usize = 100;
 pub const FOOD_MIN_SEP: f32 = 2.5;
 pub const FOOD_RESPAWN_PROB: f32 = 0.01;
 pub const FOOD_SPREAD_CHANCE: f32 = 0.01;
@@ -55,8 +55,8 @@ pub const FOOD_SPREAD_RADIUS: f32 = 15.0;
 // Vision cone parameters
 // =====================
 pub const VISION_RAYS: usize = 5;
-pub const VISION_ANGLE_DEG: f32 = 90.0;
-pub const VISION_RANGE: f32 = 100.0;
+pub const VISION_ANGLE_DEG: f32 = 70.0;
+pub const VISION_RANGE: f32 = 50.0;
 /// Derived: radians for convenience if needed by math
 
 // ========
@@ -111,9 +111,17 @@ pub const PLANT_FITNESS: f32 = 4.0;            // reward per plant eaten
 pub const MEAT_FITNESS: f32 = 8.0;             // reward per meat (kill or scavenged corpse) event
 pub const SURVIVAL_STEP_FITNESS: f32 = 0.05;  // reward per simulation step survived (alive or not? counted via total steps for now)
 // Updated: SURVIVAL_STEP_FITNESS now applied per-agent using alive_steps^SURVIVAL_TIME_EXP
-pub const SURVIVAL_TIME_EXP: f32 = 0.5;       // 0.5 => sqrt diminishing returns; 1.0 would be linear
+pub const SURVIVAL_TIME_EXP: f32 = 0.75;       // 0.5 => sqrt diminishing returns; 1.0 would be linear
 // Communication economics
 pub const CALL_COST: f32 = 0.003;             // linear energy cost per step scaled by call_intensity (0..1)
+// Communication shaping (optional; set rewards small to avoid overpowering core objectives)
+pub const COMM_SIGNAL_THRESHOLD: f32 = 0.40;   // minimum call_intensity to register a resource signal
+pub const COMM_SIGNAL_WINDOW: usize = 40;      // steps a signal remains active
+pub const COMM_FOOD_RADIUS: f32 = 25.0;        // within this distance of caller to consider signal relevant to resource
+pub const COMM_FOOD_MIN: usize = 2;            // minimum food items in radius to mark signal as a valid resource broadcast
+pub const COMM_SIGNAL_EFFECT_RADIUS: f32 = 60.0; // receivers must eat within this distance of original signal position
+pub const COMM_RECV_REWARD: f32 = 0.8;         // fitness added to eater when benefiting from a signal
+pub const COMM_CALLER_REWARD: f32 = 0.4;       // fitness added to original caller (smaller encourages some altruism)
 // Rationale: focus on emergent behavior; keep only outcome-based signals (resource intake, exploration, longevity).
 
 // =====================
@@ -123,6 +131,17 @@ pub const EAT_AGENT_RADIUS: f32 = AGENT_RADIUS + AGENT_RADIUS;
 pub const MEAT_ENERGY: f32 = 80.0;
 pub const PREDATION_ENABLED: bool = true;
 pub const SCAVENGE_ENABLED: bool = true;
+// Health / injury system
+pub const AGENT_BASE_HEALTH: f32 = 100.0;        // starting and max health baseline
+pub const HEALTH_DECAY_PER_STEP: f32 = 0.0;      // passive health decay (0 to disable)
+pub const INJURY_HEAL_RATE: f32 = 0.04;          // health regained per step while alive (scaled by energy fraction)
+pub const EAT_HEAL_FRACTION: f32 = 0.10;         // fraction of max health restored on plant eat
+pub const MEAT_HEAL_BONUS: f32 = 12.0;           // flat bonus health on meat intake (before clamp)
+pub const PREDATION_DAMAGE: f32 = 55.0;          // health damage dealt on a successful predation attempt
+pub const SCAVENGE_TOUCH_DAMAGE: f32 = 0.0;      // health damage to scavenger when consuming corpse (risk factor)
+pub const INVULN_AFTER_HIT_STEPS: usize = 6;     // brief invulnerability frames after taking damage
+pub const HEALTH_TO_ENERGY_RATIO: f32 = 0.25;    // when health reaches 0 convert leftover health deficit to energy penalty (soft coupling)
+pub const DEATH_HEALTH_THRESHOLD: f32 = 0.0;     // health <= this means agent dead (corpse logic kicks in)
 
 // ===============================
 // Motor model (relative turn + speed)
@@ -131,8 +150,8 @@ pub const SCAVENGE_ENABLED: bool = true;
 // Output[1] gives speed scalar. Heading is wrapped to (-PI, PI] to avoid drift.
 pub const MOTOR_NOISE: f32 = 0.0;                // noise disabled (was 0.03) for deterministic control
 pub const MAX_TURN_PER_STEP: f32 = std::f32::consts::PI / 18.0; // same numeric value as previous smoothing limit
-pub const MOVE_ENERGY_SCALE: f32 = 0.2;           // energy cost per unit normalized speed
-pub const TURN_ENERGY_SCALE: f32 = 0.01;          // energy cost added proportional to |turn_fraction|
+pub const MOVE_ENERGY_SCALE: f32 = 0.5;           // energy cost per unit normalized speed
+pub const TURN_ENERGY_SCALE: f32 = 0.75;          // energy cost added proportional to |turn_fraction|
 // Inertia extension (Stage A): treat Output[1] as forward thrust instead of direct speed.
 // v_{t+1} = v_t * (1.0 - DRAG_COEFF) + thrust * MAX_THRUST * forward_dir
 // Speed capped softly by MAX_VELOCITY (explicit clamp)
@@ -168,7 +187,7 @@ pub const DIGEST_STEPS_MEAT: u16 = 65;
 // Speciation (visualizer)
 // =============================
 // Target number of species and adaptation rate for the compatibility threshold.
-pub const SPECIES_TARGET: usize = 24;     // e.g., aim for ~8 species
+pub const SPECIES_TARGET: usize = 10;     // e.g., aim for ~8 species
 pub const SPECIES_ADAPT_RATE: f32 = 0.1; // how fast the threshold adapts towards target
 // =============================
 // Snapshotting

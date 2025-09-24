@@ -67,7 +67,7 @@ pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, _member_speci
     let agent_r = (AGENT_RADIUS * px_per_world).max(3.0);
     // species index unused for coloring now that diet-based coloring is applied
         // draw alive vs dead differently
-        if a.energy > 0.0 {
+        if a.energy > 0.0 && a.health > DEATH_HEALTH_THRESHOLD {
             // Color by diet: greener for plant-eaters, redder for meat-eaters.
             // Use episode stats: a.eaten counts all edible events; a.kills counts meat events (live or corpse).
             let meat = a.kills as f32;
@@ -78,7 +78,8 @@ pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, _member_speci
             let sat = if total > 0.0 { 0.85 } else { 0.25 }; // pale before first meal
             let val = 0.95;
             let (r, g, b) = crate::ui_common::hsv_to_rgb(hue, sat, val);
-            let fill = Color::new(r, g, b, 1.0);
+            let hf = (a.health / a.max_health).clamp(0.0,1.0);
+            let fill = Color::new(r * (0.5 + 0.5*hf), g * (0.5 + 0.5*hf), b * (0.5 + 0.5*hf), 1.0);
             draw_circle(px, py, agent_r, fill);
             // Communication: call emission ring (intensity-based)
             if a.call_intensity > 0.03 {

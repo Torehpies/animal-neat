@@ -22,20 +22,35 @@ pub fn resolve_predation(
     for i in 0..agents.len() {
         if let Some(j) = prey_targets[i] {
             if claimed[j] || agents[j].consumed { continue; }
-            let alive_j = agents[j].energy > 0.0;
-            if (alive_j && !PREDATION_ENABLED) || (!alive_j && !SCAVENGE_ENABLED) { continue; }
-            let gain = if alive_j { CORPSE_INITIAL_ENERGY } else { agents[j].corpse_energy.max(0.0) };
-            agents[j].energy = 0.0;
-            agents[j].dead_since.get_or_insert(step_idx);
-            agents[j].corpse_energy = 0.0;
-            agents[j].consumed = true;
-            if gain > 0.0 {
-                if DIGEST_STEPS_MEAT > 0 { agents[i].digest.push_back(DigestEvent { remaining: DIGEST_STEPS_MEAT, per_step: gain / (DIGEST_STEPS_MEAT as f32) }); }
-                else { agents[i].energy = (agents[i].energy + gain).min(INITIAL_ENERGY); }
+            let target_alive = agents[j].energy > 0.0 && agents[j].health > DEATH_HEALTH_THRESHOLD;
+            if (target_alive && !PREDATION_ENABLED) || (!target_alive && !SCAVENGE_ENABLED) { continue; }
+            if target_alive {
+                // Apply damage first. Respect brief invulnerability.
+                if agents[j].invuln_steps == 0 {
+                    agents[j].health -= PREDATION_DAMAGE;
+                    agents[j].invuln_steps = INVULN_AFTER_HIT_STEPS;
+                    agents[i].predation_flash_steps = agents[i].predation_flash_steps.saturating_add(8);
+                }
+                // If target died due to damage, convert to corpse and award meat later when scavenged/predated again.
+                if agents[j].health <= DEATH_HEALTH_THRESHOLD {
+                    agents[j].dead_since.get_or_insert(step_idx);
+                    agents[j].corpse_energy = MEAT_ENERGY;
+                    agents[j].energy = 0.0; // energy drained on death
+                }
+            } else {
+                // Scavenge OR second predation hit on dead body -> consume corpse energy
+                if agents[j].corpse_energy > 0.0 {
+                    let gain = agents[j].corpse_energy.min(MEAT_ENERGY);
+                    if DIGEST_STEPS_MEAT > 0 { agents[i].digest.push_back(DigestEvent { remaining: DIGEST_STEPS_MEAT, per_step: gain / (DIGEST_STEPS_MEAT as f32) }); }
+                    else { agents[i].energy = (agents[i].energy + gain).min(INITIAL_ENERGY); }
+                    // Healing bonus from meat
+                    agents[i].health = (agents[i].health + MEAT_HEAL_BONUS).min(agents[i].max_health);
+                    agents[i].eaten += 1;
+                    agents[i].kills += 1; // counts scavenged meat as kill-equivalent for diet tint
+                    agents[j].corpse_energy = 0.0;
+                    agents[j].consumed = true;
+                }
             }
-            agents[i].eaten += 1;
-            agents[i].kills += 1;
-            agents[i].predation_flash_steps = agents[i].predation_flash_steps.saturating_add(10);
             claimed[j] = true;
         }
     }
@@ -43,10 +58,11 @@ pub fn resolve_predation(
 
 pub fn decay_corpses_and_flashes(agents: &mut [Agent]) {
     for a in agents.iter_mut() {
-        if a.energy <= 0.0 && !a.consumed && a.corpse_energy > 0.0 {
+        if (a.energy <= 0.0 || a.health <= DEATH_HEALTH_THRESHOLD) && !a.consumed && a.corpse_energy > 0.0 {
             a.corpse_energy *= (1.0 - CORPSE_DECAY_RATE).max(0.0);
             if a.corpse_energy < 0.1 { a.corpse_energy = 0.0; a.consumed = true; }
         }
         if a.predation_flash_steps > 0 { a.predation_flash_steps -= 1; }
+        if a.invuln_steps > 0 { a.invuln_steps -= 1; }
     }
 }

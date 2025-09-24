@@ -57,6 +57,9 @@ struct Agent {
     vel: Vec2,
     theta: f32,
     energy: f32,
+    health: f32,
+    max_health: f32,
+    invuln_steps: usize,
     alive_steps: u32,
     eaten: usize,
     consumed: bool, // true if this agent's body has been eaten and removed from world
@@ -90,6 +93,15 @@ struct Episode {
     total_agent_steps: usize,
     avg_speed_accum: f32,
     heading_change_accum: f32,
+    comm_signals: Vec<CommSignal>,       // active broadcast resource signals
+    comm_fitness_accum: Vec<f32>,        // per-agent communication reward accumulation
+}
+
+#[derive(Clone, Copy, Debug)]
+struct CommSignal {
+    caller: usize,       // agent index
+    pos: Vec2,           // position of caller when signal created
+    ttl: usize,          // remaining steps
 }
 
 fn dir_from_theta(theta: f32) -> Vec2 { Vec2 { x: theta.cos(), y: theta.sin() } }
@@ -127,6 +139,9 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         vel: Vec2 { x: 0.0, y: 0.0 },
         theta: -std::f32::consts::FRAC_PI_2,
         energy: INITIAL_ENERGY,
+    health: AGENT_BASE_HEALTH,
+    max_health: AGENT_BASE_HEALTH,
+    invuln_steps: 0,
         alive_steps: 0,
         eaten: 0,
         consumed: false,
@@ -143,11 +158,14 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
     }).collect();
     // Track exploration (unique grid cells); shaping buckets removed for simplification
     let mut visited: Vec<std::collections::HashSet<u32>> = vec![std::collections::HashSet::new(); agents.len()];
+    // Communication: active signals + reward accumulators
+    let mut signals: Vec<CommSignal> = Vec::new();
+    let mut comm_fit: Vec<f32> = vec![0.0; agents.len()];
 
     let mut steps = 0usize;
     // (Removed approach/spin shaping trackers)
     while steps < MAX_STEPS {
-        if agents.iter().all(|a| a.energy <= 0.0) { break; }
+        if agents.iter().all(|a| a.energy <= 0.0 || a.health <= DEATH_HEALTH_THRESHOLD) { break; }
         // Snapshot for predation decisions to avoid borrow conflicts
         // Extended snapshot: (pos, alive, consumed_flag, species_id, is_corpse)
     let species_ids: Vec<usize> = species_map.clone();
@@ -157,7 +175,7 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         }).collect();
         let mut prey_targets: Vec<Option<usize>> = vec![None; agents.len()];
         for (i, a) in agents.iter_mut().enumerate() {
-            if a.energy <= 0.0 { continue; }
+            if a.energy <= 0.0 || a.health <= DEATH_HEALTH_THRESHOLD { continue; }
             // Build extended inputs (ray-first): per-ray signals + energy + memory + density
             let (cur_fx, cur_fy) = sensing::food_vector_from_rays(a.pos, a.theta, &food);
             // Update pooled sensing smoothing
@@ -214,10 +232,10 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
                 let vel = dir.mul(speed * MAX_SPEED);
                 a.pos = a.pos.add(vel).clamp_to_world();
             }
-            if world::eat_along_path(&mut food, prev, a.pos) || world::eat_if_near(&mut food, a.pos) {
+            let ate = if world::eat_along_path(&mut food, prev, a.pos) || world::eat_if_near(&mut food, a.pos) {
                 if DIGEST_STEPS_PLANT > 0 { a.digest.push_back(DigestEvent { remaining: DIGEST_STEPS_PLANT, per_step: FOOD_ENERGY / (DIGEST_STEPS_PLANT as f32) }); }
                 else { a.energy = (a.energy + FOOD_ENERGY).min(INITIAL_ENERGY); }
-                a.eaten += 1; }
+                a.eaten += 1; true } else { false };
             // Predation/scavenging: choose a nearby target (record only)
             if PREDATION_ENABLED || SCAVENGE_ENABLED {
                 let mut target: Option<usize> = None;
@@ -246,7 +264,12 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             // Call cost (scaled by intensity)
             energy_cost += a.call_intensity * CALL_COST;
             a.energy -= energy_cost;
-            if a.energy <= 0.0 { if a.dead_since.is_none() { a.dead_since = Some(steps); a.corpse_energy = CORPSE_INITIAL_ENERGY; } }
+            if a.energy <= 0.0 || a.health <= DEATH_HEALTH_THRESHOLD { if a.dead_since.is_none() { a.dead_since = Some(steps); a.corpse_energy = CORPSE_INITIAL_ENERGY; } }
+            // Passive heal based on energy reserve
+            if a.energy > 0.0 && a.health > DEATH_HEALTH_THRESHOLD {
+                let energy_frac = (a.energy / INITIAL_ENERGY).clamp(0.0,1.0);
+                a.health = (a.health + INJURY_HEAL_RATE * energy_frac * a.max_health).min(a.max_health);
+            }
             // Update memories after acting
             a.last_food_mem = Vec2 { x: cur_fx, y: cur_fy };
             let (dx_mem, dy_mem) = sensing::nearest_agent_vector_local(a.pos, a.theta, &snapshot, i);
@@ -255,7 +278,30 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             a.last_food_mem.x *= MEMORY_DECAY; a.last_food_mem.y *= MEMORY_DECAY;
             a.last_danger_mem.x *= MEMORY_DECAY; a.last_danger_mem.y *= MEMORY_DECAY;
             // (Removed approach reward & spin penalty accumulation)
+            // Communication: record a resource signal if call exceeds threshold and local food cluster
+            if a.call_intensity >= COMM_SIGNAL_THRESHOLD {
+                // Count nearby food items
+                let mut nearby_food = 0usize;
+                for f in &food {
+                    let dx = f.x - a.pos.x; let dy = f.y - a.pos.y; if dx*dx + dy*dy <= COMM_FOOD_RADIUS*COMM_FOOD_RADIUS { nearby_food += 1; if nearby_food >= COMM_FOOD_MIN { break; } }
+                }
+                if nearby_food >= COMM_FOOD_MIN {
+                    signals.push(CommSignal { caller: i, pos: a.pos, ttl: COMM_SIGNAL_WINDOW });
+                }
+            }
+            // Eating attribution to prior signals (excluding self unless we allow self-benefit?)
+            if ate {
+                for s in &signals {
+                    let dx = a.pos.x - s.pos.x; let dy = a.pos.y - s.pos.y; if dx*dx + dy*dy <= COMM_SIGNAL_EFFECT_RADIUS*COMM_SIGNAL_EFFECT_RADIUS {
+                        if s.caller != i { comm_fit[i] += COMM_RECV_REWARD; }
+                        comm_fit[s.caller] += COMM_CALLER_REWARD;
+                    }
+                }
+            }
         }
+        // Decay signal TTL and remove expired
+        for sig in &mut signals { if sig.ttl > 0 { sig.ttl -= 1; } }
+        signals.retain(|s| s.ttl > 0);
     // Resolve predation and tick corpse/flash decay (shared)
         sim::resolve_predation(&mut agents, &prey_targets, steps);
         sim::decay_corpses_and_flashes(&mut agents);
@@ -277,7 +323,7 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         let frac = if total_cells > 0.0 { (visited[i].len() as f32) / total_cells } else { 0.0 };
         let exploration = frac * EXPL_WEIGHT;
         let survival = (a.alive_steps as f32).powf(SURVIVAL_TIME_EXP) * SURVIVAL_STEP_FITNESS;
-        intake + exploration + survival
+        intake + exploration + survival + comm_fit[i]
     }).collect()
 }
 
@@ -291,6 +337,9 @@ impl Episode {
                 vel: Vec2 { x: 0.0, y: 0.0 },
                 theta: -std::f32::consts::FRAC_PI_2,
                 energy: INITIAL_ENERGY,
+                health: AGENT_BASE_HEALTH,
+                max_health: AGENT_BASE_HEALTH,
+                invuln_steps: 0,
                 alive_steps: 0,
                 eaten: 0,
                 consumed: false,
@@ -314,12 +363,14 @@ impl Episode {
     total_agent_steps: 0,
     avg_speed_accum: 0.0,
     heading_change_accum: 0.0,
+    comm_signals: Vec::new(),
+    comm_fitness_accum: vec![0.0; agent_count],
     }
     }
 
     fn step<R: Rng>(&mut self, population: &[Genome], rng: &mut R) -> bool {
         // Live episode: continue until all agents are dead (ignore max steps and food exhaustion)
-        if self.agents.iter().all(|a| a.energy <= 0.0) { return false; }
+    if self.agents.iter().all(|a| a.energy <= 0.0 || a.health <= DEATH_HEALTH_THRESHOLD) { return false; }
         // Snapshot for predation decisions
         // Extended snapshot includes species id mapping
         // Episode does not have species mapping context; use 0 for same-species grouping during live run step.
@@ -329,7 +380,7 @@ impl Episode {
         }).collect();
         let mut prey_targets: Vec<Option<usize>> = vec![None; self.agents.len()];
         for (i, a) in self.agents.iter_mut().enumerate() {
-            if a.energy <= 0.0 { continue; }
+            if a.energy <= 0.0 || a.health <= DEATH_HEALTH_THRESHOLD { continue; }
             // Build extended inputs (Phase 3): rays + current food vec + energy + memory + density
             let (cur_fx, cur_fy) = sensing::food_vector_from_rays(a.pos, a.theta, &self.food);
             let pools = sensing::compute_sector_pools(a.pos, a.theta, &self.food, &snapshot, i, a.species_id);
@@ -375,12 +426,11 @@ impl Episode {
                 a.pos = a.pos.add(vel).clamp_to_world();
             }
             // eat along the path (continuous) to prevent tunneling; fallback to near check
-            if world::eat_along_path(&mut self.food, prev, a.pos) || world::eat_if_near(&mut self.food, a.pos) {
+            let ate = if world::eat_along_path(&mut self.food, prev, a.pos) || world::eat_if_near(&mut self.food, a.pos) {
                 if DIGEST_STEPS_PLANT > 0 { a.digest.push_back(DigestEvent { remaining: DIGEST_STEPS_PLANT, per_step: FOOD_ENERGY / (DIGEST_STEPS_PLANT as f32) }); }
                 else { a.energy = (a.energy + FOOD_ENERGY).min(INITIAL_ENERGY); }
-                a.eaten += 1;
-                if self.first_eat_step.is_none() { self.first_eat_step = Some(self.steps); }
-            }
+                a.eaten += 1; if self.first_eat_step.is_none() { self.first_eat_step = Some(self.steps); } true
+            } else { false };
             // Predation/scavenging: choose a target to apply after the loop
             if PREDATION_ENABLED || SCAVENGE_ENABLED {
                 let mut target: Option<usize> = None;
@@ -412,7 +462,12 @@ impl Episode {
             }
             energy_cost += a.call_intensity * CALL_COST;
             a.energy -= energy_cost;
-            if a.energy <= 0.0 { if a.dead_since.is_none() { a.dead_since = Some(self.steps); a.corpse_energy = CORPSE_INITIAL_ENERGY; } }
+            if a.energy <= 0.0 || a.health <= DEATH_HEALTH_THRESHOLD { if a.dead_since.is_none() { a.dead_since = Some(self.steps); a.corpse_energy = CORPSE_INITIAL_ENERGY; } }
+            // Passive heal
+            if a.energy > 0.0 && a.health > DEATH_HEALTH_THRESHOLD {
+                let ef = (a.energy / INITIAL_ENERGY).clamp(0.0,1.0);
+                a.health = (a.health + INJURY_HEAL_RATE * ef * a.max_health).min(a.max_health);
+            }
             // Update memories after acting
             a.last_food_mem = Vec2 { x: cur_fx, y: cur_fy };
             // For now, we only store danger memory; current danger not part of inputs to keep size down
@@ -421,7 +476,18 @@ impl Episode {
             // Memory decay
             a.last_food_mem.x *= MEMORY_DECAY; a.last_food_mem.y *= MEMORY_DECAY;
             a.last_danger_mem.x *= MEMORY_DECAY; a.last_danger_mem.y *= MEMORY_DECAY;
+            // Communication: create signal when broadcasting near cluster
+            if a.call_intensity >= COMM_SIGNAL_THRESHOLD {
+                let mut nearby_food = 0usize; for f in &self.food { let dx=f.x-a.pos.x; let dy=f.y-a.pos.y; if dx*dx+dy*dy <= COMM_FOOD_RADIUS*COMM_FOOD_RADIUS { nearby_food+=1; if nearby_food>=COMM_FOOD_MIN { break; } } }
+                if nearby_food >= COMM_FOOD_MIN { self.comm_signals.push(CommSignal { caller: i, pos: a.pos, ttl: COMM_SIGNAL_WINDOW }); }
+            }
+            if ate {
+                for s in &self.comm_signals { let dx=a.pos.x-s.pos.x; let dy=a.pos.y-s.pos.y; if dx*dx+dy*dy <= COMM_SIGNAL_EFFECT_RADIUS*COMM_SIGNAL_EFFECT_RADIUS { if s.caller != i { self.comm_fitness_accum[i] += COMM_RECV_REWARD; } self.comm_fitness_accum[s.caller] += COMM_CALLER_REWARD; } }
+            }
         }
+        // decay & prune comm signals
+        for sig in &mut self.comm_signals { if sig.ttl>0 { sig.ttl -= 1; } }
+        self.comm_signals.retain(|s| s.ttl > 0);
         // Resolve predation after movement and decay (shared)
     sim::resolve_predation(&mut self.agents, &prey_targets, self.steps);
     sim::decay_corpses_and_flashes(&mut self.agents);
@@ -438,8 +504,8 @@ impl Episode {
     }
 
     fn is_finished(&self) -> bool {
-        // Only finish when all agents are dead
-        self.agents.iter().all(|a| a.energy <= 0.0)
+        // Only finish when all agents are dead (energy OR health depleted)
+        self.agents.iter().all(|a| a.energy <= 0.0 || a.health <= DEATH_HEALTH_THRESHOLD)
     }
 }
 
@@ -464,6 +530,8 @@ struct AppState {
     last_best_genome: Option<Genome>,
     // Debug overlays
     show_unified_overlay: bool,
+    // Communication stats over last evaluated generation (aggregated after eval)
+    last_comm_reward_sum: f32,
 }
 
 impl AppState {
@@ -504,6 +572,7 @@ impl AppState {
             last_best_generation: 0,
             last_best_genome: None,
             show_unified_overlay: false,
+            last_comm_reward_sum: 0.0,
         }
     }
 
@@ -519,6 +588,7 @@ impl AppState {
         let avg = acc.iter().sum::<f32>() / acc.len() as f32;
         self.last_best = best;
         self.last_avg = avg;
+    self.last_comm_reward_sum = 0.0; // placeholder (communication reward accumulation handled inside eval episodes)
         acc
     }
 
