@@ -1,3 +1,21 @@
+//! Visualize Ecosystem example
+//!
+//! High-level flow:
+//! - AppState holds the evolving NEAT population plus visualization flags.
+//! - Each generation, we evaluate genomes over EPISODES_PER_GEN episodes.
+//! - Fitness combines intake (plants/meat), exploration, survival, and optional comm rewards.
+//! - In live mode, an Episode advances step-by-step and the UI renders agents, overlays, and HUD.
+//!
+//! Inputs: see params.rs for the fixed layout; use `sensing::input_ranges()` for indices.
+//! Outputs: [turn, thrust, call]. Movement uses an inertia model when enabled.
+//!
+//! Key files:
+//! - params.rs: all configuration
+//! - sensing.rs: input building, pooling, density, hearing
+//! - sim.rs: movement & interactions (predation/scavenging)
+//! - world.rs: plant growth and seasonality
+//! - ui/: world view, HUD, network panel
+
 use macroquad::prelude::*;
 use neat::neat::{
     config::EvolutionConfig,
@@ -127,16 +145,12 @@ fn build_species_map(speciator: &Speciator, pop_len: usize) -> Vec<usize> {
 }
 
 fn mask_inputs(inputs: &mut [f32; INPUTS]) {
-    // Layout: 0..12 vision (3 sectors * 4 categories), 12 energy, 13..17 memory(4), 17..(17+DENSITY_SECTORS) density,
-    // then hearing (3), then position (2) at end.
-    if !params::ENABLE_VISION_INPUTS { for i in 0..12 { inputs[i] = 0.0; } }
-    if !params::ENABLE_MEMORY_INPUTS { for i in 13..17 { inputs[i] = 0.0; } }
-    let density_start = 17;
-    let density_end = density_start + DENSITY_SECTORS;
-    if !params::ENABLE_DENSITY_INPUTS { for i in density_start..density_end { inputs[i] = 0.0; } }
-    let hearing_start = density_end;
-    let hearing_end = hearing_start + HEARING_SECTORS;
-    if !params::ENABLE_HEARING_INPUTS { for i in hearing_start..hearing_end { inputs[i] = 0.0; } }
+    // Zero out disabled modality ranges while keeping the input length/layout stable.
+    let r = sensing::input_ranges();
+    if !params::ENABLE_VISION_INPUTS { for i in r.vision { inputs[i] = 0.0; } }
+    if !params::ENABLE_MEMORY_INPUTS { for i in r.memory { inputs[i] = 0.0; } }
+    if !params::ENABLE_DENSITY_INPUTS { for i in r.density { inputs[i] = 0.0; } }
+    if !params::ENABLE_HEARING_INPUTS { for i in r.hearing { inputs[i] = 0.0; } }
 }
 
 fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
@@ -548,11 +562,6 @@ struct AppState {
     // Communication stats over last evaluated generation (aggregated after eval)
     last_comm_reward_sum: f32,
     show_energy_overlay: bool,
-    // Input visualization toggles
-    show_vis_inputs: bool,
-    show_hearing_inputs: bool,
-    show_memory_inputs: bool,
-    show_density_inputs: bool,
 }
 
 impl AppState {
@@ -594,10 +603,6 @@ impl AppState {
             last_best_genome: None,
             show_unified_overlay: false,
             show_energy_overlay: true,
-            show_vis_inputs: true,
-            show_hearing_inputs: true,
-            show_memory_inputs: true,
-            show_density_inputs: true,
             last_comm_reward_sum: 0.0,
         }
     }
@@ -720,11 +725,7 @@ async fn main() {
         if is_key_pressed(KeyCode::V) { state.show_cones = !state.show_cones; }
         if is_key_pressed(KeyCode::U) { state.show_unified_overlay = !state.show_unified_overlay; }
         if is_key_pressed(KeyCode::E) { state.show_energy_overlay = !state.show_energy_overlay; }
-    // Input component toggles (only affect unified overlay rendering)
-    if is_key_pressed(KeyCode::Key1) { state.show_vis_inputs = !state.show_vis_inputs; }
-    if is_key_pressed(KeyCode::Key2) { state.show_hearing_inputs = !state.show_hearing_inputs; }
-    if is_key_pressed(KeyCode::Key3) { state.show_memory_inputs = !state.show_memory_inputs; }
-    if is_key_pressed(KeyCode::Key4) { state.show_density_inputs = !state.show_density_inputs; }
+    // Removed per-row overlay toggles (1..4). Unified overlay is controlled via 'U'.
     if is_key_pressed(KeyCode::S) {
         // Save a non-blocking snapshot of genomes + innovation state.
         // Filename pattern: snapshots/pop_snapshot_genXXXX.json
@@ -788,10 +789,10 @@ async fn main() {
         state.show_unified_overlay,
         mouse_world,
         state.show_energy_overlay,
-        state.show_vis_inputs,
-        state.show_hearing_inputs,
-        state.show_memory_inputs,
-        state.show_density_inputs,
+        true,  // show vision inputs rows
+        true,  // show hearing inputs row
+        true,  // show memory vectors
+        true,  // show density rays
     );
     ui_hud::draw_hud(hud_area, &state, running, fast_mode, &state.member_species);
 

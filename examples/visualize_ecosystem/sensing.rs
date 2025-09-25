@@ -1,3 +1,38 @@
+//! Sensing utilities for the visualize_ecosystem example.
+//!
+//! Responsibilities:
+//! - Build the neural input vector from world/agent state
+//! - Compute pooled sector proximities (vision)
+//! - Compute density sectors around an agent
+//! - Update hearing sectors from broadcast calls
+//!
+//! This module now exposes `input_ranges()` to centralize the layout of the
+//! input vector, avoiding magic indices sprinkled across files.
+
+use std::ops::Range;
+
+/// Ranges defining the indices of each modality within the neural network input vector.
+/// Keep this single source of truth in sync with params::INPUTS and modality counts.
+pub struct InputRanges {
+    pub vision: Range<usize>,    // 3 sectors × 4 categories = 12
+    pub energy: usize,           // single scalar
+    pub memory: Range<usize>,    // 4 (food_x, food_y, danger_x, danger_y)
+    pub density: Range<usize>,   // DENSITY_SECTORS
+    pub hearing: Range<usize>,   // HEARING_SECTORS
+    pub position: Range<usize>,  // 2 (x/WORLD_W, y/WORLD_H)
+}
+
+/// Compute and return the current input layout ranges (derived from params).
+pub fn input_ranges() -> InputRanges {
+    use super::params::*;
+    let vision = 0..12;
+    let energy = 12;
+    let memory = 13..17;
+    let density = 17..(17 + DENSITY_SECTORS);
+    let hearing = density.end..(density.end + HEARING_SECTORS);
+    let position = hearing.end..(hearing.end + 2);
+    InputRanges { vision, energy, memory, density, hearing, position }
+}
 use super::params::{VISION_RAYS, VISION_ANGLE_DEG, VISION_RANGE, FOOD_RADIUS, DANGER_VECTOR_MAX_RANGE, DENSITY_SECTORS, DENSITY_RADIUS, INPUTS, WORLD_W, WORLD_H, PREDATION_ENABLED, SCAVENGE_ENABLED, HEARING_SECTORS, SOUND_RANGE, SOUND_ATTENUATION_EXP, HEARING_EMA_ALPHA};
 use super::{Agent, Vec2};
 
