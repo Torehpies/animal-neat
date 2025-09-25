@@ -407,22 +407,33 @@ impl Episode {
             (a.pos, alive, a.consumed, a.species_id, is_corpse)
         }).collect();
         let mut prey_targets: Vec<Option<usize>> = vec![None; self.agents.len()];
+
+        // Looping of each agents
         for (i, a) in self.agents.iter_mut().enumerate() {
+            // Check if agents are dead
             if a.energy <= 0.0 || a.health <= DEATH_HEALTH_THRESHOLD { continue; }
-            // Build extended inputs (Phase 3): rays + current food vec + energy + memory + density
+
+            // Sensing
+            // Sense food and store in vector (food memory)
             let (cur_fx, cur_fy) = sensing::food_vector_from_rays(a.pos, a.theta, &self.food);
+            // Sense things from rays 
             let pools = sensing::compute_sector_pools(a.pos, a.theta, &self.food, &snapshot, i, a.species_id);
             for si in 0..3 { let alpha = POOL_EMA_ALPHA; a.pooled_plant[si] = a.pooled_plant[si] + alpha * (pools.plant_carc[si] - a.pooled_plant[si]); }
             for si in 0..3 { let alpha = POOL_EMA_ALPHA; a.pooled_same[si]  = a.pooled_same[si]  + alpha * (pools.same_alive[si]  - a.pooled_same[si]); }
             for si in 0..3 { let alpha = POOL_EMA_ALPHA; a.pooled_other[si] = a.pooled_other[si] + alpha * (pools.other_alive[si] - a.pooled_other[si]); }
             for si in 0..3 { let alpha = POOL_EMA_ALPHA; a.pooled_wall[si]  = a.pooled_wall[si]  + alpha * (pools.wall[si]       - a.pooled_wall[si]); }
+            // Sense agents (agent memory)
             let (_cur_dx, _cur_dy) = sensing::nearest_agent_vector_local(a.pos, a.theta, &snapshot, i);
+            // Sense agent density
             let density = sensing::density_sectors(a.pos, a.theta, &snapshot, i);
             // Digestive intake before action (shared)
             sim::apply_digestion(a);
             let energy_in = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
+            // Build up all inputs
             let mut inputs = sensing::build_inputs(a.pos, a.theta, &self.food, energy_in, a.last_food_mem, a.last_danger_mem, &density, &snapshot, i, a.species_id, a.heard_sectors);
+            // Input masking (turning off inputs)
             mask_inputs(&mut inputs);
+            // Run the neural network
             let out = population[a.id.0].evaluate_slice(&inputs);
             // Movement + communication scheme: [turn, thrust(or speed), call]
             let mut raw_turn = out.get(0).copied().unwrap_or(0.0);
@@ -569,9 +580,9 @@ impl AppState {
         let num_inputs = INPUTS as u32;
         let num_outputs = OUTPUTS as u32;
         let mut rng = ::rand::rng();
-    let mut innov = InnovationTracker::new();
-    // Speciation target and adapt rate are now configurable via params
-    let mut speciator = Speciator::new(1.0).with_target(SPECIES_TARGET, SPECIES_ADAPT_RATE);
+        let mut innov = InnovationTracker::new();
+        // Speciation target and adapt rate are now configurable via params
+        let mut speciator = Speciator::new(1.0).with_target(SPECIES_TARGET, SPECIES_ADAPT_RATE);
         let cfg = EvolutionConfig { compatibility_threshold: 2.0, ..Default::default() };
         let population = Genome::create_initial_population(pop_size, num_inputs, num_outputs, &mut innov);
         // initial speciation for coloring
