@@ -1,4 +1,6 @@
-#[derive(Debug)]
+use crate::glam::Vec2;
+
+#[derive(Clone, Debug)]
 pub struct Body {
     pub pos: Vec2,
     pub vel: Vec2,
@@ -27,11 +29,11 @@ pub fn resolve_collision(a: &mut Body, b: &mut Body) {
     }
 }
 
-fn handle_agent_food(agent: &mut Body, food: &Body) -> bool {
-    if collides(agent, food) {
-        true
-    } else {
-        false
-    }
-}
+//pub fn handle_agent_food(agent: &mut Body, food: &Body) -> bool {
+//    if collides(agent, food) {
+//        true
+//    } else {
+//        false
+//    }
+//}
 
