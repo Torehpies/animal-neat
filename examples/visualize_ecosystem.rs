@@ -166,9 +166,9 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         vel: Vec2 { x: 0.0, y: 0.0 },
         theta: -std::f32::consts::FRAC_PI_2,
         energy: INITIAL_ENERGY,
-    health: AGENT_BASE_HEALTH,
-    max_health: AGENT_BASE_HEALTH,
-    invuln_steps: 0,
+        health: AGENT_BASE_HEALTH,
+        max_health: AGENT_BASE_HEALTH,
+        invuln_steps: 0,
         alive_steps: 0,
         eaten: 0,
         consumed: false,
@@ -330,11 +330,11 @@ fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         // Decay signal TTL and remove expired
         for sig in &mut signals { if sig.ttl > 0 { sig.ttl -= 1; } }
         signals.retain(|s| s.ttl > 0);
-    // Resolve predation and tick corpse/flash decay (shared)
+        // Resolve predation and tick corpse/flash decay (shared)
         sim::resolve_predation(&mut agents, &prey_targets, steps);
         sim::decay_corpses_and_flashes(&mut agents);
-    // Update hearing after all call intensities set
-    sensing::update_hearing(&mut agents);
+        // Update hearing after all call intensities set
+        sensing::update_hearing(&mut agents);
         // (Removed avoidance/crowding penalty sampling)
         // Plants grow/spread over time (season-aware)
         world::set_current_step(steps);
@@ -388,12 +388,12 @@ impl Episode {
         agents,
         steps: 0,
         first_eat_step: None,
-    total_agent_steps: 0,
-    avg_speed_accum: 0.0,
-    heading_change_accum: 0.0,
-    comm_signals: Vec::new(),
-    comm_fitness_accum: vec![0.0; agent_count],
-    }
+        total_agent_steps: 0,
+        avg_speed_accum: 0.0,
+        heading_change_accum: 0.0,
+        comm_signals: Vec::new(),
+        comm_fitness_accum: vec![0.0; agent_count],
+        }
     }
 
     fn step<R: Rng>(&mut self, population: &[Genome], rng: &mut R) -> bool {
@@ -416,25 +416,33 @@ impl Episode {
             // Sensing
             // Sense food and store in vector (food memory)
             let (cur_fx, cur_fy) = sensing::food_vector_from_rays(a.pos, a.theta, &self.food);
+
             // Sense things from rays 
             let pools = sensing::compute_sector_pools(a.pos, a.theta, &self.food, &snapshot, i, a.species_id);
             for si in 0..3 { let alpha = POOL_EMA_ALPHA; a.pooled_plant[si] = a.pooled_plant[si] + alpha * (pools.plant_carc[si] - a.pooled_plant[si]); }
             for si in 0..3 { let alpha = POOL_EMA_ALPHA; a.pooled_same[si]  = a.pooled_same[si]  + alpha * (pools.same_alive[si]  - a.pooled_same[si]); }
             for si in 0..3 { let alpha = POOL_EMA_ALPHA; a.pooled_other[si] = a.pooled_other[si] + alpha * (pools.other_alive[si] - a.pooled_other[si]); }
             for si in 0..3 { let alpha = POOL_EMA_ALPHA; a.pooled_wall[si]  = a.pooled_wall[si]  + alpha * (pools.wall[si]       - a.pooled_wall[si]); }
+
             // Sense agents (agent memory)
             let (_cur_dx, _cur_dy) = sensing::nearest_agent_vector_local(a.pos, a.theta, &snapshot, i);
+
             // Sense agent density
             let density = sensing::density_sectors(a.pos, a.theta, &snapshot, i);
+
             // Digestive intake before action (shared)
             sim::apply_digestion(a);
             let energy_in = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
+
             // Build up all inputs
             let mut inputs = sensing::build_inputs(a.pos, a.theta, &self.food, energy_in, a.last_food_mem, a.last_danger_mem, &density, &snapshot, i, a.species_id, a.heard_sectors);
+
             // Input masking (turning off inputs)
             mask_inputs(&mut inputs);
+
             // Run the neural network
             let out = population[a.id.0].evaluate_slice(&inputs);
+
             // Movement + communication scheme: [turn, thrust(or speed), call]
             let mut raw_turn = out.get(0).copied().unwrap_or(0.0);
             let mut raw_thrust = out.get(1).copied().unwrap_or(0.0);
@@ -465,12 +473,17 @@ impl Episode {
                 let vel = dir.mul(speed * MAX_SPEED);
                 a.pos = a.pos.add(vel).clamp_to_world();
             }
+
             // eat along the path (continuous) to prevent tunneling; fallback to near check
-            let ate = if world::eat_along_path(&mut self.food, prev, a.pos) || world::eat_if_near(&mut self.food, a.pos) {
-                if DIGEST_STEPS_PLANT > 0 { a.digest.push_back(DigestEvent { remaining: DIGEST_STEPS_PLANT, per_step: FOOD_ENERGY / (DIGEST_STEPS_PLANT as f32) }); }
-                else { a.energy = (a.energy + FOOD_ENERGY).min(INITIAL_ENERGY); }
-                a.eaten += 1; if self.first_eat_step.is_none() { self.first_eat_step = Some(self.steps); } true
-            } else { false };
+           let ate = if world::eat_along_path(&mut self.food, prev, a.pos) || world::eat_if_near(&mut self.food, a.pos) {
+               if DIGEST_STEPS_PLANT > 0 { a.digest.push_back(DigestEvent { remaining: DIGEST_STEPS_PLANT, per_step: FOOD_ENERGY / (DIGEST_STEPS_PLANT as f32) }); }
+               else { a.energy = (a.energy + FOOD_ENERGY).min(INITIAL_ENERGY); }
+               a.eaten += 1; if self.first_eat_step.is_none() { self.first_eat_step = Some(self.steps); } true
+           } else { false };
+            
+            // Usage of collisions
+            
+            
             // Predation/scavenging: choose a target to apply after the loop
             if PREDATION_ENABLED || SCAVENGE_ENABLED {
                 let mut target: Option<usize> = None;
@@ -529,10 +542,10 @@ impl Episode {
         for sig in &mut self.comm_signals { if sig.ttl>0 { sig.ttl -= 1; } }
         self.comm_signals.retain(|s| s.ttl > 0);
         // Resolve predation after movement and decay (shared)
-    sim::resolve_predation(&mut self.agents, &prey_targets, self.steps);
-    sim::decay_corpses_and_flashes(&mut self.agents);
-    // Update hearing after call_intensity set for all agents this step
-    sensing::update_hearing(&mut self.agents);
+        sim::resolve_predation(&mut self.agents, &prey_targets, self.steps);
+        sim::decay_corpses_and_flashes(&mut self.agents);
+        // Update hearing after call_intensity set for all agents this step
+        sensing::update_hearing(&mut self.agents);
         // Plants grow/spread over time in the live world too (season-aware)
         world::set_current_step(self.steps);
         world::food_growth_step(&mut self.food, rng);
