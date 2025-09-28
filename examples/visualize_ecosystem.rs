@@ -75,6 +75,7 @@ struct AppState {
     // Communication stats over last evaluated generation (aggregated after eval)
     last_comm_reward_sum: f32,
     show_energy_overlay: bool,
+    show_collision_radii: bool,
 }
 
 impl AppState {
@@ -117,6 +118,7 @@ impl AppState {
             show_unified_overlay: false,
             show_energy_overlay: true,
             last_comm_reward_sum: 0.0,
+            show_collision_radii: false,
         }
     }
 
@@ -240,6 +242,7 @@ async fn main() {
         if is_key_pressed(KeyCode::V) { state.show_cones = !state.show_cones; }
         if is_key_pressed(KeyCode::U) { state.show_unified_overlay = !state.show_unified_overlay; }
         if is_key_pressed(KeyCode::E) { state.show_energy_overlay = !state.show_energy_overlay; }
+    if is_key_pressed(KeyCode::C) { state.show_collision_radii = !state.show_collision_radii; }
     // Removed per-row overlay toggles (1..4). Unified overlay is controlled via 'U'.
     if is_key_pressed(KeyCode::S) {
         // Save a non-blocking snapshot of genomes + innovation state.
@@ -303,6 +306,7 @@ async fn main() {
         state.show_unified_overlay,
         mouse_world,
         state.show_energy_overlay,
+        state.show_collision_radii,
         true,  // show vision inputs rows
         true,  // show hearing inputs row
         true,  // show memory vectors

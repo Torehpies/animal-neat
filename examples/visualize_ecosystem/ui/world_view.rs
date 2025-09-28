@@ -13,6 +13,7 @@ pub fn draw_world(
     unified_overlay: bool,
     mouse_world: Option<Vec2>,
     show_energy_overlay: bool,
+    show_collision_radii: bool,
     show_vis_inputs: bool,
     show_hearing_inputs: bool,
     show_memory_inputs: bool,
@@ -54,6 +55,10 @@ pub fn draw_world(
         let (px, py) = world_to_screen(fitted, *p);
         let r = (FOOD_RADIUS * px_per_world).max(2.0);
         draw_circle(px, py, r, YELLOW);
+        if show_collision_radii {
+            // High-contrast collision radius for food (white ring)
+            draw_circle_lines(px, py, (FOOD_RADIUS * px_per_world).max(1.0), 2.0, Color::new(1.0, 1.0, 1.0, 0.95));
+        }
     }
     // Precompute snapshot for overlays
     let snapshot: Vec<(Vec2, bool, bool, usize, bool)> = episode.agents.iter().map(|a| {
@@ -110,6 +115,10 @@ pub fn draw_world(
             draw_circle(px, py, agent_r, fill);
         }
         draw_circle_lines(px, py, agent_r, 2.0, Color::new(0.2, 0.2, 0.2, 0.6));
+        if show_collision_radii {
+            // High-contrast collision radius for agents (white ring)
+            draw_circle_lines(px, py, (AGENT_RADIUS * px_per_world).max(1.0), 2.0, Color::new(1.0, 1.0, 1.0, 0.95));
+        }
         // heading line
         if a.energy > 0.0 {
             let dir = dir_from_theta(a.theta);

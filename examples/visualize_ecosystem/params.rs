@@ -8,15 +8,15 @@
 // Evolution / Population
 // =====================
 /// Number of agents/genomes in the population and per episode
-pub const POPULATION_SIZE: usize = 5;
+pub const POPULATION_SIZE: usize = 50;
 /// Episodes per generation for fitness averaging
 pub const EPISODES_PER_GEN: usize = 3;
 
 // ======
 // World
 // ======
-pub const WORLD_W: f32 = 100.0;
-pub const WORLD_H: f32 = 100.0;
+pub const WORLD_W: f32 = 500.0;
+pub const WORLD_H: f32 = 500.0;
 pub const INITIAL_ENERGY: f32 = 1000.0;
 pub const ENERGY_DRAIN_PER_STEP: f32 = 0.25;
 pub const MAX_STEPS: usize = 500;
@@ -123,6 +123,8 @@ pub const SURVIVAL_STEP_FITNESS: f32 = 0.05;  // reward per simulation step surv
 pub const SURVIVAL_TIME_EXP: f32 = 0.75;       // 0.5 => sqrt diminishing returns; 1.0 would be linear
 // Communication economics
 pub const CALL_COST: f32 = 0.003;             // linear energy cost per step scaled by call_intensity (0..1)
+// Master switch to enable/disable communication features (calls, signals, hearing effects)
+pub const COMMUNICATION_ENABLED: bool = false; // set to true to enable; false turns off calls completely
 // Communication shaping (optional; set rewards small to avoid overpowering core objectives)
 pub const COMM_SIGNAL_THRESHOLD: f32 = 0.40;   // minimum call_intensity to register a resource signal
 pub const COMM_SIGNAL_WINDOW: usize = 40;      // steps a signal remains active

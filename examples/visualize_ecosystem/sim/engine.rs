@@ -79,11 +79,11 @@ pub fn tick_step<R: Rng>(
         let out = population[i].evaluate_slice(&inputs);
         let mut raw_turn = out.get(0).copied().unwrap_or(0.0);
         let mut raw_thrust = out.get(1).copied().unwrap_or(0.0);
-        let mut raw_call = out.get(2).copied().unwrap_or(0.0);
+    let mut raw_call = out.get(2).copied().unwrap_or(0.0);
         raw_turn = raw_turn.clamp(-1.0, 1.0);
         raw_thrust = raw_thrust.clamp(-1.0, 1.0);
         raw_call = raw_call.clamp(-1.0, 1.0);
-        a.call_intensity = (raw_call + 1.0) * 0.5;
+    a.call_intensity = if COMMUNICATION_ENABLED { (raw_call + 1.0) * 0.5 } else { 0.0 };
         let turn_delta = raw_turn * MAX_TURN_PER_STEP;
         a.theta += turn_delta;
         while a.theta > std::f32::consts::PI { a.theta -= 2.0 * std::f32::consts::PI; }
@@ -156,7 +156,7 @@ pub fn tick_step<R: Rng>(
             energy_cost += speed * MOVE_ENERGY_SCALE;
             if turn_delta.abs() > 0.0 && speed > 1e-4 { energy_cost += TURN_ENERGY_SCALE * raw_turn.abs().min(1.0); }
         }
-        energy_cost += a.call_intensity * CALL_COST;
+    if COMMUNICATION_ENABLED { energy_cost += a.call_intensity * CALL_COST; }
         a.energy -= energy_cost;
         if a.energy <= 0.0 || a.health <= DEATH_HEALTH_THRESHOLD {
             if a.dead_since.is_none() { a.dead_since = Some(step_idx); a.corpse_energy = CORPSE_INITIAL_ENERGY; }
@@ -174,37 +174,46 @@ pub fn tick_step<R: Rng>(
         a.last_food_mem.x *= MEMORY_DECAY; a.last_food_mem.y *= MEMORY_DECAY;
         a.last_danger_mem.x *= MEMORY_DECAY; a.last_danger_mem.y *= MEMORY_DECAY;
 
-        // Communication: spawn signals when calling near food cluster
-        if a.call_intensity >= COMM_SIGNAL_THRESHOLD {
-            let mut nearby_food = 0usize;
-            for f in food.iter() {
-                let dx = f.x - a.body.pos.x; let dy = f.y - a.body.pos.y;
-                if dx*dx + dy*dy <= COMM_FOOD_RADIUS*COMM_FOOD_RADIUS { nearby_food += 1; if nearby_food >= COMM_FOOD_MIN { break; } }
-            }
-            if nearby_food >= COMM_FOOD_MIN {
-                comm_signals.push(CommSignal { caller: i, pos: a.body.pos, ttl: COMM_SIGNAL_WINDOW });
-            }
-        }
-
-        if ate {
-            for s in comm_signals.iter() {
-                let dx = a.body.pos.x - s.pos.x; let dy = a.body.pos.y - s.pos.y;
-                if dx*dx + dy*dy <= COMM_SIGNAL_EFFECT_RADIUS*COMM_SIGNAL_EFFECT_RADIUS {
-                    if s.caller != i { comm_fit[i] += COMM_RECV_REWARD; }
-                    comm_fit[s.caller] += COMM_CALLER_REWARD;
+        // Communication: spawn/score signals only when enabled
+        if COMMUNICATION_ENABLED {
+            if a.call_intensity >= COMM_SIGNAL_THRESHOLD {
+                let mut nearby_food = 0usize;
+                for f in food.iter() {
+                    let dx = f.x - a.body.pos.x; let dy = f.y - a.body.pos.y;
+                    if dx*dx + dy*dy <= COMM_FOOD_RADIUS*COMM_FOOD_RADIUS { nearby_food += 1; if nearby_food >= COMM_FOOD_MIN { break; } }
+                }
+                if nearby_food >= COMM_FOOD_MIN {
+                    comm_signals.push(CommSignal { caller: i, pos: a.body.pos, ttl: COMM_SIGNAL_WINDOW });
                 }
             }
+
+            if ate {
+                for s in comm_signals.iter() {
+                    let dx = a.body.pos.x - s.pos.x; let dy = a.body.pos.y - s.pos.y;
+                    if dx*dx + dy*dy <= COMM_SIGNAL_EFFECT_RADIUS*COMM_SIGNAL_EFFECT_RADIUS {
+                        if s.caller != i { comm_fit[i] += COMM_RECV_REWARD; }
+                        comm_fit[s.caller] += COMM_CALLER_REWARD;
+                    }
+                }
+            }
+        } else {
+            // Ensure hearing inputs decay to zero when communication is off
+            a.heard_sectors = [0.0; 3];
         }
     }
 
     // Decay/cleanup signals
-    for sig in comm_signals.iter_mut() { if sig.ttl > 0 { sig.ttl -= 1; } }
-    comm_signals.retain(|s| s.ttl > 0);
+    if COMMUNICATION_ENABLED {
+        for sig in comm_signals.iter_mut() { if sig.ttl > 0 { sig.ttl -= 1; } }
+        comm_signals.retain(|s| s.ttl > 0);
+    } else {
+        comm_signals.clear();
+    }
 
     // Resolve predation, corpse decay, hearing, and plant growth
     resolve_predation(agents, &prey_targets, step_idx);
     decay_corpses_and_flashes(agents);
-    sensing::update_hearing(agents);
+    if COMMUNICATION_ENABLED { sensing::update_hearing(agents); }
     world::set_current_step(step_idx);
     world::food_growth_step(food, rng);
 
