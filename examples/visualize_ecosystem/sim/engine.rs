@@ -115,8 +115,8 @@ pub fn tick_step<R: Rng>(
             a.body.pos = wrap_to_world(a.body.pos);
         }
 
-        // Continuous eat along path; fallback to point eat
-        let ate = if world::eat_along_path(food, prev, a.body.pos) || world::eat_if_near(food, a.body.pos) {
+        // Continuous eat along path; fallback to body collision at end
+        let ate = if world::eat_along_path(food, prev, a.body.pos, a.body.radius) || world::eat_if_near(food, &a.body) {
             if DIGEST_STEPS_PLANT > 0 { a.digest.push_back(DigestEvent { remaining: DIGEST_STEPS_PLANT, per_step: FOOD_ENERGY / (DIGEST_STEPS_PLANT as f32) }); }
             else { a.energy = (a.energy + FOOD_ENERGY).min(INITIAL_ENERGY); }
             a.eaten += 1;

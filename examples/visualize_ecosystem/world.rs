@@ -2,12 +2,13 @@ use super::params::{
     WORLD_W, WORLD_H,
     FOOD_COUNT, FOOD_MIN_SEP, MAX_FOOD,
     FOOD_RESPAWN_PROB, FOOD_SPREAD_CHANCE, FOOD_SPREAD_RADIUS,
-    FOOD_RADIUS, AGENT_RADIUS,
+    FOOD_RADIUS,
     BIOME_X_SPLITS, BIOME_RESPAWN_MULT, BIOME_SPREAD_MULT,
     SEASONAL_ENABLED, SEASONAL_PERIOD_STEPS, SEASONAL_AMPLITUDE, BIOME_SEASON_PHASE,
 };
 use ::rand::Rng;
 use macroquad::prelude::Vec2;
+use crate::body::{Body, Plant};
 
 pub fn rand_pos<R: Rng>(rng: &mut R) -> Vec2 {
     Vec2 { x: rng.random_range(0.0..WORLD_W), y: rng.random_range(0.0..WORLD_H) }
@@ -80,11 +81,20 @@ pub fn food_growth_step<R: Rng>(food: &mut Vec<Vec2>, rng: &mut R) {
     }
 }
 
-pub fn eat_if_near(food: &mut Vec<Vec2>, pos: Vec2) -> bool {
+fn plant_body_at(pos: Vec2) -> Plant {
+    Plant { body: Body { pos, vel: Vec2::new(0.0, 0.0), radius: FOOD_RADIUS } }
+}
+
+pub fn eat_if_near(food: &mut Vec<Vec2>, agent_body: &Body) -> bool {
     if food.is_empty() { return false; }
     if let Some((idx, _)) = food.iter().enumerate()
-        .map(|(i, f)| (i, ((f.x - pos.x).powi(2) + (f.y - pos.y).powi(2)).sqrt()))
-        .filter(|(_, d)| *d <= (FOOD_RADIUS + AGENT_RADIUS))
+        .map(|(i, f)| (i, plant_body_at(*f)))
+        .filter(|(_, plant)| Body::collides(agent_body, &plant.body))
+        .map(|(i, plant)| {
+            // Return distance for min_by
+            let d = (plant.body.pos - agent_body.pos).length();
+            (i, d)
+        })
         .min_by(|a, b| a.1.total_cmp(&b.1)) {
         food.swap_remove(idx);
         true
@@ -92,11 +102,11 @@ pub fn eat_if_near(food: &mut Vec<Vec2>, pos: Vec2) -> bool {
 }
 
 // Continuous collision: did the path from p0 to p1 pass within eat radius of any food?
-pub fn eat_along_path(food: &mut Vec<Vec2>, p0: Vec2, p1: Vec2) -> bool {
+pub fn eat_along_path(food: &mut Vec<Vec2>, p0: Vec2, p1: Vec2, agent_radius: f32) -> bool {
     if food.is_empty() { return false; }
     let (vx, vy) = (p1.x - p0.x, p1.y - p0.y);
     let v_len2 = vx*vx + vy*vy;
-    let eat_r = FOOD_RADIUS + AGENT_RADIUS;
+    let eat_r = FOOD_RADIUS + agent_radius;
     let eat_r2 = eat_r * eat_r;
     let mut best_i: Option<usize> = None;
     let mut best_t: f32 = f32::INFINITY;

@@ -29,6 +29,11 @@ pub fn resolve_collision(a: &mut Body, b: &mut Body) {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct Plant {
+    pub body: Body,
+}
+
 //pub fn handle_agent_food(agent: &mut Body, food: &Body) -> bool {
 //    if collides(agent, food) {
 //        true
