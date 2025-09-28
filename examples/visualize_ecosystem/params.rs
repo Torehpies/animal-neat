@@ -8,15 +8,15 @@
 // Evolution / Population
 // =====================
 /// Number of agents/genomes in the population and per episode
-pub const POPULATION_SIZE: usize = 50;
+pub const POPULATION_SIZE: usize = 10;
 /// Episodes per generation for fitness averaging
 pub const EPISODES_PER_GEN: usize = 3;
 
 // ======
 // World
 // ======
-pub const WORLD_W: f32 = 500.0;
-pub const WORLD_H: f32 = 500.0;
+pub const WORLD_W: f32 = 50.0;
+pub const WORLD_H: f32 = 50.0;
 pub const INITIAL_ENERGY: f32 = 1000.0;
 pub const ENERGY_DRAIN_PER_STEP: f32 = 0.25;
 pub const MAX_STEPS: usize = 500;
@@ -54,7 +54,7 @@ pub const FOOD_SPREAD_RADIUS: f32 = 15.0;
 // =====================
 // Vision cone parameters
 // =====================
-pub const VISION_RAYS: usize = 5;
+pub const VISION_RAYS: usize = 7;
 pub const VISION_ANGLE_DEG: f32 = 70.0;
 pub const VISION_RANGE: f32 = 50.0;
 /// Derived: radians for convenience if needed by math
@@ -140,8 +140,8 @@ pub const COMM_CALLER_REWARD: f32 = 0.4;       // fitness added to original call
 // =====================
 pub const EAT_AGENT_RADIUS: f32 = AGENT_RADIUS + AGENT_RADIUS;
 pub const MEAT_ENERGY: f32 = 80.0;
-pub const PREDATION_ENABLED: bool = true;
-pub const SCAVENGE_ENABLED: bool = true;
+pub const PREDATION_ENABLED: bool = false;
+pub const SCAVENGE_ENABLED: bool = false;
 // Health / injury system
 pub const AGENT_BASE_HEALTH: f32 = 100.0;        // starting and max health baseline
 pub const HEALTH_DECAY_PER_STEP: f32 = 0.0;      // passive health decay (0 to disable)
@@ -172,6 +172,14 @@ pub const MAX_THRUST: f32 = 0.9;                  // units of velocity added whe
 pub const MAX_VELOCITY: f32 = 4.5;                // hard cap on velocity magnitude (pre world scaling)
 pub const EXTRA_VEL_ENERGY_C1: f32 = 0.1;        // linear velocity cost term
 pub const EXTRA_VEL_ENERGY_C2: f32 = 0.01;       // cubic velocity cost term (penalize high bursts)
+
+// ==============
+// Agent Collisions
+// ==============
+// Enable simple physical separation when agents overlap (alive vs alive).
+pub const AGENT_COLLISIONS_ENABLED: bool = true;
+// Number of relaxation passes per tick (1 is usually enough for POPULATION_SIZE ~ 50)
+pub const AGENT_COLLISION_PASSES: usize = 2;
 
 // ==============================
 // Sensing smoothing

@@ -6,6 +6,7 @@ use ::rand::Rng;
 use sim::{resolve_predation, decay_corpses_and_flashes};
 
 use crate::{params::*, sensing, sim::{self, CommSignal, Agent, DigestEvent, dir_from_theta, grid_index}, world::{self, wrap_to_world}};
+use crate::body::{resolve_collision, Body};
 
 // Minimal stats delta accumulated during a single tick across all agents
 pub struct StepDelta {
@@ -208,6 +209,31 @@ pub fn tick_step<R: Rng>(
         comm_signals.retain(|s| s.ttl > 0);
     } else {
         comm_signals.clear();
+    }
+
+    // Optional: resolve simple physical collisions between alive agents
+    if AGENT_COLLISIONS_ENABLED && agents.len() > 1 {
+        for _ in 0..AGENT_COLLISION_PASSES {
+            let n = agents.len();
+            for i in 0..n {
+                for j in (i+1)..n {
+                    // Split borrow for two distinct agents
+                    let (left, right) = agents.split_at_mut(j);
+                    let a = &mut left[i];
+                    let b = &mut right[0];
+                    // Only separate alive, non-consumed agents
+                    let a_alive = a.energy > 0.0 && a.health > DEATH_HEALTH_THRESHOLD && !a.consumed;
+                    let b_alive = b.energy > 0.0 && b.health > DEATH_HEALTH_THRESHOLD && !b.consumed;
+                    if !a_alive || !b_alive { continue; }
+                    // If overlapping, push apart equally
+                    if Body::collides(&a.body, &b.body) {
+                        resolve_collision(&mut a.body, &mut b.body);
+                        a.body.pos = wrap_to_world(a.body.pos);
+                        b.body.pos = wrap_to_world(b.body.pos);
+                    }
+                }
+            }
+        }
     }
 
     // Resolve predation, corpse decay, hearing, and plant growth
