@@ -16,7 +16,7 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         id: AgentId(i),
         body: Body { pos: world::rand_pos(&mut rng), vel: Vec2::new(0.0, 0.0), radius: AGENT_RADIUS },
         theta: -std::f32::consts::FRAC_PI_2,
-        energy: INITIAL_ENERGY,
+    energy: INITIAL_ENERGY.min(MAX_ENERGY),
         health: AGENT_BASE_HEALTH,
         max_health: AGENT_BASE_HEALTH,
         invuln_steps: 0,

@@ -70,7 +70,7 @@ pub fn tick_step<R: Rng>(
         // Exploration map (eval only)
         if let Some(v) = visited.as_deref_mut() { v[i].insert(grid_index(a.body.pos)); }
 
-        let energy_in = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
+    let energy_in = (a.energy / MAX_ENERGY).clamp(0.0, 1.0);
         let my_species = a.species_id;
         let mut inputs = sensing::build_inputs(
             a.body.pos, a.theta, food, energy_in, a.last_food_mem, a.last_danger_mem, &density, &snapshot, i, my_species, a.heard_sectors
@@ -119,7 +119,7 @@ pub fn tick_step<R: Rng>(
         // Continuous eat along path; fallback to body collision at end
         let ate = if world::eat_along_path(food, prev, a.body.pos, a.body.radius) || world::eat_if_near(food, &a.body) {
             if DIGEST_STEPS_PLANT > 0 { a.digest.push_back(DigestEvent { remaining: DIGEST_STEPS_PLANT, per_step: FOOD_ENERGY / (DIGEST_STEPS_PLANT as f32) }); }
-            else { a.energy = (a.energy + FOOD_ENERGY).min(INITIAL_ENERGY); }
+            else { a.energy = (a.energy + FOOD_ENERGY).min(MAX_ENERGY); }
             a.eaten += 1;
             if let Some(ref mut hook) = first_eat_step { if hook.is_none() { **hook = Some(step_idx); } }
             true
@@ -164,7 +164,7 @@ pub fn tick_step<R: Rng>(
         }
         // Passive heal
         if a.energy > 0.0 && a.health > DEATH_HEALTH_THRESHOLD {
-            let ef = (a.energy / INITIAL_ENERGY).clamp(0.0,1.0);
+            let ef = (a.energy / MAX_ENERGY).clamp(0.0,1.0);
             a.health = (a.health + INJURY_HEAL_RATE * ef * a.max_health).min(a.max_health);
         }
 

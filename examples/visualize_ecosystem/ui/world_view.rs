@@ -200,7 +200,7 @@ pub fn draw_world(
         if Some(idx) == focused_idx && a.energy > 0.0 {
             // Basic energy overlay (always shown when hovering) -- draw first
             if show_energy_overlay {
-            let energy_frac = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
+            let energy_frac = (a.energy / MAX_ENERGY).clamp(0.0, 1.0);
             let bar_w = 70.0; let bar_h = 7.0; let pad = 3.0;
             let bx = px - bar_w * 0.5; let by = py - agent_r - 18.0;
             // background box
@@ -216,7 +216,7 @@ pub fn draw_world(
                 let t = (energy_frac - 0.5) / 0.5; (1.0 - 0.5*t, 0.8 + 0.2*t, 0.1 + 0.4*t)
             };
             draw_rectangle(bx, by, bar_w * energy_frac, bar_h, Color::new(r,g,b,0.95));
-            let energy_text = format!("E: {:.0}/{:.0}", a.energy.max(0.0), INITIAL_ENERGY);
+            let energy_text = format!("E: {:.0}/{:.0}", a.energy.max(0.0), MAX_ENERGY);
             draw_text(&energy_text, bx, by - 2.0, 14.0, WHITE);
             }
             if unified_overlay {

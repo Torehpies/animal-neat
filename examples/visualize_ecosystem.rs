@@ -221,7 +221,7 @@ async fn main() {
     let mut running = true;      // continuous evolution by default
     let mut fast_mode = false;   // start at normal speed
     let mut normal_step_timer = 0.0f32;          // accumulates frame time for normal stepping
-    let normal_step_interval = 0.03f32;           // seconds per simulation step in normal mode
+    let normal_step_interval = 0.05f32;           // seconds per simulation step in normal mode
     let fast_steps_per_frame: usize = 500;       // simulation steps per frame in fast mode
 
     loop {
