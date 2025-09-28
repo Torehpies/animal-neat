@@ -34,7 +34,8 @@ pub fn input_ranges() -> InputRanges {
     InputRanges { vision, energy, memory, density, hearing, position }
 }
 use super::params::{VISION_RAYS, VISION_ANGLE_DEG, VISION_RANGE, FOOD_RADIUS, DANGER_VECTOR_MAX_RANGE, DENSITY_SECTORS, DENSITY_RADIUS, INPUTS, WORLD_W, WORLD_H, PREDATION_ENABLED, SCAVENGE_ENABLED, HEARING_SECTORS, SOUND_RANGE, SOUND_ATTENUATION_EXP, HEARING_EMA_ALPHA};
-use super::{Agent, Vec2};
+use crate::sim::{Agent};
+use macroquad::prelude::Vec2;
 
 fn dir_from_theta(theta: f32) -> Vec2 { Vec2 { x: theta.cos(), y: theta.sin() } }
 
@@ -218,7 +219,7 @@ pub fn build_inputs(pos: Vec2, theta: f32, food: &[Vec2], energy: f32, last_food
     for si in 0..HEARING_SECTORS { inputs[k] = heard[si].clamp(0.0, 1.0); k += 1; }
     // normalized absolute position (helps with navigation / region strategies)
     inputs[k] = (pos.x / WORLD_W).clamp(0.0, 1.0); k += 1;
-    inputs[k] = (pos.y / WORLD_H).clamp(0.0, 1.0); k += 1;
+    inputs[k] = (pos.y / WORLD_H).clamp(0.0, 1.0);
     inputs
 }
 
@@ -233,14 +234,14 @@ pub fn update_hearing(agents: &mut [Agent]) {
         let forward_band = half / 6.0; // reuse same logic as vision sectors
         let mut accum = [0.0f32;3];
         for (j, other) in agents.iter().enumerate() { if i == j { continue; }
-            let dx = other.pos.x - agents[i].pos.x; let dy = other.pos.y - agents[i].pos.y;
+            let dx = other.body.pos.x - agents[i].body.pos.x; let dy = other.body.pos.y - agents[i].body.pos.y;
             let d2 = dx*dx + dy*dy; let r2 = SOUND_RANGE * SOUND_RANGE; if d2 > r2 || other.call_intensity <= 1e-6 { continue; }
             let d = d2.sqrt().max(1e-6);
             let fwd_comp = dx * fwd.x + dy * fwd.y; if fwd_comp <= 0.0 { continue; } // only front hemisphere for directional hearing (simplification)
             let right_comp = dx * right.x + dy * right.y; let ang = right_comp.atan2(fwd_comp);
             if ang < -half || ang > half { continue; }
             let si = if ang < -forward_band { 0 } else if ang <= forward_band { 1 } else { 2 };
-            let base = (1.0 - (d / SOUND_RANGE)).clamp(0.0, 1.0).powf(SOUND_ATTENUATION_EXP);
+            let base = (1.0f32 - (d / SOUND_RANGE)).clamp(0.0f32, 1.0f32).powf(SOUND_ATTENUATION_EXP);
             let weight = base * other.call_intensity; // linear mix; could square intensity if desired
             accum[si] += weight;
         }

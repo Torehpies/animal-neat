@@ -1,9 +1,9 @@
 use macroquad::prelude::*;
 use crate::params::*;
-use crate::{Episode, Vec2};
+use crate::{sim::Episode, Vec2};
 use crate::sensing;
 use crate::ui_common::{world_to_screen, fit_world_rect, world_scale};
-use crate::dir_from_theta;
+use crate::sim::{dir_from_theta};
 
 pub fn draw_world(
     area: Rect,
@@ -59,7 +59,7 @@ pub fn draw_world(
     let snapshot: Vec<(Vec2, bool, bool, usize, bool)> = episode.agents.iter().map(|a| {
         let alive = a.energy > 0.0;
         let is_corpse = !alive && !a.consumed && a.corpse_energy > 0.1;
-        (a.pos, alive, a.consumed, 0usize, is_corpse)
+        (a.body.pos, alive, a.consumed, 0usize, is_corpse)
     }).collect();
 
     // Determine focused agent (nearest to mouse)
@@ -67,7 +67,7 @@ pub fn draw_world(
         let mut best: Option<(usize, f32)> = None;
         for (i, a) in episode.agents.iter().enumerate() {
             if a.energy <= 0.0 { continue; }
-            let dx = a.pos.x - mw.x; let dy = a.pos.y - mw.y; let d2 = dx*dx + dy*dy;
+            let dx = a.body.pos.x - mw.x; let dy = a.body.pos.y - mw.y; let d2 = dx*dx + dy*dy;
             if let Some((_, b)) = best { if d2 < b { best = Some((i, d2)); } } else { best = Some((i, d2)); }
         }
         best.map(|(i, _)| i)
@@ -75,7 +75,7 @@ pub fn draw_world(
 
     // agents
     for (idx, a) in episode.agents.iter().enumerate() {
-    let (px, py) = world_to_screen(fitted, a.pos);
+    let (px, py) = world_to_screen(fitted, a.body.pos);
     let agent_r = (AGENT_RADIUS * px_per_world).max(3.0);
     // species index unused for coloring now that diet-based coloring is applied
         // draw alive vs dead differently
@@ -113,18 +113,18 @@ pub fn draw_world(
         // heading line
         if a.energy > 0.0 {
             let dir = dir_from_theta(a.theta);
-            let (hx, hy) = world_to_screen(fitted, Vec2 { x: a.pos.x + dir.x * 2.0, y: a.pos.y + dir.y * 2.0 });
+            let (hx, hy) = world_to_screen(fitted, Vec2 { x: a.body.pos.x + dir.x * 2.0, y: a.body.pos.y + dir.y * 2.0 });
             draw_line(px, py, hx, hy, 2.0, BLUE);
         }
 
         if show_cones && a.energy > 0.0 {
             let dir = dir_from_theta(a.theta);
             for r in sensing::ray_directions(dir) {
-                let food_t = sensing::nearest_food_along_ray(a.pos, r, &episode.food);
-                let meat_t = sensing::nearest_meat_along_ray(a.pos, r, &snapshot, idx);
+                let food_t = sensing::nearest_food_along_ray(a.body.pos, r, &episode.food);
+                let meat_t = sensing::nearest_meat_along_ray(a.body.pos, r, &snapshot, idx);
                 match food_t {
                     Some(t) => {
-                        let sense_pt = Vec2 { x: a.pos.x + r.x * t, y: a.pos.y + r.y * t };
+                        let sense_pt = Vec2 { x: a.body.pos.x + r.x * t, y: a.body.pos.y + r.y * t };
                         let (sx, sy) = world_to_screen(fitted, sense_pt);
                         // draw sensed segment in green up to the food point
                         let green = Color::new(0.2, 1.0, 0.2, 0.9);
@@ -132,19 +132,19 @@ pub fn draw_world(
                         // mark the sensed point
                         draw_circle(sx, sy, 3.0, green);
                         // faint remainder to max range (lighter green)
-                        let end = Vec2 { x: a.pos.x + r.x * VISION_RANGE, y: a.pos.y + r.y * VISION_RANGE };
+                        let end = Vec2 { x: a.body.pos.x + r.x * VISION_RANGE, y: a.body.pos.y + r.y * VISION_RANGE };
                         let (x2, y2) = world_to_screen(fitted, end);
                         draw_line(sx, sy, x2, y2, 1.0, Color::new(0.2, 1.0, 0.2, 0.25));
                     }
                     None => {
-                        let end = Vec2 { x: a.pos.x + r.x * VISION_RANGE, y: a.pos.y * 1.0 + r.y * VISION_RANGE };
+                        let end = Vec2 { x: a.body.pos.x + r.x * VISION_RANGE, y: a.body.pos.y * 1.0 + r.y * VISION_RANGE };
                         let (x2, y2) = world_to_screen(fitted, end);
                         draw_line(px, py, x2, y2, 1.0, Color::new(0.2, 1.0, 0.2, 0.35));
                     }
                 }
                 // Overlay meat hit (orange) if present on this ray
                 if let Some(tm) = meat_t {
-                    let mpt = Vec2 { x: a.pos.x + r.x * tm, y: a.pos.y + r.y * tm };
+                    let mpt = Vec2 { x: a.body.pos.x + r.x * tm, y: a.body.pos.y + r.y * tm };
                     let (mx, my) = world_to_screen(fitted, mpt);
                     let orange = Color::new(1.0, 0.6, 0.1, 0.95);
                     draw_line(px, py, mx, my, 2.0, orange);
@@ -163,7 +163,7 @@ pub fn draw_world(
                 // edible if alive (predation) or dead but not yet consumed (scavenge)
                 if (*alive && !PREDATION_ENABLED) || ((*is_corpse || !*alive) && !SCAVENGE_ENABLED) { continue; }
                 if *consumed { continue; }
-                let dx = p.x - a.pos.x; let dy = p.y - a.pos.y; let d2 = dx*dx + dy*dy;
+                let dx = p.x - a.body.pos.x; let dy = p.y - a.body.pos.y; let d2 = dx*dx + dy*dy;
                 if d2 <= eat_r2 {
                     edible_near = true;
                     if d2 < best_d2 {
@@ -213,7 +213,7 @@ pub fn draw_world(
             if unified_overlay {
                 // Unified overlay: smoothed sector bars + memory vectors + density radial ticks
                 // Draw sector bars using agent's smoothed pooled_* fields
-                let (ax, ay) = world_to_screen(fitted, a.pos);
+                let (ax, ay) = world_to_screen(fitted, a.body.pos);
                 let w_sector = 56.0; let bar_h = 7.0; let gap = 3.0;
                 let colors = [Color::new(0.25,1.0,0.25,0.95), Color::new(0.1,0.85,1.0,0.95), Color::new(1.0,0.3,0.9,0.95), Color::new(0.75,0.75,0.75,0.95)];
                 let rows: [[f32;3];4] = [a.pooled_plant, a.pooled_same, a.pooled_other, a.pooled_wall];
@@ -248,7 +248,7 @@ pub fn draw_world(
                     let scale = 55.0;
                     let world_dx = (right_x * vx + fwd_x * vy) * (scale / fitted.w * WORLD_W);
                     let world_dy = (right_y * vx + fwd_y * vy) * (scale / fitted.h * WORLD_H);
-                    let end = Vec2 { x: a.pos.x + world_dx, y: a.pos.y + world_dy };
+                    let end = Vec2 { x: a.body.pos.x + world_dx, y: a.body.pos.y + world_dy };
                     let (ex, ey) = world_to_screen(fitted, end);
                     draw_line(ax, ay, ex, ey, 2.0, color);
                 };
@@ -257,12 +257,12 @@ pub fn draw_world(
                 }
                 // Density rays (scaled magnitude) using current snapshot
                 if show_density_inputs {
-                    let bins = sensing::density_sectors(a.pos, a.theta, &snapshot, idx);
+                    let bins = sensing::density_sectors(a.body.pos, a.theta, &snapshot, idx);
                     let dir_angles = [0.0, std::f32::consts::FRAC_PI_2*0.66, -std::f32::consts::FRAC_PI_2*0.66, std::f32::consts::PI*0.75, -std::f32::consts::PI*0.75, std::f32::consts::PI];
                     for (bi, val) in bins.iter().enumerate() { if *val <= 0.0 { continue; }
                         let ang_world = a.theta + dir_angles[bi];
                         let len = (AGENT_RADIUS * 4.0) + *val * (AGENT_RADIUS * 6.0);
-                        let end = Vec2 { x: a.pos.x + ang_world.cos() * len, y: a.pos.y + ang_world.sin() * len };
+                        let end = Vec2 { x: a.body.pos.x + ang_world.cos() * len, y: a.body.pos.y + ang_world.sin() * len };
                         let (ex, ey) = world_to_screen(fitted, end);
                         draw_line(ax, ay, ex, ey, 2.0, Color::new(0.1,1.0,1.0,0.85));
                     }

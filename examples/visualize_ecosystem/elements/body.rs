@@ -1,4 +1,4 @@
-use crate::glam::Vec2;
+use macroquad::prelude::Vec2;
 
 #[derive(Clone, Debug)]
 pub struct Body {

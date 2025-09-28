@@ -15,8 +15,8 @@ pub const EPISODES_PER_GEN: usize = 3;
 // ======
 // World
 // ======
-pub const WORLD_W: f32 = 500.0;
-pub const WORLD_H: f32 = 500.0;
+pub const WORLD_W: f32 = 100.0;
+pub const WORLD_H: f32 = 100.0;
 pub const INITIAL_ENERGY: f32 = 1000.0;
 pub const ENERGY_DRAIN_PER_STEP: f32 = 0.25;
 pub const MAX_STEPS: usize = 500;

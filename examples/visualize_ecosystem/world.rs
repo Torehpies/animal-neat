@@ -6,8 +6,8 @@ use super::params::{
     BIOME_X_SPLITS, BIOME_RESPAWN_MULT, BIOME_SPREAD_MULT,
     SEASONAL_ENABLED, SEASONAL_PERIOD_STEPS, SEASONAL_AMPLITUDE, BIOME_SEASON_PHASE,
 };
-use super::Vec2;
 use ::rand::Rng;
+use macroquad::prelude::Vec2;
 
 pub fn rand_pos<R: Rng>(rng: &mut R) -> Vec2 {
     Vec2 { x: rng.random_range(0.0..WORLD_W), y: rng.random_range(0.0..WORLD_H) }
@@ -127,3 +127,13 @@ thread_local! {
 
 // Public setter used by visualize_ecosystem.rs to update world step before growth
 pub fn set_current_step(step: usize) { CURRENT_STEP.with(|c| c.set(step)); }
+
+pub fn wrap_to_world(pos: Vec2) -> Vec2 {
+    Vec2::new(
+        pos.x.rem_euclid(WORLD_W),
+        pos.y.rem_euclid(WORLD_H),
+    )
+}
+
+
+
