@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use crate::body::Body;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub struct AgentId(usize);
+pub struct AgentId(pub usize);
 
 #[derive(Clone, Debug)]
 pub struct Agent {
