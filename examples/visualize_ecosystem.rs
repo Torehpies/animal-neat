@@ -77,6 +77,9 @@ struct AppState {
     show_energy_overlay: bool,
     show_collision_radii: bool,
     show_grid: bool,
+    // HUD/network & focus controls
+    show_best_network_panel: bool,
+    focused_agent: Option<usize>,
 }
 
 impl AppState {
@@ -121,6 +124,8 @@ impl AppState {
             last_comm_reward_sum: 0.0,
             show_collision_radii: false,
             show_grid: false,
+            show_best_network_panel: true,
+            focused_agent: None,
         }
     }
 
@@ -175,6 +180,8 @@ impl AppState {
         self.generation += 1;
         let mut rng = ::rand::rng();
     self.episode = Episode::new(&mut rng, self.population.len(), &self.member_species);
+        // Clear focused agent because indices now refer to new episode
+        self.focused_agent = None;
         // speciate new population for coloring and update mapping
         self.speciator.speciate(&self.population);
         self.member_species = {
@@ -246,6 +253,8 @@ async fn main() {
         if is_key_pressed(KeyCode::E) { state.show_energy_overlay = !state.show_energy_overlay; }
     if is_key_pressed(KeyCode::C) { state.show_collision_radii = !state.show_collision_radii; }
     if is_key_pressed(KeyCode::G) { state.show_grid = !state.show_grid; }
+    if is_key_pressed(KeyCode::N) { state.show_best_network_panel = !state.show_best_network_panel; }
+    if is_key_pressed(KeyCode::Escape) { state.focused_agent = None; }
     // Removed per-row overlay toggles (1..4). Unified overlay is controlled via 'U'.
     if is_key_pressed(KeyCode::S) {
         // Save a non-blocking snapshot of genomes + innovation state.
@@ -301,6 +310,24 @@ async fn main() {
         Some(screen_to_world(fitted, mx, my))
     } else { None };
 
+    // Agent focus selection on left click
+    if is_mouse_button_pressed(MouseButton::Left) {
+        if let Some(mw) = mouse_world {
+            // Find nearest alive agent within a pick radius in world units
+            let pick_r = AGENT_RADIUS * 3.5; // generous
+            let mut best: Option<(usize, f32)> = None;
+            for (i, a) in state.episode.agents.iter().enumerate() {
+                if a.energy <= 0.0 && a.health <= DEATH_HEALTH_THRESHOLD { continue; }
+                let dx = a.body.pos.x - mw.x; let dy = a.body.pos.y - mw.y; let d2 = dx*dx + dy*dy;
+                if d2 <= pick_r * pick_r {
+                    if let Some((_, bd2)) = best { if d2 < bd2 { best = Some((i, d2)); } } else { best = Some((i, d2)); }
+                }
+            }
+            state.focused_agent = best.map(|(i, _)| i);
+        }
+    }
+    // (mouse_world already defined above)
+
     ui_world_view::draw_world(
         world_area,
         &state.episode,
@@ -310,6 +337,7 @@ async fn main() {
         mouse_world,
         state.show_energy_overlay,
         state.show_collision_radii,
+        state.focused_agent,
         state.show_grid,
         true,  // show vision inputs rows
         true,  // show hearing inputs row

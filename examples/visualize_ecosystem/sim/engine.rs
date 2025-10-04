@@ -91,7 +91,7 @@ pub fn tick_step<R: Rng>(
         while a.theta <= -std::f32::consts::PI { a.theta += 2.0 * std::f32::consts::PI; }
         let dir = dir_from_theta(a.theta);
 
-        let prev = a.body.pos;
+    // (previous position no longer needed; swept eating disabled)
         if USE_INERTIA {
             a.body.vel *= 1.0 - DRAG_COEFF;
             let thrust_scalar = (raw_thrust + 1.0) * 0.5;
@@ -116,8 +116,8 @@ pub fn tick_step<R: Rng>(
             a.body.pos = wrap_to_world(a.body.pos);
         }
 
-        // Continuous eat along path; fallback to body collision at end
-        let ate = if world::eat_along_path(food, prev, a.body.pos, a.body.radius) || world::eat_if_near(food, &a.body) {
+        // Eating: require actual overlap at end position (disable swept path exploit)
+        let ate = if world::eat_if_near(food, &a.body) {
             if DIGEST_STEPS_PLANT > 0 { a.digest.push_back(DigestEvent { remaining: DIGEST_STEPS_PLANT, per_step: FOOD_ENERGY / (DIGEST_STEPS_PLANT as f32) }); }
             else { a.energy = (a.energy + FOOD_ENERGY).min(MAX_ENERGY); }
             a.eaten += 1;

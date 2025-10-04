@@ -14,6 +14,7 @@ pub fn draw_world(
     mouse_world: Option<Vec2>,
     show_energy_overlay: bool,
     show_collision_radii: bool,
+    focused_agent: Option<usize>,
     show_grid: bool,
     show_vis_inputs: bool,
     show_hearing_inputs: bool,
@@ -229,6 +230,12 @@ pub fn draw_world(
         // Predation flash: red ring
         if a.predation_flash_steps > 0 {
             draw_circle_lines(px, py, agent_r + 5.0, 3.0, Color::new(1.0, 0.1, 0.1, 0.95));
+        }
+
+        // Focus highlight (draw after other rings for visibility)
+        if Some(idx) == focused_agent {
+            draw_circle_lines(px, py, agent_r + 8.0, 3.0, Color::new(0.25, 0.9, 1.0, 0.95));
+            draw_circle_lines(px, py, agent_r + 11.5, 2.0, Color::new(0.25, 0.9, 1.0, 0.55));
         }
 
         // Overlays for the focused agent

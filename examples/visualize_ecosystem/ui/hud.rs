@@ -16,8 +16,8 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
     let x = area.x + padding;
     let mut y = area.y + padding;
 
-    // Reserve bottom portion for network panel (unchanged)
-    let network_h = (area.h * 0.42).clamp(160.0, 380.0);
+    // Reserve bottom portion for network panel; can be hidden via toggle
+    let network_h = if state.show_best_network_panel { (area.h * 0.42).clamp(160.0, 380.0) } else { 0.0 };
     let max_y = area.y + area.h - padding - network_h - 8.0;
     let max_w = area.w - (x - area.x) - padding;
 
@@ -71,16 +71,39 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
         y += line_h;
     }
 
+    // Focused agent detail block (if any)
+    if y <= max_y {
+        if let Some(fi) = state.focused_agent {
+            if let Some(a) = state.episode.agents.get(fi) {
+                let hdr = format!("Focused Agent #{}", fi);
+                y = draw_text_wrapped(&hdr, x, y, 18.0, LIGHTGRAY, max_w, 4.0) + 2.0;
+                let alive = a.energy > 0.0 && a.health > 0.0;
+                let diet_plants = a.eaten.saturating_sub(a.kills) as f32;
+                let diet_meat = a.kills as f32;
+                let total_intake = diet_plants + diet_meat;
+                let meat_ratio = if total_intake > 0.0 { diet_meat / total_intake } else { 0.0 };
+                let lines = [
+                    format!("Status: {}", if alive { "Alive" } else { "Dead" }),
+                    format!("Energy {:.0}/{:.0}", a.energy.max(0.0), MAX_ENERGY),
+                    format!("Health {:.0}/{:.0}", a.health.max(0.0), a.max_health),
+                    format!("Alive steps {}", a.alive_steps),
+                    format!("Intake plants:{} meat:{} (meat% {:.0}%)", diet_plants as i32, diet_meat as i32, meat_ratio*100.0),
+                    format!("Kills {} CorpseEnergy {:.0}", a.kills, a.corpse_energy),
+                ];
+                for line in lines.iter() { if y > max_y { break; } y = draw_text_wrapped(line, x+4.0, y, 16.0, GRAY, max_w, 4.0); }
+            }
+        }
+    }
+
     // Controls (full list)
     if y <= max_y {
         let header = "Controls";
         y = draw_text_wrapped(header, x, y, 18.0, LIGHTGRAY, max_w, 6.0) + 2.0;
         let lines = [
-            "[P] Pause/Resume    [F] Toggle Fast Mode    [R] Reset Episode",
-            "[V] Vision Rays     [U] Unified Sensing Overlay",
-            "[E] Energy Overlay (on hover)",
-            "[C] Collision Radii (agents/food)",
-            "[G] Grid (exploration cells)",
+            "[P] Pause/Resume   [F] Fast Mode   [R] Reset Episode   [Esc] Clear Focus",
+            "[Click] Focus Agent   [N] Toggle Network Panel",
+            "[V] Vision Rays   [U] Unified Sensing Overlay",
+            "[E] Energy Overlay   [C] Collision Radii   [G] Grid",
             "[S] Save Population Snapshot",
         ];
         for line in lines.iter() {
@@ -89,18 +112,20 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
         }
     }
 
-    // Best-network panel (unchanged)
-    let panel = Rect { x: area.x + 8.0, y: area.y + area.h - network_h + 8.0, w: area.w - 16.0, h: network_h - 16.0 };
-    draw_rectangle(panel.x - 4.0, panel.y - 4.0, panel.w + 8.0, panel.h + 8.0, Color::new(0.05, 0.05, 0.07, 0.95));
-    draw_rectangle_lines(panel.x - 4.0, panel.y - 4.0, panel.w + 8.0, panel.h + 8.0, 2.0, Color::new(0.25, 0.25, 0.3, 1.0));
-    let title = if state.last_best.is_finite() && state.last_best > f32::NEG_INFINITY {
-        format!("Best network (last gen {}, fit {:.2})", state.last_best_generation, state.last_best)
-    } else { "Best network (pending)".to_string() };
-    draw_text_clamped(&title, panel.x, panel.y - 8.0, 18.0, LIGHTGRAY, panel.w - 8.0);
-    if let Some(genome) = state.last_best_genome.as_ref() {
-        draw_network_panel(panel, genome);
-    } else {
-        let msg = "Evolves as episodes complete. Once a new best is found, its network will appear here.";
-        draw_text_clamped(msg, panel.x, panel.y + panel.h * 0.5, 16.0, GRAY, panel.w - 8.0);
+    // Best-network panel (toggleable)
+    if state.show_best_network_panel && network_h > 0.0 {
+        let panel = Rect { x: area.x + 8.0, y: area.y + area.h - network_h + 8.0, w: area.w - 16.0, h: network_h - 16.0 };
+        draw_rectangle(panel.x - 4.0, panel.y - 4.0, panel.w + 8.0, panel.h + 8.0, Color::new(0.05, 0.05, 0.07, 0.95));
+        draw_rectangle_lines(panel.x - 4.0, panel.y - 4.0, panel.w + 8.0, panel.h + 8.0, 2.0, Color::new(0.25, 0.25, 0.3, 1.0));
+        let title = if state.last_best.is_finite() && state.last_best > f32::NEG_INFINITY {
+            format!("Best network (last gen {}, fit {:.2})", state.last_best_generation, state.last_best)
+        } else { "Best network (pending)".to_string() };
+        draw_text_clamped(&title, panel.x, panel.y - 8.0, 18.0, LIGHTGRAY, panel.w - 8.0);
+        if let Some(genome) = state.last_best_genome.as_ref() {
+            draw_network_panel(panel, genome);
+        } else {
+            let msg = "Evolves as episodes complete. Once a new best is found, its network will appear here.";
+            draw_text_clamped(msg, panel.x, panel.y + panel.h * 0.5, 16.0, GRAY, panel.w - 8.0);
+        }
     }
 }
