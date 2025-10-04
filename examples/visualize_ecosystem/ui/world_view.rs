@@ -14,6 +14,7 @@ pub fn draw_world(
     mouse_world: Option<Vec2>,
     show_energy_overlay: bool,
     show_collision_radii: bool,
+    show_grid: bool,
     show_vis_inputs: bool,
     show_hearing_inputs: bool,
     show_memory_inputs: bool,
@@ -50,6 +51,40 @@ pub fn draw_world(
     // border
     draw_rectangle_lines(fitted.x, fitted.y, fitted.w, fitted.h, 2.0, BLACK);
     let px_per_world = world_scale(fitted);
+    // exploration grid overlay
+    if show_grid {
+        let nx = (WORLD_W / EXPL_CELL_SIZE).ceil() as i32;
+        let ny = (WORLD_H / EXPL_CELL_SIZE).ceil() as i32;
+        // Vertical lines
+        for i in 0..=nx {
+            let xw = if i >= nx { WORLD_W } else { i as f32 * EXPL_CELL_SIZE };
+            let (x0, y0) = world_to_screen(fitted, Vec2 { x: xw, y: 0.0 });
+            let (x1, y1) = world_to_screen(fitted, Vec2 { x: xw, y: WORLD_H });
+            let major = i % 5 == 0;
+            let col = if major { Color::new(1.0, 1.0, 1.0, 0.28) } else { Color::new(1.0, 1.0, 1.0, 0.12) };
+            let w = if major { 2.0 } else { 1.0 };
+            draw_line(x0, y0, x1, y1, w, col);
+        }
+        // Horizontal lines
+        for j in 0..=ny {
+            let yw = if j >= ny { WORLD_H } else { j as f32 * EXPL_CELL_SIZE };
+            let (x0, y0) = world_to_screen(fitted, Vec2 { x: 0.0, y: yw });
+            let (x1, y1) = world_to_screen(fitted, Vec2 { x: WORLD_W, y: yw });
+            let major = j % 5 == 0;
+            let col = if major { Color::new(1.0, 1.0, 1.0, 0.28) } else { Color::new(1.0, 1.0, 1.0, 0.12) };
+            let w = if major { 2.0 } else { 1.0 };
+            draw_line(x0, y0, x1, y1, w, col);
+        }
+        // Label with cell size
+        let pad = 6.0;
+        let label = format!("Grid {:.0}×{:.0}", EXPL_CELL_SIZE, EXPL_CELL_SIZE);
+        let tw = measure_text(&label, None, 16, 1.0).width;
+        let th = 16.0;
+        let bx = fitted.x + pad;
+        let by = fitted.y + pad;
+        draw_rectangle(bx - 4.0, by - th + 2.0, tw + 10.0, th + 6.0, Color::new(0.05, 0.05, 0.08, 0.7));
+        draw_text(&label, bx, by + 2.0, 16.0, WHITE);
+    }
     // food
     for p in &episode.food {
         let (px, py) = world_to_screen(fitted, *p);

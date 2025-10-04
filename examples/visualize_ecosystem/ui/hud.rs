@@ -71,12 +71,22 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
         y += line_h;
     }
 
-    // Controls (compact)
+    // Controls (full list)
     if y <= max_y {
-    // Updated toggles: Vision Rays (V), Unified Sensing Overlay (U)
-    let controls = "Controls: [P] pause  [F] fast  [R] reset  [V] rays  [U] unified sensing";
-        let _ = draw_text_wrapped(controls, x, y, 16.0, GRAY, max_w, 6.0);
-        // no need to update y further; panel starts below
+        let header = "Controls";
+        y = draw_text_wrapped(header, x, y, 18.0, LIGHTGRAY, max_w, 6.0) + 2.0;
+        let lines = [
+            "[P] Pause/Resume    [F] Toggle Fast Mode    [R] Reset Episode",
+            "[V] Vision Rays     [U] Unified Sensing Overlay",
+            "[E] Energy Overlay (on hover)",
+            "[C] Collision Radii (agents/food)",
+            "[G] Grid (exploration cells)",
+            "[S] Save Population Snapshot",
+        ];
+        for line in lines.iter() {
+            if y > max_y { break; }
+            y = draw_text_wrapped(line, x + 6.0, y, 16.0, GRAY, max_w, 6.0);
+        }
     }
 
     // Best-network panel (unchanged)

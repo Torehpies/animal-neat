@@ -69,7 +69,7 @@ pub const MAX_SPEED: f32 = 2.5; // legacy MAX_TURN & coupling removed (angle+spe
 // ==============
 // Sensing / Memory
 // ==============
-pub const DANGER_VECTOR_MAX_RANGE: f32 = 150.0;
+pub const DANGER_VECTOR_MAX_RANGE: f32 = 100.0;
 // Density sectors: now 6 bins (forward, side-left, side-right, back-left, back-right, back-center)
 // Added forward bin to give explicit congestion awareness straight ahead.
 pub const DENSITY_SECTORS: usize = 6;
@@ -99,7 +99,7 @@ pub const OUTPUTS: usize = 3;
 // Set these before running to include (true) or mask out (false) a modality.
 // Masking zeroes that segment of the input vector but keeps layout/length stable.
 pub const ENABLE_VISION_INPUTS: bool = true;   // pooled sector proximities (plant/same/other/wall)
-pub const ENABLE_HEARING_INPUTS: bool = true;  // heard call energy sectors
+pub const ENABLE_HEARING_INPUTS: bool = false;  // heard call energy sectors
 pub const ENABLE_MEMORY_INPUTS: bool = true;   // last food & danger memory vectors (4 floats)
 pub const ENABLE_DENSITY_INPUTS: bool = true;  // local crowding / density sectors
 
@@ -108,8 +108,8 @@ pub const ENABLE_DENSITY_INPUTS: bool = true;  // local crowding / density secto
 // ==========================
 // We always use normalized exploration: fraction of world cells visited * EXPL_WEIGHT.
 // (Legacy per-cell / avoidance shaping removed to simplify fitness.)
-pub const EXPL_CELL_SIZE: f32 = 12.0;            // grid resolution for exploration coverage
-pub const EXPL_WEIGHT: f32 = 8.0;                // reward for 100% coverage (typically unreachable)
+pub const EXPL_CELL_SIZE: f32 = 25.0;            // grid resolution for exploration coverage
+pub const EXPL_WEIGHT: f32 = 6.0;                // reward for 100% coverage (typically unreachable)
 
 // Legacy food-direction vector parameters (used for approach shaping)
 // (Removed FOOD_VECTOR_MAX_RANGE; nearest_food_vector_local unused)
@@ -126,7 +126,7 @@ pub const SURVIVAL_TIME_EXP: f32 = 0.75;       // 0.5 => sqrt diminishing return
 // Communication economics
 pub const CALL_COST: f32 = 0.003;             // linear energy cost per step scaled by call_intensity (0..1)
 // Master switch to enable/disable communication features (calls, signals, hearing effects)
-pub const COMMUNICATION_ENABLED: bool = true; // set to true to enable; false turns off calls completely
+pub const COMMUNICATION_ENABLED: bool = false; // set to true to enable; false turns off calls completely
 // Communication shaping (optional; set rewards small to avoid overpowering core objectives)
 pub const COMM_SIGNAL_THRESHOLD: f32 = 0.40;   // minimum call_intensity to register a resource signal
 pub const COMM_SIGNAL_WINDOW: usize = 40;      // steps a signal remains active
