@@ -145,18 +145,20 @@ pub const ECO_CONTINUOUS: bool = true;
 // Hard caps and thresholds
 pub const ECO_MAX_POP: usize = 80;                 // maximum concurrent agents
 pub const ECO_MIN_POP: usize = 10;                 // minimum seeding on reset if all die
-pub const ECO_BIRTH_ENERGY_THRESHOLD: f32 = 250.0; // minimum energy to allow birth
-pub const ECO_BIRTH_ENERGY_COST: f32 = 125.0;      // energy deducted from parent per birth
+pub const ECO_BIRTH_ENERGY_THRESHOLD: f32 = 100.0; // minimum energy to allow birth
+pub const ECO_BIRTH_ENERGY_COST: f32 = 25.0;      // energy deducted from parent per birth
 pub const ECO_BIRTH_COOLDOWN_STEPS: usize = 80;    // steps before the same parent can reproduce again
-pub const ECO_MAX_OFFSPRING_PER_AGENT: usize = 10;  // per-episode cap
+pub const ECO_MAX_OFFSPRING_PER_AGENT: usize = 15;  // per-episode cap
 pub const ECO_NEWBORN_ENERGY: f32 = 220.0;         // initial energy for newborns
 pub const ECO_NEWBORN_HEALTH: f32 = AGENT_BASE_HEALTH;
+/// Distance within which two same-species, eligible parents can mate to produce an offspring
+pub const ECO_MATE_RADIUS: f32 = 8.0 * AGENT_RADIUS;
 
 // =====================
 // Predation/scavenging
 // =====================
 pub const EAT_AGENT_RADIUS: f32 = AGENT_RADIUS + AGENT_RADIUS;
-pub const MEAT_ENERGY: f32 = 100.0;
+pub const MEAT_ENERGY: f32 = 150.0;
 pub const PREDATION_ENABLED: bool = true;
 pub const SCAVENGE_ENABLED: bool = true;
 // Health / injury system
@@ -221,8 +223,8 @@ pub const DIGEST_STEPS_MEAT: u16 = 65;
 // Speciation (visualizer)
 // =============================
 // Target number of species and adaptation rate for the compatibility threshold.
-pub const SPECIES_TARGET: usize = 15;     // e.g., aim for ~8 species
-pub const SPECIES_ADAPT_RATE: f32 = 0.1; // how fast the threshold adapts towards target
+pub const SPECIES_TARGET: usize = 8;     // e.g., aim for ~8 species
+pub const SPECIES_ADAPT_RATE: f32 = 0.01; // how fast the threshold adapts towards target
 // =============================
 // Snapshotting
 // =============================

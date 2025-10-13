@@ -171,6 +171,10 @@ pub fn draw_world(
         }
 
         if show_cones && a.energy > 0.0 {
+            // Visualize mating radius: faint ring showing ECO_MATE_RADIUS for pair reproduction
+            let mate_r_px = (ECO_MATE_RADIUS * px_per_world).max(1.0);
+            draw_circle_lines(px, py, mate_r_px, 1.5, Color::new(0.95, 0.3, 1.0, 0.35));
+
             let dir = dir_from_theta(a.theta);
             for r in sensing::ray_directions(dir) {
                 let food_t = sensing::nearest_food_along_ray(a.body.pos, r, &episode.food);

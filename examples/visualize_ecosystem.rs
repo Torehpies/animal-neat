@@ -441,74 +441,120 @@ fn spawn_offspring_if_needed<R: Rng>(
     easy_mode: bool,
 ) {
     // Count live agents and skip if at cap
-    let live_count = episode.agents.iter().filter(|a| a.energy > 0.0 && a.health > DEATH_HEALTH_THRESHOLD && !a.consumed).count();
-    if live_count >= ECO_MAX_POP { return; }
-    // Iterate parents; collect births to avoid borrow conflicts
-    let mut births: Vec<(usize, crate::body::Body)> = Vec::new();
-    for (i, a) in episode.agents.iter_mut().enumerate() {
-        if a.energy <= 0.0 || a.health <= DEATH_HEALTH_THRESHOLD || a.consumed { continue; }
-        if a.repro_cooldown > 0 { a.repro_cooldown -= 1; continue; }
-        if a.offspring_count >= ECO_MAX_OFFSPRING_PER_AGENT { continue; }
-    let threshold = if easy_mode { ECO_BIRTH_ENERGY_THRESHOLD * 0.65 } else { ECO_BIRTH_ENERGY_THRESHOLD };
-    if a.energy < threshold { continue; }
-        // Parent pays the energy cost and schedules a birth
-    let cost = if easy_mode { ECO_BIRTH_ENERGY_COST * 0.6 } else { ECO_BIRTH_ENERGY_COST };
-    a.energy -= cost;
-        if a.energy < 0.0 { a.energy = 0.0; }
-    a.repro_cooldown = if easy_mode { ECO_BIRTH_COOLDOWN_STEPS / 2 } else { ECO_BIRTH_COOLDOWN_STEPS };
-        a.offspring_count += 1;
-        // Newborn body near parent
-    let offset = Vec2 { x: (rng.random::<f32>() - 0.5) * 3.0 * AGENT_RADIUS, y: (rng.random::<f32>() - 0.5) * 3.0 * AGENT_RADIUS };
-    let mut pos = a.body.pos + offset;
-        pos.x = (pos.x % WORLD_W + WORLD_W) % WORLD_W; pos.y = (pos.y % WORLD_H + WORLD_H) % WORLD_H;
-    births.push((i, crate::body::Body { pos, vel: Vec2::new(0.0, 0.0), radius: AGENT_RADIUS }));
-        if live_count + births.len() >= ECO_MAX_POP { break; }
+    let mut live_indices: Vec<usize> = Vec::new();
+    for (i, a) in episode.agents.iter().enumerate() {
+        if a.energy > 0.0 && a.health > DEATH_HEALTH_THRESHOLD && !a.consumed { live_indices.push(i); }
     }
-    if births.is_empty() { return; }
-    // For each birth: create a child genome as mutated clone of parent's genome, speciate, and append a new Agent
-    for (parent_idx, body) in births {
-        // Parent’s genome index equals their position in arrays (kept aligned)
-        let parent_genome = population.get(parent_idx).cloned();
-        if let Some(mut child_g) = parent_genome.map(|g| g) {
-            child_g.mutate(innov, cfg);
-            population.push(child_g);
-            // Speciate updated population and refresh mapping
-            speciator.speciate(&population);
-            member_species.clear();
-            member_species.resize(population.len(), 0);
-            for (sidx, s) in speciator.get_species().iter().enumerate() {
-                for &m in &s.members { if m < population.len() { member_species[m] = sidx; } }
+    if live_indices.len() >= ECO_MAX_POP { return; }
+
+    // First, tick down cooldowns for all alive agents
+    for i in &live_indices {
+        let a = &mut episode.agents[*i];
+        if a.repro_cooldown > 0 { a.repro_cooldown -= 1; }
+    }
+
+    // Gather eligible parents by species (meets energy, cooldown, offspring cap)
+    let threshold = if easy_mode { ECO_BIRTH_ENERGY_THRESHOLD * 0.65 } else { ECO_BIRTH_ENERGY_THRESHOLD };
+    let mut by_species: std::collections::HashMap<usize, Vec<usize>> = std::collections::HashMap::new();
+    for &i in &live_indices {
+        let a = &episode.agents[i];
+        if a.repro_cooldown == 0 && a.offspring_count < ECO_MAX_OFFSPRING_PER_AGENT && a.energy >= threshold {
+            by_species.entry(a.species_id).or_default().push(i);
+        }
+    }
+
+    // Attempt to find nearby pairs within species and spawn one child per found pair this step
+    let cost = if easy_mode { ECO_BIRTH_ENERGY_COST * 0.6 } else { ECO_BIRTH_ENERGY_COST };
+    let mut births: Vec<(usize, usize, crate::body::Body, usize)> = Vec::new(); // (p1_idx, p2_idx, child_body, species_id)
+    for (sid, indices) in by_species.into_iter() {
+        // Simple n^2 pairing; early exit when near pop cap
+        let mut used: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        'outer: for (ii, &i) in indices.iter().enumerate() {
+            if used.contains(&i) { continue; }
+            let ai = &episode.agents[i];
+            for &j in indices.iter().skip(ii+1) {
+                if used.contains(&j) { continue; }
+                let aj = &episode.agents[j];
+                // Distance check
+                let dx = ai.body.pos.x - aj.body.pos.x; let dy = ai.body.pos.y - aj.body.pos.y;
+                if dx*dx + dy*dy <= ECO_MATE_RADIUS*ECO_MATE_RADIUS {
+                    // Both will pay half cost; ensure after payment they stay >= 0 energy
+                    let half = cost * 0.5;
+                    if ai.energy >= half && aj.energy >= half {
+                        // Child spawn mid-point with small jitter
+                        let mid = Vec2 { x: (ai.body.pos.x + aj.body.pos.x) * 0.5, y: (ai.body.pos.y + aj.body.pos.y) * 0.5 };
+                        let jitter = Vec2 { x: (rng.random::<f32>() - 0.5) * 3.0 * AGENT_RADIUS, y: (rng.random::<f32>() - 0.5) * 3.0 * AGENT_RADIUS };
+                        let mut pos = mid + jitter;
+                        pos.x = (pos.x % WORLD_W + WORLD_W) % WORLD_W; pos.y = (pos.y % WORLD_H + WORLD_H) % WORLD_H;
+                        births.push((i, j, crate::body::Body { pos, vel: Vec2::new(0.0, 0.0), radius: AGENT_RADIUS }, sid));
+                        used.insert(i); used.insert(j);
+                        if live_indices.len() + births.len() >= ECO_MAX_POP { break 'outer; }
+                    }
+                }
             }
-            let sid = *member_species.get(population.len()-1).unwrap_or(&0);
-            // Append newborn agent aligned with last genome
-            episode.agents.push(Agent {
-                id: AgentId(episode.agents.len()),
-                body,
-                theta: -std::f32::consts::FRAC_PI_2,
-                energy: ECO_NEWBORN_ENERGY.min(MAX_ENERGY),
-                health: ECO_NEWBORN_HEALTH,
-                max_health: ECO_NEWBORN_HEALTH,
-                invuln_steps: 0,
-                alive_steps: 0,
-                eaten: 0,
-                consumed: false,
-                kills: 0,
-                predation_flash_steps: 0,
-                dead_since: None,
-                corpse_energy: 0.0,
-                digest: std::collections::VecDeque::new(),
-                last_food_mem: Vec2 { x: 0.0, y: 0.0 },
-                last_danger_mem: Vec2 { x: 0.0, y: 0.0 },
-                species_id: sid,
-                call_intensity: 0.0,
-                heard_sectors: [0.0;3],
-                repro_cooldown: ECO_BIRTH_COOLDOWN_STEPS / 2,
-                offspring_count: 0,
-            });
-            // Extend comm fitness accumulator to match agents length
-            episode.comm_fitness_accum.push(0.0);
-            episode.births_this_episode += 1;
-            // HUD shows births_this_episode; no console print
+        }
+    }
+
+    if births.is_empty() { return; }
+
+    // Realize births: create child via crossover + mutation; debit both parents; set cooldowns; append agent + genome
+    for (i, j, body, sid) in births {
+        // Double-check alignment: parents indices map to genome indices
+        if i >= population.len() || j >= population.len() { continue; }
+        let p1 = &population[i];
+        let p2 = &population[j];
+        let mut child_g = neat::neat::crossover::crossover(p1, p2);
+        child_g.mutate(innov, cfg);
+        population.push(child_g);
+
+        // Update species map using existing speciator (child species determined after speciation)
+        speciator.speciate(&population);
+        member_species.clear();
+        member_species.resize(population.len(), 0);
+        for (sidx, s) in speciator.get_species().iter().enumerate() {
+            for &m in &s.members { if m < population.len() { member_species[m] = sidx; } }
+        }
+        let child_species = *member_species.get(population.len()-1).unwrap_or(&sid);
+
+        // Append newborn agent aligned with last genome
+        episode.agents.push(Agent {
+            id: AgentId(episode.agents.len()),
+            body,
+            theta: -std::f32::consts::FRAC_PI_2,
+            energy: ECO_NEWBORN_ENERGY.min(MAX_ENERGY),
+            health: ECO_NEWBORN_HEALTH,
+            max_health: ECO_NEWBORN_HEALTH,
+            invuln_steps: 0,
+            alive_steps: 0,
+            eaten: 0,
+            consumed: false,
+            kills: 0,
+            predation_flash_steps: 0,
+            dead_since: None,
+            corpse_energy: 0.0,
+            digest: std::collections::VecDeque::new(),
+            last_food_mem: Vec2 { x: 0.0, y: 0.0 },
+            last_danger_mem: Vec2 { x: 0.0, y: 0.0 },
+            species_id: child_species,
+            call_intensity: 0.0,
+            heard_sectors: [0.0;3],
+            repro_cooldown: ECO_BIRTH_COOLDOWN_STEPS / 2,
+            offspring_count: 0,
+        });
+        // Extend comm fitness accumulator to match agents length
+        episode.comm_fitness_accum.push(0.0);
+        episode.births_this_episode += 1;
+
+        // Apply costs and cooldowns to parents
+        if let Some(pa) = episode.agents.get_mut(i) {
+            pa.energy = (pa.energy - cost * 0.5).max(0.0);
+            pa.repro_cooldown = if easy_mode { ECO_BIRTH_COOLDOWN_STEPS / 2 } else { ECO_BIRTH_COOLDOWN_STEPS };
+            pa.offspring_count += 1;
+        }
+        if let Some(pb) = episode.agents.get_mut(j) {
+            pb.energy = (pb.energy - cost * 0.5).max(0.0);
+            pb.repro_cooldown = if easy_mode { ECO_BIRTH_COOLDOWN_STEPS / 2 } else { ECO_BIRTH_COOLDOWN_STEPS };
+            pb.offspring_count += 1;
         }
     }
 }
