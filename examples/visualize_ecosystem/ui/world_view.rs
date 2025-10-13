@@ -272,6 +272,10 @@ pub fn draw_world(
             draw_rectangle(bx, by, bar_w * energy_frac, bar_h, Color::new(r,g,b,0.95));
             let energy_text = format!("E: {:.0}/{:.0}", a.energy.max(0.0), MAX_ENERGY);
             draw_text(&energy_text, bx, by - 2.0, 14.0, WHITE);
+            // Input legend: annotate input index 15 (energy) with normalized value
+            let legend = format!("[15] {:.2}", energy_frac);
+            let tw = measure_text(&legend, None, 12, 1.0).width;
+            draw_text(&legend, bx + bar_w - tw, by + bar_h + 10.0, 12.0, LIGHTGRAY);
             }
             if unified_overlay {
                 // Unified overlay: smoothed sector bars + memory vectors + density radial ticks
@@ -321,6 +325,12 @@ pub fn draw_world(
                                                    3 => Color::new(1.0,0.3,0.95,0.95), // other
                                                    _ => Color::new(0.75,0.75,0.75,0.95) }; // wall
                             if prox > 0.0 { draw_rectangle(x0, y0, grid_w * prox, grid_h, colr); }
+                            // Input legend: index and value in the cell (small font)
+                            let idx_label = format!("{:02}", idx);
+                            draw_text(&idx_label, x0 + 1.0, y0 + 8.5, 10.0, Color::new(0.8,0.8,0.9,0.9));
+                            let val_label = format!("{:.2}", dist_norm);
+                            let vw = measure_text(&val_label, None, 10, 1.0).width;
+                            draw_text(&val_label, x0 + grid_w - vw - 1.0, y0 + 8.5, 10.0, Color::new(0.85,0.9,1.0,0.85));
                         }
                         // row label
                         let lx = base_x - 18.0;
@@ -333,6 +343,10 @@ pub fn draw_world(
                         let ty = base_y - 4.0;
                         let label = match col { 0 => "L", 1 => "F", _ => "R" };
                         draw_text(label, tx, ty, 14.0, LIGHTGRAY);
+                        // Column base input index for quick mapping: col*5 .. col*5+4
+                        let rng_lbl = format!("[{}..{}]", col*5, col*5+4);
+                        let tw = measure_text(&rng_lbl, None, 10, 1.0).width;
+                        draw_text(&rng_lbl, tx + (grid_w - tw).max(0.0), ty - 8.0, 10.0, GRAY);
                     }
                 }
                 // Memory vectors (food=yellow, danger=orange)

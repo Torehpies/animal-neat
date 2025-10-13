@@ -72,6 +72,7 @@ struct AppState {
     show_grid: bool,
     // HUD/network & focus controls
     show_best_network_panel: bool,
+    show_live_network: bool,
     focused_agent: Option<usize>,
     // Eco mode helpers
     eco_episode_counter: usize,
@@ -118,6 +119,7 @@ impl AppState {
             show_collision_radii: false,
             show_grid: false,
             show_best_network_panel: true,
+            show_live_network: false,
             focused_agent: None,
             eco_episode_counter: 0,
             eco_debug_easy_birth: false,
@@ -243,6 +245,7 @@ async fn main() {
     if is_key_pressed(KeyCode::C) { state.show_collision_radii = !state.show_collision_radii; }
     if is_key_pressed(KeyCode::G) { state.show_grid = !state.show_grid; }
     if is_key_pressed(KeyCode::N) { state.show_best_network_panel = !state.show_best_network_panel; }
+    if is_key_pressed(KeyCode::M) { state.show_live_network = !state.show_live_network; }
     if is_key_pressed(KeyCode::H) { state.show_controls = !state.show_controls; }
     if is_key_pressed(KeyCode::K) { state.color_by_species = !state.color_by_species; }
     if is_key_pressed(KeyCode::Escape) { state.focused_agent = None; }

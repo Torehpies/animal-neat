@@ -170,6 +170,61 @@ impl Genome {
         outputs
     }
 
+    /// Evaluate the network and return a map of per-node activations keyed by node id.
+    ///
+    /// This uses the same cached topological order as `evaluate_slice` and computes the
+    /// activation value for every node (inputs, hidden, and outputs). Useful for UI/diagnostics.
+    pub fn evaluate_with_activations_slice(
+        &self,
+        input_values: &[f32],
+    ) -> std::collections::HashMap<u32, f32> {
+        use std::collections::HashMap as Map;
+        // Build caches if needed
+        if self.cached.borrow().is_none() {
+            let built = self.build_cache();
+            *self.cached.borrow_mut() = Some(built);
+        }
+        let cache = self.cached.borrow();
+        let cache = cache.as_ref().unwrap();
+
+        if cache.input_indices.len() != input_values.len() {
+            panic!(
+                "Number of inputs doesn't match input nodes: got {}, expected {}",
+                input_values.len(),
+                cache.input_indices.len()
+            );
+        }
+
+        let num_nodes = cache.index_to_id.len();
+        let mut values = vec![0.0f32; num_nodes];
+
+        // Set inputs in sorted order
+        for (i, &idx) in cache.input_indices.iter().enumerate() {
+            values[idx] = input_values[i];
+        }
+
+        for &idx in &cache.order {
+            let node_id = cache.index_to_id[idx];
+            let node = &self.nodes[&node_id];
+            if matches!(node.node_type, NodeType::Input) {
+                continue;
+            }
+            let mut sum = 0.0f32;
+            for &(in_idx, conn_idx) in &cache.incoming[idx] {
+                let w = self.connections[conn_idx].weight;
+                sum += values[in_idx] * w;
+            }
+            let value = node.activation.apply(sum + node.bias);
+            values[idx] = value;
+        }
+
+        let mut map: Map<u32, f32> = Map::with_capacity(num_nodes);
+        for (idx, &id) in cache.index_to_id.iter().enumerate() {
+            map.insert(id, values[idx]);
+        }
+        map
+    }
+
     fn evaluate_uncached(&self, input_values: &[f32]) -> Vec<f32> {
         // Fallback: similar to cached but recompute structures quickly
         // Build id->index and list

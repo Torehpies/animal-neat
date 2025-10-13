@@ -2,7 +2,7 @@ use macroquad::prelude::*;
 use crate::AppState;
 use crate::params::*;
 use crate::ui_common::{draw_text_clamped, draw_text_wrapped};
-use crate::ui_network::draw_network_panel;
+use crate::ui_network::{draw_network_panel, draw_network_panel_activations};
 
 // Compact HUD with essential stats; best-network panel retained.
 pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _member_species: &[usize]) {
@@ -16,8 +16,8 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
     let x = area.x + padding;
     let mut y = area.y + padding;
 
-    // Reserve bottom portion for network panel; can be hidden via toggle
-    let network_h = if state.show_best_network_panel { (area.h * 0.42).clamp(160.0, 380.0) } else { 0.0 };
+    // Reserve bottom portion for network panel; can be hidden via toggles
+    let network_h = if state.show_best_network_panel || state.show_live_network { (area.h * 0.42).clamp(160.0, 380.0) } else { 0.0 };
     let max_y = area.y + area.h - padding - network_h - 8.0;
     let max_w = area.w - (x - area.x) - padding;
 
@@ -115,7 +115,7 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
             y = draw_text_wrapped(header, x, y, 18.0, LIGHTGRAY, max_w, 6.0) + 2.0;
             let lines = [
                 "[P] Pause/Resume   [F] Fast Mode   [R] Reset Episode   [Esc] Clear Focus",
-                "[Click] Focus Agent   [N] Toggle Network Panel   [H] Toggle Controls   [K] Color: Species/Diet",
+                "[Click] Focus Agent   [N] Toggle Best Panel   [M] Toggle Live Net   [H] Toggle Controls   [K] Color: Species/Diet",
                 "[V] Show/Hide Vision Rays   [U] Unified Overlay (vision grid + memory)",
                 "[E] Energy Bar   [C] Collision Radii   [G] Exploration Grid",
                 if ECO_CONTINUOUS { "[S] Save Population Snapshot   [B] Toggle Easy Births" } else { "[S] Save Population Snapshot" },
@@ -129,32 +129,53 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
         // Compact hint when controls are hidden
         if y <= max_y {
             let hint = "[H] Show Controls";
-            y = draw_text_wrapped(hint, x, y, 16.0, GRAY, max_w, 6.0);
+            let _ = draw_text_wrapped(hint, x, y, 16.0, GRAY, max_w, 6.0);
         }
     }
 
-    // Best-network panel (toggleable)
-    if state.show_best_network_panel && network_h > 0.0 {
+    // Network panel area (for best or live activations)
+    if (state.show_best_network_panel || state.show_live_network) && network_h > 0.0 {
         let panel = Rect { x: area.x + 8.0, y: area.y + area.h - network_h + 8.0, w: area.w - 16.0, h: network_h - 16.0 };
         draw_rectangle(panel.x - 4.0, panel.y - 4.0, panel.w + 8.0, panel.h + 8.0, Color::new(0.05, 0.05, 0.07, 0.95));
         draw_rectangle_lines(panel.x - 4.0, panel.y - 4.0, panel.w + 8.0, panel.h + 8.0, 2.0, Color::new(0.25, 0.25, 0.3, 1.0));
-        let title = if state.last_best.is_finite() && state.last_best > f32::NEG_INFINITY {
-            if ECO_CONTINUOUS {
-                format!("Best network (last eval, fit {:.2})", state.last_best)
+        if state.show_live_network {
+            // Live activations for the focused agent, if any
+            if let Some(fi) = state.focused_agent {
+                if let Some(agent) = state.episode.agents.get(fi) {
+                    if fi < state.population.len() {
+                        // Build current inputs and evaluate activations
+                        use crate::sensing;
+                        let energy_in = (agent.energy / MAX_ENERGY).clamp(0.0, 1.0);
+                        // Minimal snapshot for inputs: use agent states from episode
+                        let snapshot: Vec<(Vec2, bool, bool, usize, bool)> = state.episode.agents.iter().map(|a| {
+                            let alive = a.energy > 0.0 && a.health > DEATH_HEALTH_THRESHOLD;
+                            let is_corpse = !alive && !a.consumed && a.corpse_energy > 0.1;
+                            (a.body.pos, alive, a.consumed, a.species_id, is_corpse)
+                        }).collect();
+                        let inputs_arr = sensing::build_inputs(agent.body.pos, agent.theta, &state.episode.food, energy_in, agent.last_food_mem, agent.last_danger_mem, &snapshot, fi, agent.species_id, agent.heard_sectors);
+                        let inputs: Vec<f32> = inputs_arr.to_vec();
+                        let genome = &state.population[fi];
+                        let acts = genome.evaluate_with_activations_slice(&inputs);
+                        draw_text_clamped("Live network (focused agent)", panel.x, panel.y - 8.0, 18.0, LIGHTGRAY, panel.w - 8.0);
+                        draw_network_panel_activations(panel, genome, &acts);
+                    }
+                }
             } else {
-                format!("Best network (last gen {}, fit {:.2})", state.last_best_generation, state.last_best)
+                let msg = "Live network: click an agent in the world to focus it";
+                draw_text_clamped(msg, panel.x, panel.y - 8.0, 18.0, LIGHTGRAY, panel.w - 8.0);
+                draw_text_clamped("No agent focused", panel.x, panel.y + panel.h * 0.5, 16.0, GRAY, panel.w - 8.0);
             }
-        } else { "Best network (pending)".to_string() };
-        draw_text_clamped(&title, panel.x, panel.y - 8.0, 18.0, LIGHTGRAY, panel.w - 8.0);
-        if let Some(genome) = state.last_best_genome.as_ref() {
-            draw_network_panel(panel, genome);
-        } else {
-            let msg = if ECO_CONTINUOUS {
-                "Evolves with periodic evaluations. Once a new best is found, it will appear here."
+        } else if state.show_best_network_panel {
+            let title = if state.last_best.is_finite() && state.last_best > f32::NEG_INFINITY {
+                if ECO_CONTINUOUS { format!("Best network (last eval, fit {:.2})", state.last_best) } else { format!("Best network (last gen {}, fit {:.2})", state.last_best_generation, state.last_best) }
+            } else { "Best network (pending)".to_string() };
+            draw_text_clamped(&title, panel.x, panel.y - 8.0, 18.0, LIGHTGRAY, panel.w - 8.0);
+            if let Some(genome) = state.last_best_genome.as_ref() {
+                draw_network_panel(panel, genome);
             } else {
-                "Evolves as episodes complete. Once a new best is found, its network will appear here."
-            };
-            draw_text_clamped(msg, panel.x, panel.y + panel.h * 0.5, 16.0, GRAY, panel.w - 8.0);
+                let msg = if ECO_CONTINUOUS { "Evolves with periodic evaluations. Once a new best is found, it will appear here." } else { "Evolves as episodes complete. Once a new best is found, its network will appear here." };
+                draw_text_clamped(msg, panel.x, panel.y + panel.h * 0.5, 16.0, GRAY, panel.w - 8.0);
+            }
         }
     }
 }
