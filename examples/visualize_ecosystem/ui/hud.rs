@@ -115,7 +115,7 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
             y = draw_text_wrapped(header, x, y, 18.0, LIGHTGRAY, max_w, 6.0) + 2.0;
             let lines = [
                 "[P] Pause/Resume   [F] Fast Mode   [R] Reset Episode   [Esc] Clear Focus",
-                "[Click] Focus Agent   [N] Toggle Network Panel   [H] Toggle Controls",
+                "[Click] Focus Agent   [N] Toggle Network Panel   [H] Toggle Controls   [K] Color: Species/Diet",
                 "[V] Show/Hide Vision Rays   [U] Unified Overlay (vision grid + memory)",
                 "[E] Energy Bar   [C] Collision Radii   [G] Exploration Grid",
                 if ECO_CONTINUOUS { "[S] Save Population Snapshot   [B] Toggle Easy Births" } else { "[S] Save Population Snapshot" },

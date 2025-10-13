@@ -77,6 +77,7 @@ struct AppState {
     eco_episode_counter: usize,
     eco_debug_easy_birth: bool,
     show_controls: bool,
+    color_by_species: bool,
 }
 
 impl AppState {
@@ -121,6 +122,7 @@ impl AppState {
             eco_episode_counter: 0,
             eco_debug_easy_birth: false,
             show_controls: true,
+            color_by_species: false,
         }
     }
 
@@ -242,6 +244,7 @@ async fn main() {
     if is_key_pressed(KeyCode::G) { state.show_grid = !state.show_grid; }
     if is_key_pressed(KeyCode::N) { state.show_best_network_panel = !state.show_best_network_panel; }
     if is_key_pressed(KeyCode::H) { state.show_controls = !state.show_controls; }
+    if is_key_pressed(KeyCode::K) { state.color_by_species = !state.color_by_species; }
     if is_key_pressed(KeyCode::Escape) { state.focused_agent = None; }
     // Removed per-row overlay toggles (1..4). Unified overlay is controlled via 'U'.
     if is_key_pressed(KeyCode::S) {
@@ -383,6 +386,7 @@ async fn main() {
         true,  // vision grid
         false, // hearing disabled
         true,  // memory vectors
+        state.color_by_species,
     );
     ui_hud::draw_hud(hud_area, &state, running, fast_mode, &state.member_species);
 

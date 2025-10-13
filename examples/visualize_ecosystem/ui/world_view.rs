@@ -19,6 +19,7 @@ pub fn draw_world(
     show_vis_inputs: bool,
     show_hearing_inputs: bool,
     show_memory_inputs: bool,
+    color_by_species: bool,
 ) {
     let fitted = fit_world_rect(area);
     // background: draw biome bands with seasonal tinting
@@ -120,18 +121,26 @@ pub fn draw_world(
     // species index unused for coloring now that diet-based coloring is applied
         // draw alive vs dead differently
         if a.energy > 0.0 && a.health > DEATH_HEALTH_THRESHOLD {
-            // Color by diet: greener for plant-eaters, redder for meat-eaters.
-            // Use episode stats: a.eaten counts all edible events; a.kills counts meat events (live or corpse).
-            let meat = a.kills as f32;
-            let plants = a.eaten.saturating_sub(a.kills) as f32;
-            let total = meat + plants;
-            let meat_ratio = if total > 0.0 { meat / total } else { 0.0 };
-            let hue = (1.0 / 3.0) * (1.0 - meat_ratio); // 1/3 = green, 0 = red
-            let sat = if total > 0.0 { 0.85 } else { 0.25 }; // pale before first meal
-            let val = 0.95;
-            let (r, g, b) = crate::ui_common::hsv_to_rgb(hue, sat, val);
-            let hf = (a.health / a.max_health).clamp(0.0,1.0);
-            let fill = Color::new(r * (0.5 + 0.5*hf), g * (0.5 + 0.5*hf), b * (0.5 + 0.5*hf), 1.0);
+            // Color either by species or by diet, based on toggle
+            let fill = if color_by_species {
+                let sidx = a.species_id as u32;
+                let hue = ((sidx % 12) as f32) / 12.0; // 12 distinct hues cycling
+                let (r, g, b) = crate::ui_common::hsv_to_rgb(hue, 0.85, 0.95);
+                let hf = (a.health / a.max_health).clamp(0.0,1.0);
+                Color::new(r * (0.5 + 0.5*hf), g * (0.5 + 0.5*hf), b * (0.5 + 0.5*hf), 1.0)
+            } else {
+                // Diet-based tint: greener for plant-eaters, redder for meat-eaters
+                let meat = a.kills as f32;
+                let plants = a.eaten.saturating_sub(a.kills) as f32;
+                let total = meat + plants;
+                let meat_ratio = if total > 0.0 { meat / total } else { 0.0 };
+                let hue = (1.0 / 3.0) * (1.0 - meat_ratio); // 1/3 = green, 0 = red
+                let sat = if total > 0.0 { 0.85 } else { 0.25 }; // pale before first meal
+                let val = 0.95;
+                let (r, g, b) = crate::ui_common::hsv_to_rgb(hue, sat, val);
+                let hf = (a.health / a.max_health).clamp(0.0,1.0);
+                Color::new(r * (0.5 + 0.5*hf), g * (0.5 + 0.5*hf), b * (0.5 + 0.5*hf), 1.0)
+            };
             draw_circle(px, py, agent_r, fill);
             // Communication: call emission ring (intensity-based)
             if a.call_intensity > 0.03 {

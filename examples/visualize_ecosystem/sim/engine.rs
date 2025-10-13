@@ -123,8 +123,10 @@ pub fn tick_step<R: Rng>(
             let mut target: Option<usize> = None;
             for j in 0..snapshot.len() {
                 if j == i { continue; }
-                let (pos_j, alive_j, consumed_j, _species_j, is_corpse_j) = snapshot[j];
+                let (pos_j, alive_j, consumed_j, species_j, is_corpse_j) = snapshot[j];
                 if consumed_j { continue; }
+                // Disallow predation on same-species live targets; allow scavenging same-species corpses
+                if alive_j && species_j == my_species { continue; }
                 if (alive_j && !PREDATION_ENABLED) || ((!alive_j || is_corpse_j) && !SCAVENGE_ENABLED) { continue; }
                 let dx = pos_j.x - a.body.pos.x; let dy = pos_j.y - a.body.pos.y;
                 if (dx*dx + dy*dy).sqrt() <= EAT_AGENT_RADIUS { target = Some(j); break; }
