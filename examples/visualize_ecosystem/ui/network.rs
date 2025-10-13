@@ -174,13 +174,18 @@ pub fn draw_network_panel(area: Rect, genome: &Genome) {
     };
 
     let draw_input_labels = |ids: &Vec<u32>| {
+        // Larger font; place the label just to the left of the node (about 10px gap)
+        let fs_px: f32 = 16.0;
+        let fs: u16 = 16;
         for id in ids {
             if hidden_inputs.contains(id) { continue; }
             if let Some(&(x, y)) = pos.get(id) {
                 let label = input_label(*id as usize);
-                let tx = x - 44.0; // draw to the left of the node
-                let ty = y + 4.0;  // slight vertical offset
-                draw_text(&label, tx, ty, 14.0, LIGHTGRAY);
+                let tw = measure_text(&label, None, fs, 1.0).width;
+                let tx = x - 10.0 - tw; // 10px left of the circle edge
+                let ty = y + 5.0; // slight vertical offset
+                // Foreground
+                draw_text(&label, tx, ty, fs_px, LIGHTGRAY);
             }
         }
     };
@@ -199,7 +204,8 @@ pub fn draw_network_panel(area: Rect, genome: &Genome) {
 
     // Legends
     let legend_y = area.y + 16.0;
-    let mut lx = area.x + 8.0;
+    // Position the legend beside the input nodes column for better alignment
+    let mut lx = left_x + 12.0;
     let legend = |lx: &mut f32, label: &str, col: Color| {
         draw_circle(*lx + 8.0, legend_y, 6.0, col);
         draw_circle_lines(*lx + 8.0, legend_y, 6.0, 1.0, BLACK);
@@ -297,24 +303,51 @@ pub fn draw_network_panel_activations(area: Rect, genome: &Genome, activations: 
     };
 
     // Draw nodes with activation fill; outline by type
-    let draw_nodes = |ids: &Vec<u32>, outline: Color| {
+    // Inputs: place numeric label to the right of the node to avoid overlap, larger font with shadow
+    let draw_input_nodes = |ids: &Vec<u32>, outline: Color| {
         for id in ids {
             if hidden_inputs.contains(id) { continue; }
+            if let Some(&(x, y)) = pos.get(id) {
+                let v = *activations.get(id).unwrap_or(&0.0);
+                let col = act_color(v);
+                // Numeric label to the left of the node ("before" the circle)
+                let txt = format!("{:.2}", v);
+                let fs_px: f32 = 12.0; let fs: u16 = 12;
+                let tw = measure_text(&txt, None, fs, 1.0).width;
+                let tx = x - 9.0 - tw; // just to the left of the circle
+                let ty = y + fs_px * 0.35; // vertically centered-ish
+                // Shadow first, then foreground
+                draw_text(&txt, tx + 1.0, ty + 1.0, fs_px, BLACK);
+                draw_text(&txt, tx, ty, fs_px, LIGHTGRAY);
+                // Draw node on top of the label
+                draw_circle(x, y, 6.0, col);
+                draw_circle_lines(x, y, 6.0, 1.5, outline);
+            }
+        }
+    };
+    // Hidden/other nodes: keep centered but make slightly larger with shadow for readability
+    let draw_other_nodes = |ids: &Vec<u32>, outline: Color| {
+        for id in ids {
             if hidden_outputs.contains(id) { continue; }
             if let Some(&(x, y)) = pos.get(id) {
                 let v = *activations.get(id).unwrap_or(&0.0);
                 let col = act_color(v);
                 draw_circle(x, y, 6.0, col);
                 draw_circle_lines(x, y, 6.0, 1.5, outline);
-                // Tiny numeric label
                 let txt = format!("{:.2}", v);
-                let tw = measure_text(&txt, None, 10, 1.0).width;
-                draw_text(&txt, x - tw*0.5, y - 8.0, 10.0, LIGHTGRAY);
+                let fs_px: f32 = 12.0; let fs: u16 = 12;
+                let tw = measure_text(&txt, None, fs, 1.0).width;
+                let tx = x - tw * 0.5;
+                let ty = y - 8.0;
+                // Shadow
+                draw_text(&txt, tx + 1.0, ty + 1.0, fs_px, BLACK);
+                // Foreground
+                draw_text(&txt, tx, ty, fs_px, LIGHTGRAY);
             }
         }
     };
-    draw_nodes(&inputs, BLACK);
-    draw_nodes(&hiddens, BLACK);
+    draw_input_nodes(&inputs, BLACK);
+    draw_other_nodes(&hiddens, BLACK);
     // For outputs, use orange outline
     for id in outputs.iter() {
         if hidden_outputs.contains(id) { continue; }
@@ -324,8 +357,14 @@ pub fn draw_network_panel_activations(area: Rect, genome: &Genome, activations: 
             draw_circle(x, y, 7.0, col);
             draw_circle_lines(x, y, 7.0, 2.0, Color::new(1.0, 0.6, 0.2, 1.0));
             let txt = format!("{:.2}", v);
-            let tw = measure_text(&txt, None, 10, 1.0).width;
-            draw_text(&txt, x - tw*0.5, y - 9.0, 10.0, LIGHTGRAY);
+            let fs_px: f32 = 12.0; let fs: u16 = 12;
+            let tw = measure_text(&txt, None, fs, 1.0).width;
+            let tx = x - tw*0.5;
+            let ty = y - 9.0;
+            // Shadow
+            draw_text(&txt, tx + 1.0, ty + 1.0, fs_px, BLACK);
+            // Foreground
+            draw_text(&txt, tx, ty, fs_px, LIGHTGRAY);
         }
     }
 

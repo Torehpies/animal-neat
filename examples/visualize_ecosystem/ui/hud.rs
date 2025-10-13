@@ -108,7 +108,7 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
         }
     }
 
-    // Controls (toggleable)
+    // Controls (toggleable) — always allow when enabled, even in simple HUD
     if state.show_controls {
         if y <= max_y {
             let header = "Controls";

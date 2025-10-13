@@ -76,7 +76,6 @@ struct AppState {
     focused_agent: Option<usize>,
     // Eco mode helpers
     eco_episode_counter: usize,
-    eco_debug_easy_birth: bool,
     show_controls: bool,
     color_by_species: bool,
 }
@@ -122,7 +121,6 @@ impl AppState {
             show_live_network: false,
             focused_agent: None,
             eco_episode_counter: 0,
-            eco_debug_easy_birth: false,
             show_controls: true,
             color_by_species: false,
         }
@@ -250,17 +248,7 @@ async fn main() {
     if is_key_pressed(KeyCode::K) { state.color_by_species = !state.color_by_species; }
     if is_key_pressed(KeyCode::Escape) { state.focused_agent = None; }
     // Removed per-row overlay toggles (1..4). Unified overlay is controlled via 'U'.
-    if is_key_pressed(KeyCode::S) {
-        // Save a non-blocking snapshot of genomes + innovation state.
-        // Filename pattern: snapshots/pop_snapshot_genXXXX.json
-        let filename = format!("snapshots/pop_snapshot_gen{:0>6}.json", state.generation);
-        match io::save_population_snapshot(&filename, state.generation, &state.population, &state.innov) {
-            Ok(_) => println!("Saved population snapshot to {filename}"),
-            Err(e) => eprintln!("Failed to save snapshot: {e}"),
-        }
-    }
-    // Eco debug: toggle easier birth thresholds live
-    if is_key_pressed(KeyCode::B) { state.eco_debug_easy_birth = !state.eco_debug_easy_birth; }
+    // Removed: [S] save snapshot and [B] easy birth debug toggle
 
         if running {
             let mut rng = ::rand::rng();
@@ -291,7 +279,6 @@ async fn main() {
                             &mut rng,
                             &mut state.speciator,
                             &mut state.member_species,
-                            state.eco_debug_easy_birth,
                         );
                     }
                 }
@@ -331,7 +318,6 @@ async fn main() {
                                 &mut rng,
                                 &mut state.speciator,
                                 &mut state.member_species,
-                                state.eco_debug_easy_birth,
                             );
                         }
                         if state.episode.is_finished() {
@@ -441,7 +427,6 @@ fn spawn_offspring_if_needed<R: Rng>(
     rng: &mut R,
     speciator: &mut Speciator,
     member_species: &mut Vec<usize>,
-    easy_mode: bool,
 ) {
     // Count live agents and skip if at cap
     let mut live_indices: Vec<usize> = Vec::new();
@@ -457,7 +442,7 @@ fn spawn_offspring_if_needed<R: Rng>(
     }
 
     // Gather eligible parents by species (meets energy, cooldown, offspring cap)
-    let threshold = if easy_mode { ECO_BIRTH_ENERGY_THRESHOLD * 0.65 } else { ECO_BIRTH_ENERGY_THRESHOLD };
+    let threshold = ECO_BIRTH_ENERGY_THRESHOLD;
     let mut by_species: std::collections::HashMap<usize, Vec<usize>> = std::collections::HashMap::new();
     for &i in &live_indices {
         let a = &episode.agents[i];
@@ -467,7 +452,7 @@ fn spawn_offspring_if_needed<R: Rng>(
     }
 
     // Attempt to find nearby pairs within species and spawn one child per found pair this step
-    let cost = if easy_mode { ECO_BIRTH_ENERGY_COST * 0.6 } else { ECO_BIRTH_ENERGY_COST };
+    let cost = ECO_BIRTH_ENERGY_COST;
     let mut births: Vec<(usize, usize, crate::body::Body, usize)> = Vec::new(); // (p1_idx, p2_idx, child_body, species_id)
     for (sid, indices) in by_species.into_iter() {
         // Simple n^2 pairing; early exit when near pop cap
@@ -541,7 +526,7 @@ fn spawn_offspring_if_needed<R: Rng>(
             species_id: child_species,
             call_intensity: 0.0,
             heard_sectors: [0.0;3],
-            repro_cooldown: ECO_BIRTH_COOLDOWN_STEPS / 2,
+            repro_cooldown: ECO_BIRTH_COOLDOWN_STEPS,
             offspring_count: 0,
         });
         // Extend comm fitness accumulator to match agents length
@@ -551,12 +536,12 @@ fn spawn_offspring_if_needed<R: Rng>(
         // Apply costs and cooldowns to parents
         if let Some(pa) = episode.agents.get_mut(i) {
             pa.energy = (pa.energy - cost * 0.5).max(0.0);
-            pa.repro_cooldown = if easy_mode { ECO_BIRTH_COOLDOWN_STEPS / 2 } else { ECO_BIRTH_COOLDOWN_STEPS };
+            pa.repro_cooldown = ECO_BIRTH_COOLDOWN_STEPS;
             pa.offspring_count += 1;
         }
         if let Some(pb) = episode.agents.get_mut(j) {
             pb.energy = (pb.energy - cost * 0.5).max(0.0);
-            pb.repro_cooldown = if easy_mode { ECO_BIRTH_COOLDOWN_STEPS / 2 } else { ECO_BIRTH_COOLDOWN_STEPS };
+            pb.repro_cooldown = ECO_BIRTH_COOLDOWN_STEPS;
             pb.offspring_count += 1;
         }
     }

@@ -135,9 +135,6 @@ pub const COMM_RECV_REWARD: f32 = 0.8;         // fitness added to eater when be
 pub const COMM_CALLER_REWARD: f32 = 0.4;       // fitness added to original caller (smaller encourages some altruism)
 // Rationale: focus on emergent behavior; keep only outcome-based signals (resource intake, exploration, longevity).
 
-// ========================
-// Continuous eco-evolution (Option C)
-// ========================
 // If enabled, the example runs continuously without generational replacement.
 // Agents may reproduce during an episode to spawn mutated offspring; dead/consumed
 // agents are removed. The genomes vector is kept aligned with the agents vector.
@@ -145,8 +142,8 @@ pub const ECO_CONTINUOUS: bool = true;
 // Hard caps and thresholds
 pub const ECO_MAX_POP: usize = 80;                 // maximum concurrent agents
 pub const ECO_MIN_POP: usize = 10;                 // minimum seeding on reset if all die
-pub const ECO_BIRTH_ENERGY_THRESHOLD: f32 = 100.0; // minimum energy to allow birth
-pub const ECO_BIRTH_ENERGY_COST: f32 = 25.0;      // energy deducted from parent per birth
+pub const ECO_BIRTH_ENERGY_THRESHOLD: f32 = 150.0; // minimum energy to allow birth
+pub const ECO_BIRTH_ENERGY_COST: f32 = 50.0;      // energy deducted from parent per birth
 pub const ECO_BIRTH_COOLDOWN_STEPS: usize = 80;    // steps before the same parent can reproduce again
 pub const ECO_MAX_OFFSPRING_PER_AGENT: usize = 15;  // per-episode cap
 pub const ECO_NEWBORN_ENERGY: f32 = 220.0;         // initial energy for newborns
