@@ -32,6 +32,7 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         last_danger_mem: Vec2 { x: 0.0, y: 0.0 },
     species_id: *species_map.get(i).unwrap_or(&0),
         call_intensity: 0.0, heard_sectors: [0.0;3],
+        satiety: 1.0,
         repro_cooldown: 0,
         offspring_count: 0,
     }).collect();
@@ -72,7 +73,15 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         let frac = if total_cells > 0.0 { (visited[i].len() as f32) / total_cells } else { 0.0 };
         let exploration = frac * EXPL_WEIGHT;
         let survival = (a.alive_steps as f32).powf(SURVIVAL_TIME_EXP) * SURVIVAL_STEP_FITNESS;
-        intake + exploration + survival + comm_fit[i]
+        
+        // Apply early death penalty if agent died before threshold
+        let death_penalty = if a.alive_steps < (MAX_STEPS as f32 * EARLY_DEATH_THRESHOLD) as u32 {
+            EARLY_DEATH_PENALTY
+        } else {
+            0.0
+        };
+        
+        intake + exploration + survival + comm_fit[i] - death_penalty
     }).collect()
 }
 

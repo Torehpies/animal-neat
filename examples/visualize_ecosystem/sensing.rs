@@ -23,6 +23,7 @@ use std::ops::Range;
 pub struct InputRanges {
     pub vision: Range<usize>,    // 3 sectors × 5 categories = 15
     pub energy: usize,           // single scalar
+    pub satiety: usize,          // single scalar (hunger level)
     pub memory: Range<usize>,    // 4 (food_x, food_y, danger_x, danger_y)
     pub hearing: Range<usize>,   // HEARING_SECTORS
     pub position: Range<usize>,  // 2 (x/WORLD_W, y/WORLD_H)
@@ -33,10 +34,11 @@ pub fn input_ranges() -> InputRanges {
     use super::params::*;
     let vision = 0..15; // 3 × 5
     let energy = 15;
-    let memory = 16..20; // 4 values
-    let hearing = 20..(20 + HEARING_SECTORS);
+    let satiety = 16;
+    let memory = 17..21; // 4 values
+    let hearing = 21..(21 + HEARING_SECTORS);
     let position = hearing.end..(hearing.end + 2);
-    InputRanges { vision, energy, memory, hearing, position }
+    InputRanges { vision, energy, satiety, memory, hearing, position }
 }
 
 use super::params::{VISION_RAYS, VISION_ANGLE_DEG, VISION_RANGE, FOOD_RADIUS, DANGER_VECTOR_MAX_RANGE, INPUTS, WORLD_W, WORLD_H, PREDATION_ENABLED, SCAVENGE_ENABLED, HEARING_SECTORS, SOUND_RANGE, SOUND_ATTENUATION_EXP, HEARING_EMA_ALPHA};
@@ -172,7 +174,7 @@ pub fn meat_vector_from_rays(pos: Vec2, theta: f32, snapshot: &[(Vec2, bool, boo
 
 // Removed unused nearest_food_distance (legacy diagnostic) to reduce warnings.
 
-pub fn build_inputs(pos: Vec2, theta: f32, food: &[Vec2], energy: f32, last_food_mem: Vec2, last_danger_mem: Vec2, snapshot: &[(Vec2, bool, bool, usize, bool)], self_idx: usize, my_species: usize, heard: [f32;3]) -> [f32; INPUTS] {
+pub fn build_inputs(pos: Vec2, theta: f32, food: &[Vec2], energy: f32, satiety: f32, last_food_mem: Vec2, last_danger_mem: Vec2, snapshot: &[(Vec2, bool, bool, usize, bool)], self_idx: usize, my_species: usize, heard: [f32;3]) -> [f32; INPUTS] {
     // Vision distances per sector/category
     let mut inputs = [0.0f32; INPUTS];
     for i in 0..15 { inputs[i] = 1.0; } // default: nothing seen
@@ -220,13 +222,15 @@ pub fn build_inputs(pos: Vec2, theta: f32, food: &[Vec2], energy: f32, last_food
     }
     // Energy scalar
     inputs[15] = energy.clamp(0.0,1.0);
+    // Satiety scalar (hunger level: 0=starving, 1=full)
+    inputs[16] = satiety.clamp(0.0,1.0);
     // Memory
-    inputs[16] = last_food_mem.x; inputs[17] = last_food_mem.y;
-    inputs[18] = last_danger_mem.x; inputs[19] = last_danger_mem.y;
+    inputs[17] = last_food_mem.x; inputs[18] = last_food_mem.y;
+    inputs[19] = last_danger_mem.x; inputs[20] = last_danger_mem.y;
     // Hearing
-    for si in 0..HEARING_SECTORS { inputs[20 + si] = heard[si].clamp(0.0,1.0); }
+    for si in 0..HEARING_SECTORS { inputs[21 + si] = heard[si].clamp(0.0,1.0); }
     // Position
-    let pos_idx = 20 + HEARING_SECTORS;
+    let pos_idx = 21 + HEARING_SECTORS;
     inputs[pos_idx] = (pos.x / WORLD_W).clamp(0.0,1.0);
     inputs[pos_idx+1] = (pos.y / WORLD_H).clamp(0.0,1.0);
     inputs

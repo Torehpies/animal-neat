@@ -526,6 +526,7 @@ fn spawn_offspring_if_needed<R: Rng>(
             species_id: child_species,
             call_intensity: 0.0,
             heard_sectors: [0.0;3],
+            satiety: 1.0,
             repro_cooldown: ECO_BIRTH_COOLDOWN_STEPS,
             offspring_count: 0,
         });

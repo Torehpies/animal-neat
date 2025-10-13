@@ -25,6 +25,8 @@ pub struct Agent {
     pub last_food_mem: Vec2,         // memory of last step's nearest-food local vector
     pub last_danger_mem: Vec2,       // memory of last step's nearest-agent local vector
     pub species_id: usize,           // stable species index captured at episode start
+    // Hunger / satiety: 0.0 = starving, 1.0 = fully sated
+    pub satiety: f32,
     // (Removed) pooled sector proximities in revised vision model
     // Communication
     pub call_intensity: f32,      // emitted this step (0..1)

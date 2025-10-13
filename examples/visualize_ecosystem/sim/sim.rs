@@ -13,7 +13,13 @@ pub fn apply_digestion(agent: &mut Agent) {
         if ev.remaining > 0 { gained += ev.per_step; ev.remaining -= 1; }
     }
     agent.digest.retain(|ev| ev.remaining > 0);
-    agent.energy = (agent.energy + gained).min(MAX_ENERGY);
+    if gained > 0.0 {
+        // digestion now increases internal satiety reserve rather than directly topping up energy
+        // The actual energy available to the agent will be supplied gradually by converting satiety
+        // into energy in the engine tick. Increase satiety proportional to the energy-equivalent
+        // that digestion delivers this tick.
+        agent.satiety = (agent.satiety + gained * SATIETY_GAIN_PER_ENERGY_DELIVERED).clamp(0.0, 1.0);
+    }
 }
 
 // Resolve predation/scavenging interactions using a snapshot of positions and life states
@@ -45,10 +51,19 @@ pub fn resolve_predation(
                 // Scavenge OR second predation hit on dead body -> consume corpse energy
                 if agents[j].corpse_energy > 0.0 {
                     let gain = agents[j].corpse_energy.min(MEAT_ENERGY);
-                    if DIGEST_STEPS_MEAT > 0 { agents[i].digest.push_back(DigestEvent { remaining: DIGEST_STEPS_MEAT, per_step: gain / (DIGEST_STEPS_MEAT as f32) }); }
-                    else { agents[i].energy = (agents[i].energy + gain).min(MAX_ENERGY); }
+                    if DIGEST_STEPS_MEAT > 0 {
+                        // deliver via digestion which will increase satiety over time
+                        agents[i].digest.push_back(DigestEvent { remaining: DIGEST_STEPS_MEAT, per_step: gain / (DIGEST_STEPS_MEAT as f32) });
+                    } else {
+                        // instant delivery: convert energy-equivalent straight into satiety reserve
+                        agents[i].satiety = (agents[i].satiety + gain * SATIETY_GAIN_PER_ENERGY_DELIVERED).clamp(0.0, 1.0);
+                    }
                     // Healing bonus from meat
                     agents[i].health = (agents[i].health + MEAT_HEAL_BONUS).min(agents[i].max_health);
+                    // Increase satiety: if energy was applied immediately, bump now, otherwise digestion will increase satiety gradually
+                    if DIGEST_STEPS_MEAT == 0 {
+                        agents[i].satiety = (agents[i].satiety + SATIETY_GAIN_FROM_MEAT).clamp(0.0, 1.0);
+                    }
                     agents[i].eaten += 1;
                     agents[i].kills += 1; // counts scavenged meat as kill-equivalent for diet tint
                     agents[j].corpse_energy = 0.0;

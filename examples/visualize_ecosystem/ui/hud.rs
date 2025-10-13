@@ -32,6 +32,12 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
         for a in &state.episode.agents { min_e = min_e.min(a.energy); max_e = max_e.max(a.energy); sum += a.energy; }
         (min_e, sum / state.episode.agents.len() as f32, max_e)
     } else { (0.0, 0.0, 0.0) };
+    // Satiety summary (0..1)
+    let (min_s, avg_s, max_s) = if !state.episode.agents.is_empty() {
+        let mut min_s = f32::INFINITY; let mut max_s = f32::NEG_INFINITY; let mut sum_s = 0.0;
+        for a in &state.episode.agents { min_s = min_s.min(a.satiety); max_s = max_s.max(a.satiety); sum_s += a.satiety; }
+        (min_s, sum_s / state.episode.agents.len() as f32, max_s)
+    } else { (0.0, 0.0, 0.0) };
 
     // Essentials block
     let essentials = [
@@ -53,6 +59,7 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
         } else {
             format!("Energy min/avg/max: {:.0}/{:.0}/{:.0}", min_e, avg_e, max_e)
         },
+            format!("Satiety avg: {:.2} (min {:.2} max {:.2})", avg_s, min_s, max_s),
         format!("Inputs: {}", INPUTS),
     ];
     for line in essentials.iter() {
@@ -98,6 +105,7 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
                     format!("Species {} • Births {}", a.species_id, a.offspring_count),
                     format!("Status: {}", if alive { "Alive" } else { "Dead" }),
                     format!("Energy {:.0}/{:.0}", a.energy.max(0.0), MAX_ENERGY),
+                    format!("Satiety {:.2}", a.satiety),
                     format!("Health {:.0}/{:.0}", a.health.max(0.0), a.max_health),
                     format!("Alive steps {}", a.alive_steps),
                     format!("Intake plants:{} meat:{} (meat% {:.0}%)", diet_plants as i32, diet_meat as i32, meat_ratio*100.0),
@@ -152,7 +160,7 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
                             let is_corpse = !alive && !a.consumed && a.corpse_energy > 0.1;
                             (a.body.pos, alive, a.consumed, a.species_id, is_corpse)
                         }).collect();
-                        let inputs_arr = sensing::build_inputs(agent.body.pos, agent.theta, &state.episode.food, energy_in, agent.last_food_mem, agent.last_danger_mem, &snapshot, fi, agent.species_id, agent.heard_sectors);
+                        let inputs_arr = sensing::build_inputs(agent.body.pos, agent.theta, &state.episode.food, energy_in, agent.satiety, agent.last_food_mem, agent.last_danger_mem, &snapshot, fi, agent.species_id, agent.heard_sectors);
                         let inputs: Vec<f32> = inputs_arr.to_vec();
                         let genome = &state.population[fi];
                         let acts = genome.evaluate_with_activations_slice(&inputs);

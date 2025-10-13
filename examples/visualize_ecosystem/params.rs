@@ -77,13 +77,14 @@ pub const MEMORY_DECAY: f32 = 0.90;
 //  1. Vision distances (nearest per sector/category): sectors (L,F,R)=3 × categories (Plant, Carcass, Same, Other, Wall)=5 => 15
 //     Value encoding: normalized distance d/VISION_RANGE (0 near .. 1 far/no target). If no target in sector, value = 1.
 //  2. Energy scalar = 1
-//  3. Memory vectors (food_x, food_y, danger_x, danger_y) = 4
-//  4. Hearing sectors (L,F,R) smoothed call intensity = HEARING_SECTORS (3)
-//  5. Normalized absolute position (x/WORLD_W, y/WORLD_H) = 2
-// Total INPUTS = 15 + 1 + 4 + HEARING_SECTORS + 2
+//  3. Satiety scalar = 1 (normalized hunger level in [0,1]; 0=starving, 1=full)
+//  4. Memory vectors (food_x, food_y, danger_x, danger_y) = 4
+//  5. Hearing sectors (L,F,R) smoothed call intensity = HEARING_SECTORS (3)
+//  6. Normalized absolute position (x/WORLD_W, y/WORLD_H) = 2
+// Total INPUTS = 15 + 1 + 1 + 4 + HEARING_SECTORS + 2
 // Temporarily disable hearing inputs entirely
 pub const HEARING_SECTORS: usize = 0;
-pub const INPUTS: usize = 15 + 1 + 4 + HEARING_SECTORS + 2; // now 22 total
+pub const INPUTS: usize = 15 + 1 + 1 + 4 + HEARING_SECTORS + 2; // now 23 total
 // Movement controller outputs now: [ turn, speed ] (relative turn model)
 // turn in [-1,1] -> applied delta heading in [-MAX_TURN_PER_STEP, MAX_TURN_PER_STEP]
 // speed in [-1,1] -> [0,1]
@@ -91,6 +92,28 @@ pub const INPUTS: usize = 15 + 1 + 4 + HEARING_SECTORS + 2; // now 22 total
 // call in [-1,1] mapped to [0,1] intensity broadcast this step (available to others next step)
 // We derive OUTPUTS from the COMMUNICATION_ENABLED flag so UI and initial genomes match the runtime mode.
 pub const OUTPUTS: usize = 2 + (COMMUNICATION_ENABLED as usize);
+
+// =====================
+// Hunger / Satiety
+// =====================
+// Agents have a normalized satiety value in [0,1]. It passively decays each step
+// (hunger increases). Eating (plant or meat) increases satiety; digestion delivers
+// energy over multiple steps and should also increase satiety as energy is received.
+// Satiety can be used by behaviours or fitness shaping (not yet wired into inputs).
+// Satiety parameters: slower passive decay and gentler per-step conversion so agents
+// stay nourished longer but can still convert their satiety reserve into energy.
+// Decrease `SATIETY_DECAY_PER_STEP` to make hunger build up more slowly.
+pub const SATIETY_DECAY_PER_STEP: f32 = 0.0004; // how much satiety is lost per step (was 0.0015)
+pub const SATIETY_GAIN_FROM_PLANT: f32 = 0.25; // immediate satiety gain when eating a plant
+pub const SATIETY_GAIN_FROM_MEAT: f32 = 0.8;   // immediate satiety bump when consuming meat
+// When digestion delivers an energy-equivalent, increase satiety proportionally.
+pub const SATIETY_GAIN_PER_ENERGY_DELIVERED: f32 = 0.0015; // per 1 energy delivered via digestion
+// Convert satiety into usable energy each step. We consume up to SATIETY_CONSUME_PER_STEP
+// of satiety and grant ENERGY_PER_SATIETY energy per 1.0 satiety consumed.
+// Reduce the amount of satiety consumed per step so the reserve drains slower,
+// and increase `ENERGY_PER_SATIETY` so the agent can still meet maintenance costs.
+pub const SATIETY_CONSUME_PER_STEP: f32 = 0.005; // satiety units consumed per step to produce energy (was 0.02)
+pub const ENERGY_PER_SATIETY: f32 = 50.0; // energy gained per 1.0 satiety consumed (was 12.5)
 
 // ==============================
 // Input modality enable flags (compile-time)
@@ -113,9 +136,11 @@ pub const EXPL_WEIGHT: f32 = 10.0;                // reward for 100% coverage (t
 // Fitness: we collapse plant/meat shaping into two simple weights.
 pub const PLANT_FITNESS: f32 = 4.0;            // reward per plant eaten
 pub const MEAT_FITNESS: f32 = 8.0;             // reward per meat (kill or scavenged corpse) event
-pub const SURVIVAL_STEP_FITNESS: f32 = 0.03;  // reward per simulation step survived (alive or not? counted via total steps for now)
+pub const SURVIVAL_STEP_FITNESS: f32 = 0.08;  // reward per simulation step survived (increased to prioritize survival)
 // Updated: SURVIVAL_STEP_FITNESS now applied per-agent using alive_steps^SURVIVAL_TIME_EXP
-pub const SURVIVAL_TIME_EXP: f32 = 0.75;       // 0.5 => sqrt diminishing returns; 1.0 would be linear
+pub const SURVIVAL_TIME_EXP: f32 = 1.0;       // 1.0 = linear survival reward (was 0.75 with diminishing returns)
+pub const EARLY_DEATH_PENALTY: f32 = 15.0;    // penalty if agent dies before EARLY_DEATH_THRESHOLD
+pub const EARLY_DEATH_THRESHOLD: f32 = 0.6;   // 60% of MAX_STEPS - dying early is bad!
 // Intake penalty: penalize agents with very low or zero intake to discourage camping/aimless wandering
 // If an agent eats fewer than INTAKE_MIN_EVENTS times, apply a linear penalty per missing event.
 // Example: INTAKE_MIN_EVENTS=2, INTAKE_MISS_PENALTY=5.0 => 0 eats: -10, 1 eat: -5, 2+ eats: 0

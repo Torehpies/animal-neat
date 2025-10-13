@@ -273,6 +273,26 @@ pub fn draw_world(
             let energy_text = format!("E: {:.0}/{:.0}", a.energy.max(0.0), MAX_ENERGY);
             draw_text(&energy_text, bx, by - 2.0, 14.0, WHITE);
             }
+            // Satiety bar (under energy) — visible when hovering
+            let sat_frac = a.satiety.clamp(0.0, 1.0);
+            let s_bar_w = 70.0; let s_bar_h = 6.0; let s_pad = 3.0;
+            let s_bx = px - s_bar_w * 0.5; let s_by = py - agent_r - 30.0;
+            // background box for satiety placed below energy box area
+            draw_rectangle(s_bx - s_pad, s_by - s_pad - 2.0, s_bar_w + s_pad * 2.0, s_bar_h + s_pad * 2.0, Color::new(0.04,0.04,0.06,0.80));
+            draw_rectangle(s_bx, s_by, s_bar_w, s_bar_h, Color::new(0.12,0.12,0.14,0.9));
+            // Satiety fill: cyan-ish when sated, orange when hungry (inverse)
+            let (sr, sg, sb) = if sat_frac > 0.5 {
+                let t = (sat_frac - 0.5) / 0.5; // 0..1
+                // lerp from yellow->cyan
+                (1.0 - 0.5*t, 0.9, 0.5 + 0.5*t)
+            } else {
+                let t = sat_frac / 0.5; // 0..1
+                // lerp from red->yellow
+                (1.0, 0.2 + 0.6*t, 0.1)
+            };
+            draw_rectangle(s_bx, s_by, s_bar_w * sat_frac, s_bar_h, Color::new(sr, sg, sb, 0.95));
+            let sat_text = format!("S: {:.2}", a.satiety);
+            draw_text(&sat_text, s_bx, s_by - 2.0, 12.0, WHITE);
             if unified_overlay {
                 // Unified overlay: smoothed sector bars + memory vectors + density radial ticks
                 let (ax, ay) = world_to_screen(fitted, a.body.pos);
@@ -299,7 +319,7 @@ pub fn draw_world(
                     let labels = ["P","C","S","O","W"]; // left side labels
                     // Compute inputs on the fly (reuse existing function)
                     let vision_inputs = {
-                        let temp = sensing::build_inputs(a.body.pos, a.theta, &episode.food, (a.energy / MAX_ENERGY).clamp(0.0,1.0), a.last_food_mem, a.last_danger_mem, &snapshot, idx, a.species_id, a.heard_sectors);
+                        let temp = sensing::build_inputs(a.body.pos, a.theta, &episode.food, (a.energy / MAX_ENERGY).clamp(0.0,1.0), a.satiety, a.last_food_mem, a.last_danger_mem, &snapshot, idx, a.species_id, a.heard_sectors);
                         // slice first 15 vision values
                         let mut arr = [0.0f32;15];
                         for i in 0..15 { arr[i] = temp[i]; }

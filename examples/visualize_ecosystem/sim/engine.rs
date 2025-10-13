@@ -65,7 +65,7 @@ pub fn tick_step<R: Rng>(
     let energy_in = (a.energy / MAX_ENERGY).clamp(0.0, 1.0);
         let my_species = a.species_id;
         let mut inputs = sensing::build_inputs(
-            a.body.pos, a.theta, food, energy_in, a.last_food_mem, a.last_danger_mem, &snapshot, i, my_species, a.heard_sectors
+            a.body.pos, a.theta, food, energy_in, a.satiety, a.last_food_mem, a.last_danger_mem, &snapshot, i, my_species, a.heard_sectors
         );
         sim::mask_inputs(&mut inputs);
 
@@ -111,8 +111,15 @@ pub fn tick_step<R: Rng>(
 
         // Eating: require actual overlap at end position (disable swept path exploit)
         let ate = if world::eat_if_near(food, &a.body) {
-            if DIGEST_STEPS_PLANT > 0 { a.digest.push_back(DigestEvent { remaining: DIGEST_STEPS_PLANT, per_step: FOOD_ENERGY / (DIGEST_STEPS_PLANT as f32) }); }
-            else { a.energy = (a.energy + FOOD_ENERGY).min(MAX_ENERGY); }
+            if DIGEST_STEPS_PLANT > 0 {
+                // digestion events remain energy-equivalent; digestion will now increase satiety
+                a.digest.push_back(DigestEvent { remaining: DIGEST_STEPS_PLANT, per_step: FOOD_ENERGY / (DIGEST_STEPS_PLANT as f32) });
+            } else {
+                // instant delivery: instead of directly topping energy, convert into satiety reserve
+                a.satiety = (a.satiety + FOOD_ENERGY * SATIETY_GAIN_PER_ENERGY_DELIVERED).clamp(0.0, 1.0);
+            }
+            // immediate satiety bump for plant eating (taste/fullness)
+            a.satiety = (a.satiety + SATIETY_GAIN_FROM_PLANT).clamp(0.0, 1.0);
             a.eaten += 1;
             if let Some(ref mut hook) = first_eat_step { if hook.is_none() { **hook = Some(step_idx); } }
             true
@@ -156,6 +163,16 @@ pub fn tick_step<R: Rng>(
         a.energy -= energy_cost;
         if a.energy <= 0.0 || a.health <= DEATH_HEALTH_THRESHOLD {
             if a.dead_since.is_none() { a.dead_since = Some(step_idx); a.corpse_energy = CORPSE_INITIAL_ENERGY; }
+        }
+        // Passive satiety decay each step (hunger increases). Satiety stays in [0,1].
+        a.satiety = (a.satiety - SATIETY_DECAY_PER_STEP).clamp(0.0, 1.0);
+        // Convert a small amount of satiety reserve into usable energy each step while nourished.
+        if a.satiety > 0.0 && a.energy < MAX_ENERGY {
+            let consume = a.satiety.min(SATIETY_CONSUME_PER_STEP);
+            if consume > 0.0 {
+                a.satiety = (a.satiety - consume).clamp(0.0, 1.0);
+                a.energy = (a.energy + consume * ENERGY_PER_SATIETY).min(MAX_ENERGY);
+            }
         }
         // Passive heal
         if a.energy > 0.0 && a.health > DEATH_HEALTH_THRESHOLD {

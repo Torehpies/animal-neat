@@ -43,6 +43,7 @@ impl Episode {
                 last_danger_mem: Vec2 { x: 0.0, y: 0.0 },
                 species_id: *species_map.get(i).unwrap_or(&0),
                 call_intensity: 0.0, heard_sectors: [0.0;3],
+                satiety: 1.0, // start relatively sated (1.0 == full)
                 repro_cooldown: 0,
                 offspring_count: 0,
             });
