@@ -8,7 +8,7 @@
 // Evolution / Population
 // =====================
 /// Number of agents/genomes in the population and per episode
-pub const POPULATION_SIZE: usize = 10;
+pub const POPULATION_SIZE: usize = 50;
 /// Episodes per generation for fitness averaging
 pub const EPISODES_PER_GEN: usize = 3;
 
@@ -86,9 +86,10 @@ pub const INPUTS: usize = 15 + 1 + 4 + HEARING_SECTORS + 2; // 25 total with def
 // Movement controller outputs now: [ turn, speed ] (relative turn model)
 // turn in [-1,1] -> applied delta heading in [-MAX_TURN_PER_STEP, MAX_TURN_PER_STEP]
 // speed in [-1,1] -> [0,1]
-// Outputs: [ turn, speed, call ]
+// Outputs: when communication is enabled => [ turn, speed, call ]; otherwise => [ turn, speed ]
 // call in [-1,1] mapped to [0,1] intensity broadcast this step (available to others next step)
-pub const OUTPUTS: usize = 3;
+// We derive OUTPUTS from the COMMUNICATION_ENABLED flag so UI and initial genomes match the runtime mode.
+pub const OUTPUTS: usize = 2 + (COMMUNICATION_ENABLED as usize);
 
 // ==============================
 // Input modality enable flags (compile-time)
@@ -197,7 +198,7 @@ pub const DIGEST_STEPS_MEAT: u16 = 65;
 // Speciation (visualizer)
 // =============================
 // Target number of species and adaptation rate for the compatibility threshold.
-pub const SPECIES_TARGET: usize = 10;     // e.g., aim for ~8 species
+pub const SPECIES_TARGET: usize = 15;     // e.g., aim for ~8 species
 pub const SPECIES_ADAPT_RATE: f32 = 0.1; // how fast the threshold adapts towards target
 // =============================
 // Snapshotting

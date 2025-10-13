@@ -1,5 +1,6 @@
 use macroquad::prelude::*;
 use neat::neat::node_gene::NodeType;
+use crate::params::COMMUNICATION_ENABLED;
 use neat::neat::genome::Genome;
 
 pub fn draw_network_panel(area: Rect, genome: &Genome) {
@@ -20,6 +21,14 @@ pub fn draw_network_panel(area: Rect, genome: &Genome) {
     inputs.sort_unstable();
     hiddens.sort_unstable();
     outputs.sort_unstable();
+
+    // If communication is disabled, hide the last output node (assumes canonical order: [turn, speed, call])
+    let mut hidden_outputs: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    if !COMMUNICATION_ENABLED && outputs.len() >= 3 {
+        if let Some(&call_id) = outputs.get(2) {
+            hidden_outputs.insert(call_id);
+        }
+    }
 
     // Build incoming adjacency for enabled edges
     use std::collections::HashMap;
@@ -99,6 +108,7 @@ pub fn draw_network_panel(area: Rect, genome: &Genome) {
     // Draw connections first
     for conn in &genome.connections {
         if !conn.enabled { continue; }
+        if hidden_outputs.contains(&conn.in_node_id) || hidden_outputs.contains(&conn.out_node_id) { continue; }
         if let (Some(&(x1, y1)), Some(&(x2, y2))) = (pos.get(&conn.in_node_id), pos.get(&conn.out_node_id)) {
             let w = (conn.weight.abs() * 2.0).clamp(1.0, 4.0);
             let col = if conn.weight >= 0.0 { Color::new(0.2, 0.9, 0.3, 0.85) } else { Color::new(0.95, 0.25, 0.25, 0.85) };
@@ -116,7 +126,13 @@ pub fn draw_network_panel(area: Rect, genome: &Genome) {
     };
     draw_nodes(&inputs, Color::new(0.2, 0.6, 1.0, 1.0));
     draw_nodes(&hiddens, Color::new(0.8, 0.8, 0.85, 1.0));
-    draw_nodes(&outputs, Color::new(1.0, 0.6, 0.2, 1.0));
+    if hidden_outputs.is_empty() {
+        draw_nodes(&outputs, Color::new(1.0, 0.6, 0.2, 1.0));
+    } else {
+        // Draw only visible outputs (exclude hidden call)
+        let visible: Vec<u32> = outputs.iter().copied().filter(|id| !hidden_outputs.contains(id)).collect();
+        draw_nodes(&visible, Color::new(1.0, 0.6, 0.2, 1.0));
+    }
 
     // Legends
     let legend_y = area.y + 16.0;
@@ -129,5 +145,6 @@ pub fn draw_network_panel(area: Rect, genome: &Genome) {
     };
     legend(&mut lx, "Inputs", Color::new(0.2, 0.6, 1.0, 1.0));
     legend(&mut lx, "Hidden", Color::new(0.8, 0.8, 0.85, 1.0));
-    legend(&mut lx, "Outputs", Color::new(1.0, 0.6, 0.2, 1.0));
+    let label = if COMMUNICATION_ENABLED { "Outputs (3)" } else { "Outputs (2)" };
+    legend(&mut lx, label, Color::new(1.0, 0.6, 0.2, 1.0));
 }
