@@ -319,7 +319,7 @@ async fn main() {
         state.focused_agent,
         state.show_grid,
         true,  // vision grid
-        true,  // hearing
+        false, // hearing disabled
         true,  // memory vectors
     );
     ui_hud::draw_hud(hud_area, &state, running, fast_mode, &state.member_species);

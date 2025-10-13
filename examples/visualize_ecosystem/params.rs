@@ -81,8 +81,9 @@ pub const MEMORY_DECAY: f32 = 0.90;
 //  4. Hearing sectors (L,F,R) smoothed call intensity = HEARING_SECTORS (3)
 //  5. Normalized absolute position (x/WORLD_W, y/WORLD_H) = 2
 // Total INPUTS = 15 + 1 + 4 + HEARING_SECTORS + 2
-pub const HEARING_SECTORS: usize = 3;
-pub const INPUTS: usize = 15 + 1 + 4 + HEARING_SECTORS + 2; // 25 total with default params
+// Temporarily disable hearing inputs entirely
+pub const HEARING_SECTORS: usize = 0;
+pub const INPUTS: usize = 15 + 1 + 4 + HEARING_SECTORS + 2; // now 22 total
 // Movement controller outputs now: [ turn, speed ] (relative turn model)
 // turn in [-1,1] -> applied delta heading in [-MAX_TURN_PER_STEP, MAX_TURN_PER_STEP]
 // speed in [-1,1] -> [0,1]

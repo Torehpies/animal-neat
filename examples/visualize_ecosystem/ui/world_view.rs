@@ -265,7 +265,7 @@ pub fn draw_world(
                 let (ax, ay) = world_to_screen(fitted, a.body.pos);
                 let w_sector = 56.0; let bar_h = 7.0; let gap = 3.0;
                 // Vision overlay for pooled inputs removed (revised vision model uses distances)
-                if show_hearing_inputs {
+                if show_hearing_inputs && HEARING_SECTORS > 0 {
                     for (sector_i, _) in ["L","F","R"].iter().enumerate() {
                         let x0 = ax - w_sector * 1.6 + sector_i as f32 * (w_sector + 16.0);
                         let hear_v = a.heard_sectors[sector_i].clamp(0.0, 1.0);

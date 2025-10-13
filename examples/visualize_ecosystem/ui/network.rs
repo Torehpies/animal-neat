@@ -1,6 +1,7 @@
 use macroquad::prelude::*;
 use neat::neat::node_gene::NodeType;
-use crate::params::COMMUNICATION_ENABLED;
+use crate::params::{COMMUNICATION_ENABLED, HEARING_SECTORS, ENABLE_HEARING_INPUTS};
+use crate::sensing;
 use neat::neat::genome::Genome;
 
 pub fn draw_network_panel(area: Rect, genome: &Genome) {
@@ -27,6 +28,18 @@ pub fn draw_network_panel(area: Rect, genome: &Genome) {
     if !COMMUNICATION_ENABLED && outputs.len() >= 3 {
         if let Some(&call_id) = outputs.get(2) {
             hidden_outputs.insert(call_id);
+        }
+    }
+
+    // If hearing inputs are disabled (or zero sectors), hide the hearing input nodes by id range.
+    // Assumes input node IDs are contiguous starting at 0 in the same order as sensing::input_ranges().
+    let mut hidden_inputs: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    if HEARING_SECTORS == 0 || !ENABLE_HEARING_INPUTS {
+        let r = sensing::input_ranges();
+        if r.hearing.end > r.hearing.start {
+            for id in r.hearing.start as u32..r.hearing.end as u32 {
+                hidden_inputs.insert(id);
+            }
         }
     }
 
@@ -109,6 +122,7 @@ pub fn draw_network_panel(area: Rect, genome: &Genome) {
     for conn in &genome.connections {
         if !conn.enabled { continue; }
         if hidden_outputs.contains(&conn.in_node_id) || hidden_outputs.contains(&conn.out_node_id) { continue; }
+        if hidden_inputs.contains(&conn.in_node_id) || hidden_inputs.contains(&conn.out_node_id) { continue; }
         if let (Some(&(x1, y1)), Some(&(x2, y2))) = (pos.get(&conn.in_node_id), pos.get(&conn.out_node_id)) {
             let w = (conn.weight.abs() * 2.0).clamp(1.0, 4.0);
             let col = if conn.weight >= 0.0 { Color::new(0.2, 0.9, 0.3, 0.85) } else { Color::new(0.95, 0.25, 0.25, 0.85) };
@@ -124,7 +138,12 @@ pub fn draw_network_panel(area: Rect, genome: &Genome) {
             }
         }
     };
-    draw_nodes(&inputs, Color::new(0.2, 0.6, 1.0, 1.0));
+    if hidden_inputs.is_empty() {
+        draw_nodes(&inputs, Color::new(0.2, 0.6, 1.0, 1.0));
+    } else {
+        let visible_in: Vec<u32> = inputs.iter().copied().filter(|id| !hidden_inputs.contains(id)).collect();
+        draw_nodes(&visible_in, Color::new(0.2, 0.6, 1.0, 1.0));
+    }
     draw_nodes(&hiddens, Color::new(0.8, 0.8, 0.85, 1.0));
     if hidden_outputs.is_empty() {
         draw_nodes(&outputs, Color::new(1.0, 0.6, 0.2, 1.0));
