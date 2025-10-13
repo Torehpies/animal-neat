@@ -117,11 +117,25 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
         let panel = Rect { x: area.x + 8.0, y: area.y + area.h - network_h + 8.0, w: area.w - 16.0, h: network_h - 16.0 };
         draw_rectangle(panel.x - 4.0, panel.y - 4.0, panel.w + 8.0, panel.h + 8.0, Color::new(0.05, 0.05, 0.07, 0.95));
         draw_rectangle_lines(panel.x - 4.0, panel.y - 4.0, panel.w + 8.0, panel.h + 8.0, 2.0, Color::new(0.25, 0.25, 0.3, 1.0));
-        let title = if state.last_best.is_finite() && state.last_best > f32::NEG_INFINITY {
-            format!("Best network (last gen {}, fit {:.2})", state.last_best_generation, state.last_best)
-        } else { "Best network (pending)".to_string() };
+        
+        // Determine which genome to display
+        let (genome_to_show, title) = if let Some(fi) = state.focused_agent {
+            // Show focused agent's genome
+            if fi < state.population.len() {
+                (Some(&state.population[fi]), format!("Agent #{} Network", fi))
+            } else {
+                (None, "Invalid agent index".to_string())
+            }
+        } else {
+            // Show best genome from last generation
+            let title = if state.last_best.is_finite() && state.last_best > f32::NEG_INFINITY {
+                format!("Best network (gen {}, fit {:.2})", state.last_best_generation, state.last_best)
+            } else { "Best network (pending)".to_string() };
+            (state.last_best_genome.as_ref(), title)
+        };
+        
         draw_text_clamped(&title, panel.x, panel.y - 8.0, 18.0, LIGHTGRAY, panel.w - 8.0);
-        if let Some(genome) = state.last_best_genome.as_ref() {
+        if let Some(genome) = genome_to_show {
             draw_network_panel(panel, genome);
         } else {
             let msg = "Evolves as episodes complete. Once a new best is found, its network will appear here.";
