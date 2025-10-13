@@ -41,7 +41,6 @@ impl Episode {
                 last_food_mem: Vec2 { x: 0.0, y: 0.0 },
                 last_danger_mem: Vec2 { x: 0.0, y: 0.0 },
                 species_id: *species_map.get(i).unwrap_or(&0),
-                pooled_plant: [0.0;3], pooled_same: [0.0;3], pooled_other: [0.0;3], pooled_wall: [0.0;3],
                 call_intensity: 0.0, heard_sectors: [0.0;3],
             });
         }

@@ -25,11 +25,7 @@ pub struct Agent {
     pub last_food_mem: Vec2,         // memory of last step's nearest-food local vector
     pub last_danger_mem: Vec2,       // memory of last step's nearest-agent local vector
     pub species_id: usize,           // stable species index captured at episode start
-     // Smoothed pooled sensing (Left, Forward, Right) × categories (Plant/Carc, Same, Other, Wall)
-    pub pooled_plant: [f32;3],
-    pub pooled_same: [f32;3],
-    pub pooled_other: [f32;3],
-    pub pooled_wall: [f32;3],
+    // (Removed) pooled sector proximities in revised vision model
     // Communication
     pub call_intensity: f32,      // emitted this step (0..1)
     pub heard_sectors: [f32;3],   // smoothed heard call energy (L,F,R)

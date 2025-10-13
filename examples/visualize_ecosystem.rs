@@ -11,7 +11,7 @@
 //!
 //! Key files:
 //! - params.rs: all configuration
-//! - sensing.rs: input building, pooling, density, hearing
+//! - sensing.rs: input building (distance-based vision), hearing
 //! - sim.rs: movement & interactions (predation/scavenging)
 //! - world.rs: plant growth and seasonality
 //! - ui/: world view, HUD, network panel
@@ -25,7 +25,6 @@ use neat::neat::{
     io,
     speciator::Speciator,
 };
-use neat::neat::species::Species;
 #[path = "visualize_ecosystem/params.rs"]
 mod params;
 #[path = "visualize_ecosystem/sensing.rs"]
@@ -62,18 +61,11 @@ struct AppState {
     episode: Episode,
     show_cones: bool,
     member_species: Vec<usize>,
-    last_species: Vec<Species>,
-    // Best-ever genome tracking for HUD network rendering
-    best_ever_fitness: f32,
-    best_ever_generation: usize,
-    best_ever_genome: Option<Genome>,
-    // Best of last evaluated generation
+    // Best of last evaluated generation (for HUD panel)
     last_best_generation: usize,
     last_best_genome: Option<Genome>,
     // Debug overlays
     show_unified_overlay: bool,
-    // Communication stats over last evaluated generation (aggregated after eval)
-    last_comm_reward_sum: f32,
     show_energy_overlay: bool,
     show_collision_radii: bool,
     show_grid: bool,
@@ -113,15 +105,10 @@ impl AppState {
             episode,
             show_cones: true,
             member_species,
-            last_species: Vec::new(),
-            best_ever_fitness: f32::NEG_INFINITY,
-            best_ever_generation: 0,
-            best_ever_genome: None,
             last_best_generation: 0,
             last_best_genome: None,
             show_unified_overlay: false,
             show_energy_overlay: true,
-            last_comm_reward_sum: 0.0,
             show_collision_radii: false,
             show_grid: false,
             show_best_network_panel: true,
@@ -141,14 +128,13 @@ impl AppState {
         let avg = acc.iter().sum::<f32>() / acc.len() as f32;
         self.last_best = best;
         self.last_avg = avg;
-        self.last_comm_reward_sum = 0.0; // placeholder (communication reward accumulation handled inside eval episodes)
         acc
     }
 
     fn evolve_one_generation(&mut self) {
         let fitness_scores = self.eval_population();
         // Update best-ever before population is replaced
-        if let Some((best_idx, &fit)) = fitness_scores
+    if let Some((best_idx, _)) = fitness_scores
             .iter()
             .enumerate()
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
@@ -160,14 +146,9 @@ impl AppState {
             } else {
                 self.last_best_genome = None;
             }
-            if fit > self.best_ever_fitness {
-                self.best_ever_fitness = fit;
-                self.best_ever_generation = self.generation;
-                if best_idx < self.population.len() {
-                    self.best_ever_genome = Some(self.population[best_idx].clone());
-                }
-            }
+            // (Best-ever tracking removed for simplification)
         }
+        // Evolve population
         self.population = evolution::evolution(
             std::mem::take(&mut self.population),
             fitness_scores,
@@ -175,14 +156,7 @@ impl AppState {
             &mut self.innov,
             &self.cfg,
         );
-        // snapshot species from evaluated generation for HUD
-        self.last_species = self.speciator.get_species().clone();
-        self.generation += 1;
-        let mut rng = ::rand::rng();
-    self.episode = Episode::new(&mut rng, self.population.len(), &self.member_species);
-        // Clear focused agent because indices now refer to new episode
-        self.focused_agent = None;
-        // speciate new population for coloring and update mapping
+        // IMPORTANT: speciate BEFORE creating the next episode so agents get correct species IDs
         self.speciator.speciate(&self.population);
         self.member_species = {
             let mut map = vec![0usize; self.population.len()];
@@ -191,6 +165,11 @@ impl AppState {
             }
             map
         };
+        self.generation += 1;
+        let mut rng = ::rand::rng();
+        self.episode = Episode::new(&mut rng, self.population.len(), &self.member_species);
+        // Clear focused agent because indices now refer to new episode
+        self.focused_agent = None;
         // Optional periodic snapshotting after evolution completes this generation
         if SNAPSHOT_INTERVAL > 0 && self.generation % SNAPSHOT_INTERVAL == 0 {
             let filename = format!("snapshots/auto_pop_snapshot_gen{:0>6}.json", self.generation);
@@ -339,10 +318,9 @@ async fn main() {
         state.show_collision_radii,
         state.focused_agent,
         state.show_grid,
-        true,  // show vision inputs rows
-        true,  // show hearing inputs row
-        true,  // show memory vectors
-        true,  // show density rays
+        true,  // vision grid
+        true,  // hearing
+        true,  // memory vectors
     );
     ui_hud::draw_hud(hud_area, &state, running, fast_mode, &state.member_species);
 

@@ -54,15 +54,7 @@ pub fn tick_step<R: Rng>(
         // Food vector (for memory after acting)
         let (cur_fx, cur_fy) = sensing::food_vector_from_rays(a.body.pos, a.theta, food);
 
-        // Sector pools smoothing
-        let pools = sensing::compute_sector_pools(a.body.pos, a.theta, food, &snapshot, i, a.species_id);
-        for si in 0..3 { let alpha = POOL_EMA_ALPHA; a.pooled_plant[si] = a.pooled_plant[si] + alpha * (pools.plant_carc[si] - a.pooled_plant[si]); }
-        for si in 0..3 { let alpha = POOL_EMA_ALPHA; a.pooled_same[si]  = a.pooled_same[si]  + alpha * (pools.same_alive[si]  - a.pooled_same[si]); }
-        for si in 0..3 { let alpha = POOL_EMA_ALPHA; a.pooled_other[si] = a.pooled_other[si] + alpha * (pools.other_alive[si] - a.pooled_other[si]); }
-        for si in 0..3 { let alpha = POOL_EMA_ALPHA; a.pooled_wall[si]  = a.pooled_wall[si]  + alpha * (pools.wall[si]       - a.pooled_wall[si]); }
-
-        // Density sectors
-        let density = sensing::density_sectors(a.body.pos, a.theta, &snapshot, i);
+    // (Removed) pooled sector proximities & density sectors in new vision model
 
         // Digest prior energy deliveries
         sim::apply_digestion(a);
@@ -73,14 +65,15 @@ pub fn tick_step<R: Rng>(
     let energy_in = (a.energy / MAX_ENERGY).clamp(0.0, 1.0);
         let my_species = a.species_id;
         let mut inputs = sensing::build_inputs(
-            a.body.pos, a.theta, food, energy_in, a.last_food_mem, a.last_danger_mem, &density, &snapshot, i, my_species, a.heard_sectors
+            a.body.pos, a.theta, food, energy_in, a.last_food_mem, a.last_danger_mem, &snapshot, i, my_species, a.heard_sectors
         );
         sim::mask_inputs(&mut inputs);
 
         let out = population[i].evaluate_slice(&inputs);
         let mut raw_turn = out.get(0).copied().unwrap_or(0.0);
         let mut raw_thrust = out.get(1).copied().unwrap_or(0.0);
-    let mut raw_call = out.get(2).copied().unwrap_or(0.0);
+    // Third output reserved for communication; forced to 0 when COMMUNICATION_ENABLED = false
+    let mut raw_call = if COMMUNICATION_ENABLED { out.get(2).copied().unwrap_or(0.0) } else { 0.0 };
         raw_turn = raw_turn.clamp(-1.0, 1.0);
         raw_thrust = raw_thrust.clamp(-1.0, 1.0);
         raw_call = raw_call.clamp(-1.0, 1.0);

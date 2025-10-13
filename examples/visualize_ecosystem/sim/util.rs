@@ -17,28 +17,19 @@ pub struct InputRanges {
     pub vision: Range<usize>,
     pub energy: usize,
     pub memory: Range<usize>,
-    pub density: Range<usize>,
     pub hearing: Range<usize>,
     pub position: Range<usize>,
 }
 
 pub fn input_ranges() -> InputRanges {
-    let r= sensing::input_ranges();
-    InputRanges { 
-        vision: r.vision, 
-        energy: r.energy, 
-        memory: r.memory, 
-        density: r.density, 
-        hearing: r.hearing, 
-        position: r.position 
-    }
+    let r = sensing::input_ranges();
+    InputRanges { vision: r.vision, energy: r.energy, memory: r.memory, hearing: r.hearing, position: r.position }
 }
 
 pub fn mask_inputs(inputs: &mut [f32; INPUTS]) {
     // Zero out disabled modality ranges while keeping the input length/layout stable.
     let r = sensing::input_ranges();
-    if !ENABLE_VISION_INPUTS { for i in r.vision { inputs[i] = 0.0; } }
-    if !ENABLE_MEMORY_INPUTS { for i in r.memory { inputs[i] = 0.0; } }
-    if !ENABLE_DENSITY_INPUTS { for i in r.density { inputs[i] = 0.0; } }
-    if !ENABLE_HEARING_INPUTS { for i in r.hearing { inputs[i] = 0.0; } }
+    if !ENABLE_VISION_INPUTS { for i in r.vision.clone() { inputs[i] = 0.0; } }
+    if !ENABLE_MEMORY_INPUTS { for i in r.memory.clone() { inputs[i] = 0.0; } }
+    if !ENABLE_HEARING_INPUTS { for i in r.hearing.clone() { inputs[i] = 0.0; } }
 }

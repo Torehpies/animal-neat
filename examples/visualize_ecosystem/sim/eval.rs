@@ -3,7 +3,7 @@ use std::collections::{HashSet, VecDeque};
 use macroquad::prelude::Vec2;
 use neat::{genome::Genome, speciator::Speciator};
 
-use crate::{body::Body, params::{AGENT_RADIUS, *}, sim::{self, *}, world};
+use crate::{body::Body, params::{AGENT_RADIUS, *}, sim::{CommSignal, Agent, AgentId, tick_step}, world};
 
 pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
     let mut rng = ::rand::rng();
@@ -30,8 +30,7 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         digest: VecDeque::new(),
         last_food_mem: Vec2 { x: 0.0, y: 0.0 },
         last_danger_mem: Vec2 { x: 0.0, y: 0.0 },
-        species_id: *species_map.get(i).unwrap_or(&0),
-        pooled_plant: [0.0;3], pooled_same: [0.0;3], pooled_other: [0.0;3], pooled_wall: [0.0;3],
+    species_id: *species_map.get(i).unwrap_or(&0),
         call_intensity: 0.0, heard_sectors: [0.0;3],
     }).collect();
     // Track exploration (unique grid cells)

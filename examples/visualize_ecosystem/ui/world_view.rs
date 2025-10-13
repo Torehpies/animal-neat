@@ -19,7 +19,6 @@ pub fn draw_world(
     show_vis_inputs: bool,
     show_hearing_inputs: bool,
     show_memory_inputs: bool,
-    show_density_inputs: bool,
 ) {
     let fitted = fit_world_rect(area);
     // background: draw biome bands with seasonal tinting
@@ -263,22 +262,9 @@ pub fn draw_world(
             }
             if unified_overlay {
                 // Unified overlay: smoothed sector bars + memory vectors + density radial ticks
-                // Draw sector bars using agent's smoothed pooled_* fields
                 let (ax, ay) = world_to_screen(fitted, a.body.pos);
                 let w_sector = 56.0; let bar_h = 7.0; let gap = 3.0;
-                let colors = [Color::new(0.25,1.0,0.25,0.95), Color::new(0.1,0.85,1.0,0.95), Color::new(1.0,0.3,0.9,0.95), Color::new(0.75,0.75,0.75,0.95)];
-                let rows: [[f32;3];4] = [a.pooled_plant, a.pooled_same, a.pooled_other, a.pooled_wall];
-                if show_vis_inputs {
-                    for (sector_i, _) in ["L","F","R"].iter().enumerate() {
-                        let x0 = ax - w_sector * 1.6 + sector_i as f32 * (w_sector + 16.0);
-                        for (row_i, arr) in rows.iter().enumerate() {
-                            let v = arr[sector_i].clamp(0.0,1.0);
-                            let y0 = ay - 28.0 - (row_i as f32) * (bar_h + gap);
-                            draw_rectangle(x0, y0, w_sector, bar_h, Color::new(0.07,0.08,0.1,0.7));
-                            draw_rectangle(x0, y0, w_sector * v, bar_h, colors[row_i]);
-                        }
-                    }
-                }
+                // Vision overlay for pooled inputs removed (revised vision model uses distances)
                 if show_hearing_inputs {
                     for (sector_i, _) in ["L","F","R"].iter().enumerate() {
                         let x0 = ax - w_sector * 1.6 + sector_i as f32 * (w_sector + 16.0);
@@ -290,6 +276,51 @@ pub fn draw_world(
                     let label_x = ax + w_sector * 1.6 + 10.0;
                     let label_y = ay - 28.0 - (4.0_f32) * (bar_h + gap) + bar_h - 1.0;
                     draw_text("H", label_x, label_y, 16.0, Color::new(0.95,0.3,1.0,0.9));
+                }
+                if show_vis_inputs {
+                    // Draw a 3x5 grid (sectors columns, categories rows) encoding (1 - distance)
+                    // Category order: Plant, Carcass, Same, Other, Wall
+                    let grid_w = 16.0; let grid_h = 10.0; let pad = 2.0;
+                    let base_x = ax - (grid_w + pad) * 3.0 * 0.5;
+                    let base_y = ay - agent_r - 80.0; // stack above energy bar
+                    let labels = ["P","C","S","O","W"]; // left side labels
+                    // Compute inputs on the fly (reuse existing function)
+                    let vision_inputs = {
+                        let temp = sensing::build_inputs(a.body.pos, a.theta, &episode.food, (a.energy / MAX_ENERGY).clamp(0.0,1.0), a.last_food_mem, a.last_danger_mem, &snapshot, idx, a.species_id, a.heard_sectors);
+                        // slice first 15 vision values
+                        let mut arr = [0.0f32;15];
+                        for i in 0..15 { arr[i] = temp[i]; }
+                        arr
+                    };
+                    for row in 0..5 {
+                        for col in 0..3 {
+                            let idx = col * 5 + row;
+                            let dist_norm = vision_inputs[idx];
+                            let prox = (1.0 - dist_norm).clamp(0.0,1.0);
+                            let x0 = base_x + col as f32 * (grid_w + pad);
+                            let y0 = base_y + row as f32 * (grid_h + pad);
+                            // background
+                            draw_rectangle(x0, y0, grid_w, grid_h, Color::new(0.05,0.06,0.08,0.85));
+                            // fill color by category
+                            let colr = match row { 0 => Color::new(0.2,1.0,0.2,0.95), // plant
+                                                   1 => Color::new(0.9,0.65,0.2,0.95), // carcass
+                                                   2 => Color::new(0.1,0.85,1.0,0.95), // same
+                                                   3 => Color::new(1.0,0.3,0.95,0.95), // other
+                                                   _ => Color::new(0.75,0.75,0.75,0.95) }; // wall
+                            if prox > 0.0 { draw_rectangle(x0, y0, grid_w * prox, grid_h, colr); }
+                        }
+                        // row label
+                        let lx = base_x - 18.0;
+                        let ly = base_y + row as f32 * (grid_h + pad) + grid_h - 2.0;
+                        draw_text(labels[row], lx, ly, 14.0, GRAY);
+                    }
+                    // Sector headers L F R
+                    for col in 0..3 {
+                        let tx = base_x + col as f32 * (grid_w + pad) + 2.0;
+                        let ty = base_y - 4.0;
+                        let label = match col { 0 => "L", 1 => "F", _ => "R" };
+                        draw_text(label, tx, ty, 14.0, LIGHTGRAY);
+                    }
                 }
                 // Memory vectors (food=yellow, danger=orange)
                 if show_memory_inputs {
@@ -306,18 +337,7 @@ pub fn draw_world(
                 draw_mem_vec(a.last_food_mem.x, a.last_food_mem.y, Color::new(1.0,0.95,0.3,0.9));
                 draw_mem_vec(a.last_danger_mem.x, a.last_danger_mem.y, Color::new(1.0,0.6,0.2,0.9));
                 }
-                // Density rays (scaled magnitude) using current snapshot
-                if show_density_inputs {
-                    let bins = sensing::density_sectors(a.body.pos, a.theta, &snapshot, idx);
-                    let dir_angles = [0.0, std::f32::consts::FRAC_PI_2*0.66, -std::f32::consts::FRAC_PI_2*0.66, std::f32::consts::PI*0.75, -std::f32::consts::PI*0.75, std::f32::consts::PI];
-                    for (bi, val) in bins.iter().enumerate() { if *val <= 0.0 { continue; }
-                        let ang_world = a.theta + dir_angles[bi];
-                        let len = (AGENT_RADIUS * 4.0) + *val * (AGENT_RADIUS * 6.0);
-                        let end = Vec2 { x: a.body.pos.x + ang_world.cos() * len, y: a.body.pos.y + ang_world.sin() * len };
-                        let (ex, ey) = world_to_screen(fitted, end);
-                        draw_line(ax, ay, ex, ey, 2.0, Color::new(0.1,1.0,1.0,0.85));
-                    }
-                }
+                // Density visualization removed with revised sensing model
             }
         }
     }

@@ -102,8 +102,8 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
         let lines = [
             "[P] Pause/Resume   [F] Fast Mode   [R] Reset Episode   [Esc] Clear Focus",
             "[Click] Focus Agent   [N] Toggle Network Panel",
-            "[V] Vision Rays   [U] Unified Sensing Overlay",
-            "[E] Energy Overlay   [C] Collision Radii   [G] Grid",
+            "[V] Show/Hide Vision Rays   [U] Unified Overlay (vision grid + mem + hearing)",
+            "[E] Energy Bar   [C] Collision Radii   [G] Exploration Grid",
             "[S] Save Population Snapshot",
         ];
         for line in lines.iter() {
