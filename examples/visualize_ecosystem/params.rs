@@ -116,6 +116,11 @@ pub const MEAT_FITNESS: f32 = 8.0;             // reward per meat (kill or scave
 pub const SURVIVAL_STEP_FITNESS: f32 = 0.03;  // reward per simulation step survived (alive or not? counted via total steps for now)
 // Updated: SURVIVAL_STEP_FITNESS now applied per-agent using alive_steps^SURVIVAL_TIME_EXP
 pub const SURVIVAL_TIME_EXP: f32 = 0.75;       // 0.5 => sqrt diminishing returns; 1.0 would be linear
+// Intake penalty: penalize agents with very low or zero intake to discourage camping/aimless wandering
+// If an agent eats fewer than INTAKE_MIN_EVENTS times, apply a linear penalty per missing event.
+// Example: INTAKE_MIN_EVENTS=2, INTAKE_MISS_PENALTY=5.0 => 0 eats: -10, 1 eat: -5, 2+ eats: 0
+pub const INTAKE_MIN_EVENTS: usize = 2;
+pub const INTAKE_MISS_PENALTY: f32 = 5.0;
 // Communication economics
 pub const CALL_COST: f32 = 0.003;             // linear energy cost per step scaled by call_intensity (0..1)
 // Master switch to enable/disable communication features (calls, signals, hearing effects)

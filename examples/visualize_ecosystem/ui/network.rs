@@ -144,6 +144,50 @@ pub fn draw_network_panel(area: Rect, genome: &Genome) {
         let visible_in: Vec<u32> = inputs.iter().copied().filter(|id| !hidden_inputs.contains(id)).collect();
         draw_nodes(&visible_in, Color::new(0.2, 0.6, 1.0, 1.0));
     }
+
+    // Draw short labels for each input node
+    let input_label = |idx: usize| -> String {
+        let r = sensing::input_ranges();
+        if r.vision.contains(&idx) {
+            let i = idx - r.vision.start;
+            let sector = ["L", "F", "R"][i / 5];
+            let cat = match i % 5 { 0 => "P", 1 => "C", 2 => "S", 3 => "O", _ => "W" };
+            return format!("V {}:{}", sector, cat);
+        }
+        if idx == r.energy { return "Energy".to_string(); }
+        if r.memory.contains(&idx) {
+            let j = idx - r.memory.start;
+            let name = match j { 0 => "Mem F.x", 1 => "Mem F.y", 2 => "Mem D.x", 3 => "Mem D.y", _ => "Mem" };
+            return name.to_string();
+        }
+        if r.hearing.contains(&idx) { // May be empty when hearing disabled
+            let j = idx - r.hearing.start;
+            let sector = ["L", "F", "R"][j.min(2)];
+            return format!("H:{}", sector);
+        }
+        if r.position.contains(&idx) {
+            let j = idx - r.position.start;
+            let name = if j == 0 { "Pos.x" } else { "Pos.y" };
+            return name.to_string();
+        }
+        format!("In{}", idx)
+    };
+
+    let draw_input_labels = |ids: &Vec<u32>| {
+        for id in ids {
+            if hidden_inputs.contains(id) { continue; }
+            if let Some(&(x, y)) = pos.get(id) {
+                let label = input_label(*id as usize);
+                let tx = x - 44.0; // draw to the left of the node
+                let ty = y + 4.0;  // slight vertical offset
+                draw_text(&label, tx, ty, 14.0, LIGHTGRAY);
+            }
+        }
+    };
+    if hidden_inputs.is_empty() { draw_input_labels(&inputs); } else {
+        let visible_in: Vec<u32> = inputs.iter().copied().filter(|id| !hidden_inputs.contains(id)).collect();
+        draw_input_labels(&visible_in);
+    }
     draw_nodes(&hiddens, Color::new(0.8, 0.8, 0.85, 1.0));
     if hidden_outputs.is_empty() {
         draw_nodes(&outputs, Color::new(1.0, 0.6, 0.2, 1.0));

@@ -63,7 +63,10 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
     agents.iter().enumerate().map(|(i, a)| {
         let eaten_plants = a.eaten.saturating_sub(a.kills) as f32;
         let eaten_meat = a.kills as f32;
-        let intake = eaten_plants * PLANT_FITNESS + eaten_meat * MEAT_FITNESS;
+        let intake_events = a.eaten as usize; // total edible events (plants + meat)
+        let missing = INTAKE_MIN_EVENTS.saturating_sub(intake_events) as f32;
+        let intake_penalty = missing * INTAKE_MISS_PENALTY;
+        let intake = eaten_plants * PLANT_FITNESS + eaten_meat * MEAT_FITNESS - intake_penalty;
         let frac = if total_cells > 0.0 { (visited[i].len() as f32) / total_cells } else { 0.0 };
         let exploration = frac * EXPL_WEIGHT;
         let survival = (a.alive_steps as f32).powf(SURVIVAL_TIME_EXP) * SURVIVAL_STEP_FITNESS;
