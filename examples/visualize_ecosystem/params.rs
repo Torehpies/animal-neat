@@ -146,9 +146,9 @@ pub const ECO_CONTINUOUS: bool = true;
 pub const ECO_MAX_POP: usize = 80;                 // maximum concurrent agents
 pub const ECO_MIN_POP: usize = 10;                 // minimum seeding on reset if all die
 pub const ECO_BIRTH_ENERGY_THRESHOLD: f32 = 250.0; // minimum energy to allow birth
-pub const ECO_BIRTH_ENERGY_COST: f32 = 80.0;      // energy deducted from parent per birth
+pub const ECO_BIRTH_ENERGY_COST: f32 = 125.0;      // energy deducted from parent per birth
 pub const ECO_BIRTH_COOLDOWN_STEPS: usize = 80;    // steps before the same parent can reproduce again
-pub const ECO_MAX_OFFSPRING_PER_AGENT: usize = 6;  // per-episode cap
+pub const ECO_MAX_OFFSPRING_PER_AGENT: usize = 10;  // per-episode cap
 pub const ECO_NEWBORN_ENERGY: f32 = 220.0;         // initial energy for newborns
 pub const ECO_NEWBORN_HEALTH: f32 = AGENT_BASE_HEALTH;
 

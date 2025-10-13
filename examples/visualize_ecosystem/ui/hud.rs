@@ -95,6 +95,7 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
                 let total_intake = diet_plants + diet_meat;
                 let meat_ratio = if total_intake > 0.0 { diet_meat / total_intake } else { 0.0 };
                 let lines = [
+                    format!("Species {} • Births {}", a.species_id, a.offspring_count),
                     format!("Status: {}", if alive { "Alive" } else { "Dead" }),
                     format!("Energy {:.0}/{:.0}", a.energy.max(0.0), MAX_ENERGY),
                     format!("Health {:.0}/{:.0}", a.health.max(0.0), a.max_health),
