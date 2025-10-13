@@ -43,7 +43,8 @@ mod ui_network;
 mod body;
 #[path = "visualize_ecosystem/sim/mod.rs"]
 mod sim;
-use sim::Episode;
+use sim::{Episode, Agent, AgentId};
+use ::rand::Rng;
 use params::*;
 use sim::eval_population_single_episode;
 
@@ -72,6 +73,10 @@ struct AppState {
     // HUD/network & focus controls
     show_best_network_panel: bool,
     focused_agent: Option<usize>,
+    // Eco mode helpers
+    eco_episode_counter: usize,
+    eco_debug_easy_birth: bool,
+    show_controls: bool,
 }
 
 impl AppState {
@@ -113,6 +118,9 @@ impl AppState {
             show_grid: false,
             show_best_network_panel: true,
             focused_agent: None,
+            eco_episode_counter: 0,
+            eco_debug_easy_birth: false,
+            show_controls: true,
         }
     }
 
@@ -227,12 +235,13 @@ async fn main() {
         if is_key_pressed(KeyCode::P) { running = !running; }
         if is_key_pressed(KeyCode::F) { fast_mode = !fast_mode; }
         if is_key_pressed(KeyCode::R) { let mut rng = ::rand::rng(); state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species); }
-        if is_key_pressed(KeyCode::V) { state.show_cones = !state.show_cones; }
+    if is_key_pressed(KeyCode::V) { state.show_cones = !state.show_cones; }
         if is_key_pressed(KeyCode::U) { state.show_unified_overlay = !state.show_unified_overlay; }
         if is_key_pressed(KeyCode::E) { state.show_energy_overlay = !state.show_energy_overlay; }
     if is_key_pressed(KeyCode::C) { state.show_collision_radii = !state.show_collision_radii; }
     if is_key_pressed(KeyCode::G) { state.show_grid = !state.show_grid; }
     if is_key_pressed(KeyCode::N) { state.show_best_network_panel = !state.show_best_network_panel; }
+    if is_key_pressed(KeyCode::H) { state.show_controls = !state.show_controls; }
     if is_key_pressed(KeyCode::Escape) { state.focused_agent = None; }
     // Removed per-row overlay toggles (1..4). Unified overlay is controlled via 'U'.
     if is_key_pressed(KeyCode::S) {
@@ -244,6 +253,8 @@ async fn main() {
             Err(e) => eprintln!("Failed to save snapshot: {e}"),
         }
     }
+    // Eco debug: toggle easier birth thresholds live
+    if is_key_pressed(KeyCode::B) { state.eco_debug_easy_birth = !state.eco_debug_easy_birth; }
 
         if running {
             let mut rng = ::rand::rng();
@@ -251,16 +262,43 @@ async fn main() {
                 // Run many simulation steps per frame until the episode finishes, then evolve
                 for _ in 0..fast_steps_per_frame {
                     if state.episode.is_finished() {
-                        state.evolve_one_generation();
-                        state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
-                        break;
+                        if ECO_CONTINUOUS {
+                            // In eco mode: cull by fitness back to POPULATION_SIZE, then reseed next episode
+                            state.eco_episode_counter += 1;
+                            eco_cull_population_by_fitness(&mut state);
+                            state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
+                            break;
+                        } else {
+                            state.evolve_one_generation();
+                            state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
+                            break;
+                        }
                     }
                     state.episode.step(&state.population, &mut rng);
+                    if ECO_CONTINUOUS {
+                        // Reproduction pass: try to spawn offspring for eligible parents
+                        spawn_offspring_if_needed(
+                            &mut state.population,
+                            &mut state.episode,
+                            &mut state.innov,
+                            &state.cfg,
+                            &mut rng,
+                            &mut state.speciator,
+                            &mut state.member_species,
+                            state.eco_debug_easy_birth,
+                        );
+                    }
                 }
                 // If it finished exactly on the last step, evolve now
                 if state.episode.is_finished() {
-                    state.evolve_one_generation();
-                    state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
+                    if ECO_CONTINUOUS {
+                        state.eco_episode_counter += 1;
+                        eco_cull_population_by_fitness(&mut state);
+                        state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
+                    } else {
+                        state.evolve_one_generation();
+                        state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
+                    }
                 }
             } else {
                 // Normal mode: advance one simulation step per second
@@ -268,13 +306,37 @@ async fn main() {
                 if normal_step_timer >= normal_step_interval {
                     normal_step_timer -= normal_step_interval;
                     if state.episode.is_finished() {
-                        state.evolve_one_generation();
-                        state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
-                    } else {
-                        state.episode.step(&state.population, &mut rng);
-                        if state.episode.is_finished() {
+                        if ECO_CONTINUOUS {
+                            state.eco_episode_counter += 1;
+                            eco_cull_population_by_fitness(&mut state);
+                            state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
+                        } else {
                             state.evolve_one_generation();
                             state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
+                        }
+                    } else {
+                        state.episode.step(&state.population, &mut rng);
+                        if ECO_CONTINUOUS {
+                            spawn_offspring_if_needed(
+                                &mut state.population,
+                                &mut state.episode,
+                                &mut state.innov,
+                                &state.cfg,
+                                &mut rng,
+                                &mut state.speciator,
+                                &mut state.member_species,
+                                state.eco_debug_easy_birth,
+                            );
+                        }
+                        if state.episode.is_finished() {
+                            if ECO_CONTINUOUS {
+                                state.eco_episode_counter += 1;
+                                eco_cull_population_by_fitness(&mut state);
+                                state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
+                            } else {
+                                state.evolve_one_generation();
+                                state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
+                            }
                         }
                     }
                 }
@@ -325,6 +387,125 @@ async fn main() {
     ui_hud::draw_hud(hud_area, &state, running, fast_mode, &state.member_species);
 
         next_frame().await
+    }
+}
+
+fn eco_cull_population_by_fitness(state: &mut AppState) {
+    // Evaluate current population with the same single-episode fitness used for evolution
+    let scores = eval_population_single_episode(&state.population);
+    // Sort indices by descending fitness and retain the top POPULATION_SIZE
+    let mut idxs: Vec<usize> = (0..state.population.len()).collect();
+    idxs.sort_by(|&a, &b| scores[b]
+        .partial_cmp(&scores[a])
+        .unwrap_or(std::cmp::Ordering::Equal));
+    let keep = POPULATION_SIZE.min(idxs.len());
+    let keep_idxs = &idxs[..keep];
+    // Rebuild population vector keeping only top individuals
+    let mut new_pop = Vec::with_capacity(keep);
+    for &i in keep_idxs { new_pop.push(state.population[i].clone()); }
+    state.population = new_pop;
+    // Update best/avg stats for HUD
+    if !scores.is_empty() {
+        let best_score = scores[*keep_idxs.first().unwrap_or(&0)];
+        let avg_score = if keep > 0 { keep_idxs.iter().map(|&i| scores[i]).sum::<f32>() / keep as f32 } else { 0.0 };
+        state.last_best = best_score;
+        state.last_avg = avg_score;
+        state.last_best_generation = state.eco_episode_counter; // repurpose as last eval eco-episode id
+        // Snapshot the best genome for the network panel
+        state.last_best_genome = state.population.get(0).cloned(); // index 0 is best after rebuild
+    }
+        // Important: clear existing species to avoid stale representative indices
+        state.speciator.get_species_mut().clear();
+    state.speciator.speciate(&state.population);
+    state.member_species = {
+        let mut map = vec![0usize; state.population.len()];
+        for (sidx, s) in state.speciator.get_species().iter().enumerate() {
+            for &m in &s.members { if m < state.population.len() { map[m] = sidx; } }
+        }
+        map
+    };
+}
+
+fn spawn_offspring_if_needed<R: Rng>(
+    population: &mut Vec<Genome>,
+    episode: &mut Episode,
+    innov: &mut InnovationTracker,
+    cfg: &EvolutionConfig,
+    rng: &mut R,
+    speciator: &mut Speciator,
+    member_species: &mut Vec<usize>,
+    easy_mode: bool,
+) {
+    // Count live agents and skip if at cap
+    let live_count = episode.agents.iter().filter(|a| a.energy > 0.0 && a.health > DEATH_HEALTH_THRESHOLD && !a.consumed).count();
+    if live_count >= ECO_MAX_POP { return; }
+    // Iterate parents; collect births to avoid borrow conflicts
+    let mut births: Vec<(usize, crate::body::Body)> = Vec::new();
+    for (i, a) in episode.agents.iter_mut().enumerate() {
+        if a.energy <= 0.0 || a.health <= DEATH_HEALTH_THRESHOLD || a.consumed { continue; }
+        if a.repro_cooldown > 0 { a.repro_cooldown -= 1; continue; }
+        if a.offspring_count >= ECO_MAX_OFFSPRING_PER_AGENT { continue; }
+    let threshold = if easy_mode { ECO_BIRTH_ENERGY_THRESHOLD * 0.65 } else { ECO_BIRTH_ENERGY_THRESHOLD };
+    if a.energy < threshold { continue; }
+        // Parent pays the energy cost and schedules a birth
+    let cost = if easy_mode { ECO_BIRTH_ENERGY_COST * 0.6 } else { ECO_BIRTH_ENERGY_COST };
+    a.energy -= cost;
+        if a.energy < 0.0 { a.energy = 0.0; }
+    a.repro_cooldown = if easy_mode { ECO_BIRTH_COOLDOWN_STEPS / 2 } else { ECO_BIRTH_COOLDOWN_STEPS };
+        a.offspring_count += 1;
+        // Newborn body near parent
+    let offset = Vec2 { x: (rng.random::<f32>() - 0.5) * 3.0 * AGENT_RADIUS, y: (rng.random::<f32>() - 0.5) * 3.0 * AGENT_RADIUS };
+    let mut pos = a.body.pos + offset;
+        pos.x = (pos.x % WORLD_W + WORLD_W) % WORLD_W; pos.y = (pos.y % WORLD_H + WORLD_H) % WORLD_H;
+    births.push((i, crate::body::Body { pos, vel: Vec2::new(0.0, 0.0), radius: AGENT_RADIUS }));
+        if live_count + births.len() >= ECO_MAX_POP { break; }
+    }
+    if births.is_empty() { return; }
+    // For each birth: create a child genome as mutated clone of parent's genome, speciate, and append a new Agent
+    for (parent_idx, body) in births {
+        // Parent’s genome index equals their position in arrays (kept aligned)
+        let parent_genome = population.get(parent_idx).cloned();
+        if let Some(mut child_g) = parent_genome.map(|g| g) {
+            child_g.mutate(innov, cfg);
+            population.push(child_g);
+            // Speciate updated population and refresh mapping
+            speciator.speciate(&population);
+            member_species.clear();
+            member_species.resize(population.len(), 0);
+            for (sidx, s) in speciator.get_species().iter().enumerate() {
+                for &m in &s.members { if m < population.len() { member_species[m] = sidx; } }
+            }
+            let sid = *member_species.get(population.len()-1).unwrap_or(&0);
+            // Append newborn agent aligned with last genome
+            episode.agents.push(Agent {
+                id: AgentId(episode.agents.len()),
+                body,
+                theta: -std::f32::consts::FRAC_PI_2,
+                energy: ECO_NEWBORN_ENERGY.min(MAX_ENERGY),
+                health: ECO_NEWBORN_HEALTH,
+                max_health: ECO_NEWBORN_HEALTH,
+                invuln_steps: 0,
+                alive_steps: 0,
+                eaten: 0,
+                consumed: false,
+                kills: 0,
+                predation_flash_steps: 0,
+                dead_since: None,
+                corpse_energy: 0.0,
+                digest: std::collections::VecDeque::new(),
+                last_food_mem: Vec2 { x: 0.0, y: 0.0 },
+                last_danger_mem: Vec2 { x: 0.0, y: 0.0 },
+                species_id: sid,
+                call_intensity: 0.0,
+                heard_sectors: [0.0;3],
+                repro_cooldown: ECO_BIRTH_COOLDOWN_STEPS / 2,
+                offspring_count: 0,
+            });
+            // Extend comm fitness accumulator to match agents length
+            episode.comm_fitness_accum.push(0.0);
+            episode.births_this_episode += 1;
+            // HUD shows births_this_episode; no console print
+        }
     }
 }
 

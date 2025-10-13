@@ -29,6 +29,9 @@ pub struct Agent {
     // Communication
     pub call_intensity: f32,      // emitted this step (0..1)
     pub heard_sectors: [f32;3],   // smoothed heard call energy (L,F,R)
+    // Reproduction (eco continuous): cooldown and per-episode offspring count
+    pub repro_cooldown: usize,
+    pub offspring_count: usize,
 }
 
 #[derive(Clone, Copy, Debug)]

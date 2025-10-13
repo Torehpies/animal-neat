@@ -10,6 +10,7 @@ pub struct Episode {
     pub agents: Vec<Agent>,
     pub steps: usize,
     pub first_eat_step: Option<usize>,
+    pub births_this_episode: usize,
     // Motor usage stats (for HUD): aggregated over agent-steps this episode
     pub total_agent_steps: usize,
     pub avg_speed_accum: f32,
@@ -42,6 +43,8 @@ impl Episode {
                 last_danger_mem: Vec2 { x: 0.0, y: 0.0 },
                 species_id: *species_map.get(i).unwrap_or(&0),
                 call_intensity: 0.0, heard_sectors: [0.0;3],
+                repro_cooldown: 0,
+                offspring_count: 0,
             });
         }
         Self {
@@ -49,6 +52,7 @@ impl Episode {
             agents,
             steps: 0,
             first_eat_step: None,
+            births_this_episode: 0,
             total_agent_steps: 0,
             avg_speed_accum: 0.0,
             heading_change_accum: 0.0,
