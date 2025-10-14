@@ -18,10 +18,10 @@ pub const EPISODES_PER_GEN: usize = 3;
 pub const WORLD_W: f32 = 500.0;
 pub const WORLD_H: f32 = 500.0;
 // Agent starting and maximum energy
-pub const INITIAL_ENERGY: f32 = 500.0;
+pub const INITIAL_ENERGY: f32 = 1000.0;
 pub const MAX_ENERGY: f32 = 5000.0;  // clamp upper bound for energy; can be >= INITIAL_ENERGY
 pub const ENERGY_DRAIN_PER_STEP: f32 = 0.05;
-pub const MAX_STEPS: usize = 10_000;
+pub const MAX_STEPS: usize = 5_000;
 pub const AGENT_RADIUS: f32 = 1.5;
 
 // =============
@@ -90,13 +90,13 @@ pub const MEMORY_DECAY: f32 = 0.90;
 //  1. Vision distances (nearest per sector/category): sectors (L,F,R)=3 × categories (Plant, Carcass, Same, Other, Wall)=5 => 15
 //     Value encoding: normalized distance d/VISION_RANGE (0 near .. 1 far/no target). If no target in sector, value = 1.
 //  2. Energy scalar = 1
-//  3. Memory vectors (food_x, food_y, danger_x, danger_y) = 4
+//  3. Memory vectors (food_x, food_y, same_x, same_y, other_x, other_y) = 6
 //  4. Hearing sectors (L,F,R) smoothed call intensity = HEARING_SECTORS (3)
 //  5. Normalized absolute position (x/WORLD_W, y/WORLD_H) = 2
-// Total INPUTS = 15 + 1 + 4 + HEARING_SECTORS + 2
+// Total INPUTS = 15 + 1 + 6 + HEARING_SECTORS + 2
 // Temporarily disable hearing inputs entirely
 pub const HEARING_SECTORS: usize = 0;
-pub const INPUTS: usize = 15 + 1 + 4 + HEARING_SECTORS + 2; // now 22 total
+pub const INPUTS: usize = 15 + 1 + 6 + HEARING_SECTORS + 2; // now 24 total when HEARING_SECTORS=0
 // Movement controller outputs now: [ turn, speed ] (relative turn model)
 // turn in [-1,1] -> applied delta heading in [-MAX_TURN_PER_STEP, MAX_TURN_PER_STEP]
 // speed in [-1,1] -> [0,1]
@@ -111,7 +111,7 @@ pub const OUTPUTS: usize = 2 + (COMMUNICATION_ENABLED as usize);
 // Masking zeroes that segment of the input vector but keeps layout/length stable.
 pub const ENABLE_VISION_INPUTS: bool = true;   // pooled sector proximities (plant/same/other/wall)
 pub const ENABLE_HEARING_INPUTS: bool = false;  // heard call energy sectors
-pub const ENABLE_MEMORY_INPUTS: bool = true;   // last food & danger memory vectors (4 floats)
+pub const ENABLE_MEMORY_INPUTS: bool = true;   // last food (x,y), same (x,y), other (x,y) memory vectors (6 floats)
 // Density inputs removed in revised vision model
 
 // ==========================
@@ -139,6 +139,13 @@ pub const ENERGY_AVG_WEIGHT: f32 = 10.0;
 // This is applied during ECO culling by adding offspring_count * REPRO_BIRTH_FITNESS_PARENT
 // to the parent's score. Keep modest to avoid runaway reproduction loops.
 pub const REPRO_BIRTH_FITNESS_PARENT: f32 = 8.0;
+
+// Social/Herding shaping: small per-step reward when staying behind/near same-species
+// We use the same-species memory vector in local coordinates (x=right, y=forward) and
+// reward positive forward alignment (same_y > 0). This nudges agents to follow others
+// in front of them without forcing tight clustering. Keep this small.
+pub const HERDING_ENABLED: bool = true;
+pub const HERDING_REWARD_PER_STEP: f32 = 0.01; // applied as HERDING_REWARD_PER_STEP * max(0, same_y)
 // Intake penalty: penalize agents with very low or zero intake to discourage camping/aimless wandering
 // If an agent eats fewer than INTAKE_MIN_EVENTS times, apply a linear penalty per missing event.
 // Example: INTAKE_MIN_EVENTS=2, INTAKE_MISS_PENALTY=5.0 => 0 eats: -10, 1 eat: -5, 2+ eats: 0

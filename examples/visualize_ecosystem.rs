@@ -576,6 +576,8 @@ fn spawn_offspring_if_needed<R: Rng>(
             digest: std::collections::VecDeque::new(),
             last_food_mem: Vec2 { x: 0.0, y: 0.0 },
             last_danger_mem: Vec2 { x: 0.0, y: 0.0 },
+            last_same_mem: Vec2 { x: 0.0, y: 0.0 },
+            last_other_mem: Vec2 { x: 0.0, y: 0.0 },
             species_id: child_species,
             call_intensity: 0.0,
             heard_sectors: [0.0;3],

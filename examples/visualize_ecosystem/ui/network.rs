@@ -157,7 +157,12 @@ pub fn draw_network_panel(area: Rect, genome: &Genome) {
         if idx == r.energy { return "Energy".to_string(); }
         if r.memory.contains(&idx) {
             let j = idx - r.memory.start;
-            let name = match j { 0 => "Mem F.x", 1 => "Mem F.y", 2 => "Mem D.x", 3 => "Mem D.y", _ => "Mem" };
+            let name = match j { 
+                0 => "Mem Food.x", 1 => "Mem Food.y", 
+                2 => "Mem Same.x", 3 => "Mem Same.y", 
+                4 => "Mem Other.x", 5 => "Mem Other.y",
+                _ => "Mem" 
+            };
             return name.to_string();
         }
         if r.hearing.contains(&idx) { // May be empty when hearing disabled

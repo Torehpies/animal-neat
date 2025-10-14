@@ -23,7 +23,9 @@ pub struct Agent {
     pub corpse_energy: f32,          // remaining energy in corpse (for scavenging)
     pub digest: VecDeque<DigestEvent>, // incoming energy deliveries
     pub last_food_mem: Vec2,         // memory of last step's nearest-food local vector
-    pub last_danger_mem: Vec2,       // memory of last step's nearest-agent local vector
+    pub last_danger_mem: Vec2,       // memory of last step's nearest-agent local vector (legacy/general)
+    pub last_same_mem: Vec2,         // memory of last step's nearest same-species local vector
+    pub last_other_mem: Vec2,        // memory of last step's nearest other-species local vector
     pub species_id: usize,           // stable species index captured at episode start
     // Predation stats for fitness shaping
     pub attack_hits: usize,          // number of successful damage applications to live targets

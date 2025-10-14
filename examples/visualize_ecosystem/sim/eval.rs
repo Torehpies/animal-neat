@@ -30,6 +30,8 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         digest: VecDeque::new(),
         last_food_mem: Vec2 { x: 0.0, y: 0.0 },
         last_danger_mem: Vec2 { x: 0.0, y: 0.0 },
+        last_same_mem: Vec2 { x: 0.0, y: 0.0 },
+        last_other_mem: Vec2 { x: 0.0, y: 0.0 },
     species_id: *species_map.get(i).unwrap_or(&0),
         call_intensity: 0.0, heard_sectors: [0.0;3],
         repro_cooldown: 0,

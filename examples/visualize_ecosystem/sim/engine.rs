@@ -65,7 +65,7 @@ pub fn tick_step<R: Rng>(
     let energy_in = (a.energy / MAX_ENERGY).clamp(0.0, 1.0);
         let my_species = a.species_id;
         let mut inputs = sensing::build_inputs(
-            a.body.pos, a.theta, food, energy_in, a.last_food_mem, a.last_danger_mem, &snapshot, i, my_species, a.heard_sectors
+            a.body.pos, a.theta, food, energy_in, a.last_food_mem, a.last_same_mem, a.last_other_mem, &snapshot, i, my_species, a.heard_sectors
         );
         sim::mask_inputs(&mut inputs);
 
@@ -165,10 +165,18 @@ pub fn tick_step<R: Rng>(
 
         // Update memories
         a.last_food_mem = Vec2 { x: cur_fx, y: cur_fy };
-        let (dx_mem, dy_mem) = sensing::nearest_agent_vector_local(a.body.pos, a.theta, &snapshot, i);
-        a.last_danger_mem = Vec2 { x: dx_mem, y: dy_mem };
-        a.last_food_mem.x *= MEMORY_DECAY; a.last_food_mem.y *= MEMORY_DECAY;
-        a.last_danger_mem.x *= MEMORY_DECAY; a.last_danger_mem.y *= MEMORY_DECAY;
+        let ((same_x, same_y), (other_x, other_y)) = sensing::nearest_same_other_vectors_local(a.body.pos, a.theta, &snapshot, i, my_species);
+    a.last_same_mem = Vec2 { x: same_x, y: same_y };
+    a.last_other_mem = Vec2 { x: other_x, y: other_y };
+    a.last_food_mem.x *= MEMORY_DECAY; a.last_food_mem.y *= MEMORY_DECAY;
+    a.last_same_mem.x *= MEMORY_DECAY; a.last_same_mem.y *= MEMORY_DECAY;
+    a.last_other_mem.x *= MEMORY_DECAY; a.last_other_mem.y *= MEMORY_DECAY;
+
+        // Social herding shaping: reward following same-species in front (positive forward alignment)
+        if HERDING_ENABLED {
+            let forward_align = same_y.max(0.0); // prefer being behind/following a same-species target
+            if let Some(fit) = comm_fit.get_mut(i) { *fit += forward_align * HERDING_REWARD_PER_STEP; }
+        }
 
         // Communication: spawn/score signals only when enabled
         if COMMUNICATION_ENABLED {

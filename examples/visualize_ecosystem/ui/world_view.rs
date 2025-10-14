@@ -299,7 +299,7 @@ pub fn draw_world(
                     let labels = ["P","C","S","O","W"]; // left side labels
                     // Compute inputs on the fly (reuse existing function)
                     let vision_inputs = {
-                        let temp = sensing::build_inputs(a.body.pos, a.theta, &episode.food, (a.energy / MAX_ENERGY).clamp(0.0,1.0), a.last_food_mem, a.last_danger_mem, &snapshot, idx, a.species_id, a.heard_sectors);
+                        let temp = sensing::build_inputs(a.body.pos, a.theta, &episode.food, (a.energy / MAX_ENERGY).clamp(0.0,1.0), a.last_food_mem, a.last_same_mem, a.last_other_mem, &snapshot, idx, a.species_id, a.heard_sectors);
                         // slice first 15 vision values
                         let mut arr = [0.0f32;15];
                         for i in 0..15 { arr[i] = temp[i]; }
@@ -350,7 +350,8 @@ pub fn draw_world(
                     draw_line(ax, ay, ex, ey, 2.0, color);
                 };
                 draw_mem_vec(a.last_food_mem.x, a.last_food_mem.y, Color::new(1.0,0.95,0.3,0.9));
-                draw_mem_vec(a.last_danger_mem.x, a.last_danger_mem.y, Color::new(1.0,0.6,0.2,0.9));
+                draw_mem_vec(a.last_same_mem.x, a.last_same_mem.y, Color::new(0.3,0.9,1.0,0.9));
+                draw_mem_vec(a.last_other_mem.x, a.last_other_mem.y, Color::new(1.0,0.6,0.2,0.9));
                 }
                 // Density visualization removed with revised sensing model
             }

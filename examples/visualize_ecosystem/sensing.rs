@@ -23,7 +23,7 @@ use std::ops::Range;
 pub struct InputRanges {
     pub vision: Range<usize>,    // 3 sectors × 5 categories = 15
     pub energy: usize,           // single scalar
-    pub memory: Range<usize>,    // 4 (food_x, food_y, danger_x, danger_y)
+    pub memory: Range<usize>,    // 6 (food_x, food_y, same_x, same_y, other_x, other_y)
     pub hearing: Range<usize>,   // HEARING_SECTORS
     pub position: Range<usize>,  // 2 (x/WORLD_W, y/WORLD_H)
 }
@@ -33,8 +33,8 @@ pub fn input_ranges() -> InputRanges {
     use super::params::*;
     let vision = 0..15; // 3 × 5
     let energy = 15;
-    let memory = 16..20; // 4 values
-    let hearing = 20..(20 + HEARING_SECTORS);
+    let memory = 16..22; // 6 values
+    let hearing = 22..(22 + HEARING_SECTORS);
     let position = hearing.end..(hearing.end + 2);
     InputRanges { vision, energy, memory, hearing, position }
 }
@@ -118,6 +118,36 @@ pub fn nearest_agent_vector_local(pos: Vec2, theta: f32, snapshot: &[(Vec2, bool
     (dot_right * att, dot_fwd * att)
 }
 
+pub fn nearest_same_other_vectors_local(pos: Vec2, theta: f32, snapshot: &[(Vec2, bool, bool, usize, bool)], self_idx: usize, my_species: usize) -> ((f32,f32),(f32,f32)) {
+    let mut best_same = (f32::INFINITY, Vec2 { x: 0.0, y: 0.0 });
+    let mut best_other = (f32::INFINITY, Vec2 { x: 0.0, y: 0.0 });
+    for (j, (p, alive, consumed, species, is_corpse)) in snapshot.iter().enumerate() {
+        if j == self_idx { continue; }
+        if !*alive || *consumed || *is_corpse { continue; }
+        let dx = p.x - pos.x; let dy = p.y - pos.y;
+        let d2 = dx*dx + dy*dy;
+        if *species == my_species {
+            if d2 < best_same.0 { best_same = (d2, Vec2 { x: dx, y: dy }); }
+        } else {
+            if d2 < best_other.0 { best_other = (d2, Vec2 { x: dx, y: dy }); }
+        }
+    }
+    let rot = |v: Vec2, d2: f32| -> (f32,f32) {
+        if !d2.is_finite() || d2.is_infinite() { return (0.0, 0.0); }
+        let d = d2.sqrt();
+        let att = (1.0 - (d / DANGER_VECTOR_MAX_RANGE)).clamp(0.0, 1.0);
+        if att <= 0.0 { return (0.0, 0.0); }
+        let c = theta.cos(); let s = theta.sin();
+        let fwd_x = c; let fwd_y = s; let right_x = -s; let right_y = c;
+        let dot_fwd = (v.x * fwd_x + v.y * fwd_y) / d.max(1e-6);
+        let dot_right = (v.x * right_x + v.y * right_y) / d.max(1e-6);
+        (dot_right * att, dot_fwd * att)
+    };
+    let same = if best_same.0.is_finite() { rot(best_same.1, best_same.0) } else { (0.0, 0.0) };
+    let other = if best_other.0.is_finite() { rot(best_other.1, best_other.0) } else { (0.0, 0.0) };
+    (same, other)
+}
+
 // Optional: derive a local vector from rays for UI/memory (weighted by signal strength along rays)
 pub fn aggregate_vector_from_rays(theta: f32, hits: &[(Vec2, f32)]) -> (f32, f32) {
     // hits: list of (dir_world, strength in 0..1). Convert to local and average.
@@ -172,7 +202,7 @@ pub fn meat_vector_from_rays(pos: Vec2, theta: f32, snapshot: &[(Vec2, bool, boo
 
 // Removed unused nearest_food_distance (legacy diagnostic) to reduce warnings.
 
-pub fn build_inputs(pos: Vec2, theta: f32, food: &[Vec2], energy: f32, last_food_mem: Vec2, last_danger_mem: Vec2, snapshot: &[(Vec2, bool, bool, usize, bool)], self_idx: usize, my_species: usize, heard: [f32;3]) -> [f32; INPUTS] {
+pub fn build_inputs(pos: Vec2, theta: f32, food: &[Vec2], energy: f32, last_food_mem: Vec2, last_same_mem: Vec2, last_other_mem: Vec2, snapshot: &[(Vec2, bool, bool, usize, bool)], self_idx: usize, my_species: usize, heard: [f32;3]) -> [f32; INPUTS] {
     // Vision distances per sector/category
     let mut inputs = [0.0f32; INPUTS];
     for i in 0..15 { inputs[i] = 1.0; } // default: nothing seen
@@ -220,13 +250,14 @@ pub fn build_inputs(pos: Vec2, theta: f32, food: &[Vec2], energy: f32, last_food
     }
     // Energy scalar
     inputs[15] = energy.clamp(0.0,1.0);
-    // Memory
+    // Memory (6 floats)
     inputs[16] = last_food_mem.x; inputs[17] = last_food_mem.y;
-    inputs[18] = last_danger_mem.x; inputs[19] = last_danger_mem.y;
+    inputs[18] = last_same_mem.x; inputs[19] = last_same_mem.y;
+    inputs[20] = last_other_mem.x; inputs[21] = last_other_mem.y;
     // Hearing
-    for si in 0..HEARING_SECTORS { inputs[20 + si] = heard[si].clamp(0.0,1.0); }
+    for si in 0..HEARING_SECTORS { inputs[22 + si] = heard[si].clamp(0.0,1.0); }
     // Position
-    let pos_idx = 20 + HEARING_SECTORS;
+    let pos_idx = 22 + HEARING_SECTORS;
     inputs[pos_idx] = (pos.x / WORLD_W).clamp(0.0,1.0);
     inputs[pos_idx+1] = (pos.y / WORLD_H).clamp(0.0,1.0);
     inputs

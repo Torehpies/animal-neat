@@ -152,7 +152,7 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
                             let is_corpse = !alive && !a.consumed && a.corpse_energy > 0.1;
                             (a.body.pos, alive, a.consumed, a.species_id, is_corpse)
                         }).collect();
-                        let inputs_arr = sensing::build_inputs(agent.body.pos, agent.theta, &state.episode.food, energy_in, agent.last_food_mem, agent.last_danger_mem, &snapshot, fi, agent.species_id, agent.heard_sectors);
+                        let inputs_arr = sensing::build_inputs(agent.body.pos, agent.theta, &state.episode.food, energy_in, agent.last_food_mem, agent.last_same_mem, agent.last_other_mem, &snapshot, fi, agent.species_id, agent.heard_sectors);
                         let inputs: Vec<f32> = inputs_arr.to_vec();
                         let genome = &state.population[fi];
                         let acts = genome.evaluate_with_activations_slice(&inputs);
