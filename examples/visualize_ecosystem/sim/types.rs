@@ -27,6 +27,7 @@ pub struct Agent {
     pub last_same_mem: Vec2,         // memory of last step's nearest same-species local vector
     pub last_other_mem: Vec2,        // memory of last step's nearest other-species local vector
     pub species_id: usize,           // stable species index captured at episode start
+    pub age_steps: usize,            // steps since (re)birth; used for newborn grace
     // Predation stats for fitness shaping
     pub attack_hits: usize,          // number of successful damage applications to live targets
     pub kills_caused: usize,         // number of times this agent's damage caused a death

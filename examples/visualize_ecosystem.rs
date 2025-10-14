@@ -399,7 +399,7 @@ fn eco_cull_population_by_fitness(state: &mut AppState) {
         .partial_cmp(&scores[a])
         .unwrap_or(std::cmp::Ordering::Equal));
 
-    // 1) Keep up to ECO_CULL_MIN_PER_SPECIES per species by best fitness within that species
+    // 1) Build by-species lists sorted by within-species fitness
     use std::collections::HashMap;
     let mut by_species: HashMap<usize, Vec<usize>> = HashMap::new();
     for (idx, sid) in state.member_species.iter().enumerate() { by_species.entry(*sid).or_default().push(idx); }
@@ -410,26 +410,70 @@ fn eco_cull_population_by_fitness(state: &mut AppState) {
     }
 
     let mut selected: Vec<usize> = Vec::new();
-    if ECO_CULL_MIN_PER_SPECIES > 0 {
-        for v in by_species.values() {
-            let take = v.len().min(ECO_CULL_MIN_PER_SPECIES);
-            selected.extend_from_slice(&v[..take]);
+
+    if EQUAL_ALLOC_ENABLED && !by_species.is_empty() {
+        // Rank species by their best member's fitness
+        let mut species_best: Vec<(usize, f32)> = by_species
+            .iter()
+            .map(|(sid, members)| {
+                let best_score = members
+                    .iter()
+                    .copied()
+                    .map(|i| scores[i])
+                    .fold(f32::NEG_INFINITY, f32::max);
+                (*sid, best_score)
+            })
+            .collect();
+        species_best.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let k = EQUAL_ALLOC_TOP_K.max(1).min(species_best.len());
+        let mut chosen_species: Vec<usize> = species_best.into_iter().take(k).map(|(sid, _)| sid).collect();
+
+        // Compute base quota and distribute remainder to top species
+        let base = POPULATION_SIZE / k;
+        let mut remainder = POPULATION_SIZE % k;
+
+        // Take from each chosen species up to its quota, or all available if fewer
+        for (rank, sid) in chosen_species.iter().enumerate() {
+            if selected.len() >= POPULATION_SIZE { break; }
+            let quota = base + if rank < remainder { 1 } else { 0 };
+            if let Some(members) = by_species.get(sid) {
+                let take = members.len().min(quota);
+                selected.extend_from_slice(&members[..take]);
+            }
         }
-    }
 
-    // 2) Fill remaining slots by global fitness order, skipping already selected
-    let mut seen: std::collections::HashSet<usize> = selected.iter().copied().collect();
-    for i in &all_idxs {
-        if selected.len() >= POPULATION_SIZE { break; }
-        if !seen.contains(i) { selected.push(*i); seen.insert(*i); }
-    }
+        // If underfilled (some species didn't have enough members), fill by global fitness
+        if selected.len() < POPULATION_SIZE {
+            let mut seen: std::collections::HashSet<usize> = selected.iter().copied().collect();
+            for i in &all_idxs {
+                if selected.len() >= POPULATION_SIZE { break; }
+                if !seen.contains(i) { selected.push(*i); seen.insert(*i); }
+            }
+        }
+    } else {
+        // Fallback: Keep up to ECO_CULL_MIN_PER_SPECIES per species by best fitness within that species
+        if ECO_CULL_MIN_PER_SPECIES > 0 {
+            for v in by_species.values() {
+                let take = v.len().min(ECO_CULL_MIN_PER_SPECIES);
+                selected.extend_from_slice(&v[..take]);
+            }
+        }
 
-    // If we still exceed POPULATION_SIZE (e.g., many species × min), trim globally
-    if selected.len() > POPULATION_SIZE {
-        selected.sort_by(|&a, &b| scores[b]
-            .partial_cmp(&scores[a])
-            .unwrap_or(std::cmp::Ordering::Equal));
-        selected.truncate(POPULATION_SIZE);
+        // 2) Fill remaining slots by global fitness order, skipping already selected
+        let mut seen: std::collections::HashSet<usize> = selected.iter().copied().collect();
+        for i in &all_idxs {
+            if selected.len() >= POPULATION_SIZE { break; }
+            if !seen.contains(i) { selected.push(*i); seen.insert(*i); }
+        }
+
+        // If we still exceed POPULATION_SIZE (e.g., many species × min), trim globally
+        if selected.len() > POPULATION_SIZE {
+            selected.sort_by(|&a, &b| scores[b]
+                .partial_cmp(&scores[a])
+                .unwrap_or(std::cmp::Ordering::Equal));
+            selected.truncate(POPULATION_SIZE);
+        }
     }
 
     // Rebuild population vector in selected order
@@ -555,7 +599,7 @@ fn spawn_offspring_if_needed<R: Rng>(
         for (sidx, s) in speciator.get_species().iter().enumerate() {
             for &m in &s.members { if m < population.len() { member_species[m] = sidx; } }
         }
-        let child_species = *member_species.get(population.len()-1).unwrap_or(&sid);
+    let child_species = *member_species.get(population.len()-1).unwrap_or(&sid);
 
         // Append newborn agent aligned with last genome
         episode.agents.push(Agent {
@@ -578,7 +622,10 @@ fn spawn_offspring_if_needed<R: Rng>(
             last_danger_mem: Vec2 { x: 0.0, y: 0.0 },
             last_same_mem: Vec2 { x: 0.0, y: 0.0 },
             last_other_mem: Vec2 { x: 0.0, y: 0.0 },
-            species_id: child_species,
+            // For live-episode behavior (predation/mating), tag newborn with the parents' species id
+            // to avoid immediate conspecific misclassification due to structural differences.
+            species_id: sid,
+            age_steps: 0,
             call_intensity: 0.0,
             heard_sectors: [0.0;3],
             repro_cooldown: ECO_BIRTH_COOLDOWN_STEPS,

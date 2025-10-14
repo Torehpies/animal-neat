@@ -181,6 +181,11 @@ pub const ECO_NEWBORN_HEALTH: f32 = AGENT_BASE_HEALTH / 2.0;
 /// Distance within which two same-species, eligible parents can mate to produce an offspring
 pub const ECO_MATE_RADIUS: f32 = 8.0 * AGENT_RADIUS;
 
+// Newborn safety: for the first N steps of life, newborns cannot attack others and
+// cannot be targeted for predation. This prevents immediate culling of offspring by
+// their own parents or other nearby predators due to transient speciation flips.
+pub const NEWBORN_GRACE_STEPS: usize = 60;
+
 // =====================
 // Predation/scavenging
 // =====================
@@ -254,6 +259,17 @@ pub const SPECIES_TARGET: usize = 8;     // e.g., aim for ~8 species
 pub const SPECIES_ADAPT_RATE: f32 = 0.01; // how fast the threshold adapts towards target
 // During eco culling, keep at least this many per species (subject to POPULATION_SIZE cap)
 pub const ECO_CULL_MIN_PER_SPECIES: usize = 10;
+
+// Optional: Equal allocation among top-K species during ECO culling.
+// When enabled, we rank species by their best member's fitness in the just-finished episode
+// and keep an equal number of individuals from each of the top-K species. The quota is
+// POPULATION_SIZE / K with the remainder distributed one-by-one starting from the best species.
+// If any selected species has fewer available members than its quota, we take all it has and
+// then fill any remaining population slots by global fitness order (across all remaining
+// individuals regardless of species). When disabled, we fall back to the per-species minimum
+// (ECO_CULL_MIN_PER_SPECIES) plus global fill policy.
+pub const EQUAL_ALLOC_ENABLED: bool = false;
+pub const EQUAL_ALLOC_TOP_K: usize = 6; // effective K is min(this, number of species)
 // =============================
 // Snapshotting
 // =============================

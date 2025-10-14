@@ -44,6 +44,7 @@ pub fn tick_step<R: Rng>(
         let is_corpse = !alive && !a.consumed && a.corpse_energy > 0.1;
         (a.body.pos, alive, a.consumed, *species_ids.get(i).unwrap_or(&0), is_corpse)
     }).collect();
+    let age_snapshot: Vec<usize> = agents.iter().map(|a| a.age_steps).collect();
 
     let mut prey_targets: Vec<Option<usize>> = vec![None; agents.len()];
     let mut delta = StepDelta::zero();
@@ -125,6 +126,9 @@ pub fn tick_step<R: Rng>(
                 if j == i { continue; }
                 let (pos_j, alive_j, consumed_j, species_j, is_corpse_j) = snapshot[j];
                 if consumed_j { continue; }
+                // Newborn grace: attackers under grace cannot attack; targets under grace cannot be attacked
+                if a.age_steps < NEWBORN_GRACE_STEPS { continue; }
+                if age_snapshot.get(j).copied().unwrap_or(NEWBORN_GRACE_STEPS) < NEWBORN_GRACE_STEPS { continue; }
                 // Disallow predation on same-species live targets; allow scavenging same-species corpses
                 if alive_j && species_j == my_species { continue; }
                 if (alive_j && !PREDATION_ENABLED) || ((!alive_j || is_corpse_j) && !SCAVENGE_ENABLED) { continue; }
@@ -140,7 +144,8 @@ pub fn tick_step<R: Rng>(
         else { delta.avg_speed_accum += (raw_thrust + 1.0) * 0.5; }
         delta.heading_change_accum += turn_delta.abs();
 
-        a.alive_steps += 1;
+    a.alive_steps += 1;
+    a.age_steps = a.age_steps.saturating_add(1);
         // Energy cost
         let mut energy_cost = ENERGY_DRAIN_PER_STEP;
         if USE_INERTIA {
