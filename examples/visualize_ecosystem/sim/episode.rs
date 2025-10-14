@@ -27,7 +27,7 @@ impl Episode {
                 id: AgentId(i),
                 body: Body { pos: world::rand_pos(rng), vel: Vec2::new(0.0, 0.0), radius: AGENT_RADIUS },
                 theta: -std::f32::consts::FRAC_PI_2,
-                energy: INITIAL_ENERGY.min(MAX_ENERGY),
+                energy: crate::params::get_initial_energy().min(crate::params::get_max_energy()),
                 health: AGENT_BASE_HEALTH,
                 max_health: AGENT_BASE_HEALTH,
                 invuln_steps: 0,

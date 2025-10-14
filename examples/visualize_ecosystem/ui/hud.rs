@@ -97,7 +97,7 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
                 let lines = [
                     format!("Species {} • Births {}", a.species_id, a.offspring_count),
                     format!("Status: {}", if alive { "Alive" } else { "Dead" }),
-                    format!("Energy {:.0}/{:.0}", a.energy.max(0.0), MAX_ENERGY),
+                    format!("Energy {:.0}/{:.0}", a.energy.max(0.0), crate::params::get_max_energy()),
                     format!("Health {:.0}/{:.0}", a.health.max(0.0), a.max_health),
                     format!("Alive steps {}", a.alive_steps),
                     format!("Intake plants:{} meat:{} (meat% {:.0}%)", diet_plants as i32, diet_meat as i32, meat_ratio*100.0),
@@ -145,7 +145,7 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
                     if fi < state.population.len() {
                         // Build current inputs and evaluate activations
                         use crate::sensing;
-                        let energy_in = (agent.energy / MAX_ENERGY).clamp(0.0, 1.0);
+                        let energy_in = (agent.energy / crate::params::get_max_energy()).clamp(0.0, 1.0);
                         // Minimal snapshot for inputs: use agent states from episode
                         let snapshot: Vec<(Vec2, bool, bool, usize, bool)> = state.episode.agents.iter().map(|a| {
                             let alive = a.energy > 0.0 && a.health > DEATH_HEALTH_THRESHOLD;

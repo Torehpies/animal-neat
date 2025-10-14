@@ -236,6 +236,8 @@ async fn main() {
         
         // Apply configuration to global params (via world module)
         world::set_runtime_config(sim_config.world_width, sim_config.world_height, sim_config.max_food, sim_config.food_respawn_prob);
+        params::set_runtime_energy_config(sim_config.initial_energy, sim_config.max_energy, sim_config.energy_drain_per_step);
+        params::set_runtime_population_size(sim_config.population_size);
         
         let mut state = AppState::new(sim_config);
         let mut running = true;      // continuous evolution by default
@@ -452,16 +454,16 @@ fn eco_cull_population_by_fitness(state: &mut AppState) {
     // 2) Fill remaining slots by global fitness order, skipping already selected
     let mut seen: std::collections::HashSet<usize> = selected.iter().copied().collect();
     for i in &all_idxs {
-        if selected.len() >= POPULATION_SIZE { break; }
+        if selected.len() >= params::get_population_size() { break; }
         if !seen.contains(i) { selected.push(*i); seen.insert(*i); }
     }
 
-    // If we still exceed POPULATION_SIZE (e.g., many species × min), trim globally
-    if selected.len() > POPULATION_SIZE {
+    // If we still exceed population size (e.g., many species × min), trim globally
+    if selected.len() > params::get_population_size() {
         selected.sort_by(|&a, &b| scores[b]
             .partial_cmp(&scores[a])
             .unwrap_or(std::cmp::Ordering::Equal));
-        selected.truncate(POPULATION_SIZE);
+        selected.truncate(params::get_population_size());
     }
 
     // Rebuild population vector in selected order
