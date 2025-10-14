@@ -202,7 +202,22 @@ pub fn meat_vector_from_rays(pos: Vec2, theta: f32, snapshot: &[(Vec2, bool, boo
 
 // Removed unused nearest_food_distance (legacy diagnostic) to reduce warnings.
 
-pub fn build_inputs_inplace(out: &mut [f32], pos: Vec2, theta: f32, food: &[Vec2], energy: f32, last_food_mem: Vec2, last_same_mem: Vec2, last_other_mem: Vec2, snapshot: &[(Vec2, bool, bool, usize, bool)], self_idx: usize, my_species: usize, heard: [f32;3]) {
+pub fn build_inputs_inplace(
+    out: &mut [f32],
+    pos: Vec2,
+    theta: f32,
+    food: &[Vec2],
+    energy: f32,
+    last_food_mem: Vec2,
+    last_same_mem: Vec2,
+    last_other_mem: Vec2,
+    snapshot: &[(Vec2, bool, bool, usize, bool)],
+    self_idx: usize,
+    my_species: usize,
+    heard: [f32;3],
+    food_indices: Option<&[usize]>,
+    agent_indices: Option<&[usize]>,
+) {
     debug_assert_eq!(out.len(), INPUTS);
     // Vision distances per sector/category
     for i in 0..15 { out[i] = 1.0; } // default: nothing seen
@@ -220,7 +235,10 @@ pub fn build_inputs_inplace(out: &mut [f32], pos: Vec2, theta: f32, food: &[Vec2
         if norm < out[idx] { out[idx] = norm; }
     };
     // Plants
-    for fpos in food.iter() {
+    let food_iter: Box<dyn Iterator<Item=&Vec2>> = if let Some(idxs) = food_indices {
+        Box::new(idxs.iter().filter_map(move |i| food.get(*i)))
+    } else { Box::new(food.iter()) };
+    for fpos in food_iter {
         let dx = fpos.x - pos.x; let dy = fpos.y - pos.y;
         let dist2 = dx*dx + dy*dy; if dist2 > VISION_RANGE * VISION_RANGE { continue; }
         let dist = dist2.sqrt(); if dist <= 1e-6 { continue; }
@@ -229,7 +247,10 @@ pub fn build_inputs_inplace(out: &mut [f32], pos: Vec2, theta: f32, food: &[Vec2
         if let Some(si) = sector_index(ang) { write_dist(si, 0, dist); }
     }
     // Agents / carcasses
-    for (j, (apos, alive, consumed, species_id, is_corpse)) in snapshot.iter().enumerate() {
+    let agent_iter: Box<dyn Iterator<Item=(usize,&(Vec2,bool,bool,usize,bool))>> = if let Some(idxs) = agent_indices {
+        Box::new(idxs.iter().filter_map(move |j| snapshot.get(*j).map(|v| (*j,v))))
+    } else { Box::new(snapshot.iter().enumerate()) };
+    for (j, (apos, alive, consumed, species_id, is_corpse)) in agent_iter {
         if j == self_idx || *consumed { continue; }
         let dx = apos.x - pos.x; let dy = apos.y - pos.y; let dist2 = dx*dx + dy*dy; if dist2 > VISION_RANGE * VISION_RANGE { continue; }
         let dist = dist2.sqrt(); if dist <= 1e-6 { continue; }
@@ -264,7 +285,7 @@ pub fn build_inputs_inplace(out: &mut [f32], pos: Vec2, theta: f32, food: &[Vec2
 
 pub fn build_inputs(pos: Vec2, theta: f32, food: &[Vec2], energy: f32, last_food_mem: Vec2, last_same_mem: Vec2, last_other_mem: Vec2, snapshot: &[(Vec2, bool, bool, usize, bool)], self_idx: usize, my_species: usize, heard: [f32;3]) -> [f32; INPUTS] {
     let mut arr = [0.0f32; INPUTS];
-    build_inputs_inplace(&mut arr, pos, theta, food, energy, last_food_mem, last_same_mem, last_other_mem, snapshot, self_idx, my_species, heard);
+    build_inputs_inplace(&mut arr, pos, theta, food, energy, last_food_mem, last_same_mem, last_other_mem, snapshot, self_idx, my_species, heard, None, None);
     arr
 }
 

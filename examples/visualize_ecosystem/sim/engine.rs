@@ -87,7 +87,24 @@ pub fn tick_step<R: Rng>(
         // We can't mutably borrow agent inside map easily; copy inputs then reuse in Phase 2
         // (Simpler sequential Phase 1: we'll fill a temporary and store outputs only.)
         // NOTE: For full reuse, Phase 1 would need mutable access; current iterator borrows immutably.
-    sensing::build_inputs_inplace(&mut scratch, a.body.pos, a.theta, food, energy_in, a.last_food_mem, a.last_same_mem, a.last_other_mem, &snapshot, i, my_species, a.heard_sectors);
+        // Vision filtering: build local candidate index lists (food + agents) using same CELL grid as predation but larger range for vision
+        // Reuse predation grid if already built; for simplicity rebuild lightweight vision lists here (small overhead compared to O(N)).
+        const VISION_CELL: f32 = VISION_RANGE / 3.0; // coarser grid for vision
+        let gx = (a.body.pos.x / VISION_CELL).floor() as i32; let gy = (a.body.pos.y / VISION_CELL).floor() as i32;
+        // Collect food candidates
+        let mut food_candidates: Vec<usize> = Vec::new();
+        for (fi, fpos) in food.iter().enumerate() {
+            // Quick coarse filter by cell distance (cheap); could use a food grid for larger counts
+            let fgx = (fpos.x / VISION_CELL).floor() as i32; let fgy = (fpos.y / VISION_CELL).floor() as i32;
+            if (fgx - gx).abs() <= 1 && (fgy - gy).abs() <= 1 { food_candidates.push(fi); }
+        }
+        // Agent snapshot candidates
+        let mut agent_candidates: Vec<usize> = Vec::new();
+        for (sj, (p, _alive, _consumed, _sid, _corpse)) in snapshot.iter().enumerate() {
+            let agx = (p.x / VISION_CELL).floor() as i32; let agy = (p.y / VISION_CELL).floor() as i32;
+            if (agx - gx).abs() <= 1 && (agy - gy).abs() <= 1 { agent_candidates.push(sj); }
+        }
+        sensing::build_inputs_inplace(&mut scratch, a.body.pos, a.theta, food, energy_in, a.last_food_mem, a.last_same_mem, a.last_other_mem, &snapshot, i, my_species, a.heard_sectors, Some(&food_candidates), Some(&agent_candidates));
         sim::mask_inputs(&mut scratch);
         let out = population[i].evaluate_slice(&scratch);
         let mut raw_turn = out.get(0).copied().unwrap_or(0.0);

@@ -89,6 +89,8 @@ struct AppState {
     // Runtime config
     #[allow(dead_code)]
     pub sim_config: SimConfig,
+    // Diagnostics
+    show_fps: bool,
 }
 
 impl AppState {
@@ -138,6 +140,7 @@ impl AppState {
             show_graphs_panel: true,
             graphs: ui_graphs::Trends::new(),
             sim_config,
+            show_fps: true,
         }
     }
 
@@ -278,6 +281,7 @@ async fn main() {
     if is_key_pressed(KeyCode::H) { state.show_controls = !state.show_controls; }
     if is_key_pressed(KeyCode::K) { state.color_by_species = !state.color_by_species; }
     if is_key_pressed(KeyCode::Z) { state.show_graphs_panel = !state.show_graphs_panel; }
+    if is_key_pressed(KeyCode::O) { state.show_fps = !state.show_fps; }
         
         // ESC: if focused on an agent, clear focus; otherwise go back to menu
         if is_key_pressed(KeyCode::Escape) {
@@ -704,6 +708,7 @@ fn spawn_offspring_if_needed<R: Rng>(
             idle_anchor: birth_pos,
             idle_steps: 0,
             total_idle_penalty: 0.0,
+            input_buf: Vec::with_capacity(crate::params::INPUTS),
         });
         // Extend comm fitness accumulator to match agents length
         episode.comm_fitness_accum.push(0.0);

@@ -47,6 +47,20 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
         draw_rectangle(px, py, pill_w, pill_h, Color::new(col.r, col.g, col.b, 0.18));
         draw_rectangle_lines(px, py, pill_w, pill_h, 1.0, Color::new(col.r, col.g, col.b, 0.55));
         draw_text(mode, px + pad_x, py + fs, fs, Color::new(0.90, 0.92, 0.95, 1.0));
+
+        // Optional FPS pill just below mode
+        if state.show_fps {
+            let fps = get_fps();
+            let fps_txt = format!("{} fps", fps);
+            let dims2 = measure_text(&fps_txt, None, fs as u16, 1.0);
+            let pill_w2 = dims2.width + 2.0 * pad_x;
+            let pill_h2 = pill_h; // same height
+            let py2 = py + pill_h + 4.0;
+            let px2 = px + (pill_w - pill_w2).max(0.0); // right align with status
+            draw_rectangle(px2, py2, pill_w2, pill_h2, Color::new(0.15, 0.18, 0.22, 0.25));
+            draw_rectangle_lines(px2, py2, pill_w2, pill_h2, 1.0, Color::new(0.45, 0.55, 0.70, 0.55));
+            draw_text(&fps_txt, px2 + pad_x, py2 + fs, fs, Color::new(0.85, 0.9, 0.95, 1.0));
+        }
     }
 
     // Essentials block
@@ -101,7 +115,7 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
             y = section_title("Controls", x, y, max_w);
             let line_left = [
                 "[P] Pause/Resume   [F] Fast Mode   [R] Reset Episode   [Esc] Clear Focus",
-                "[Click] Focus Agent   [N] Best Panel   [M] Live Net   [H] Toggle Controls   [K] Color Mode",
+                "[Click] Focus Agent   [N] Best Panel   [M] Live Net   [H] Toggle Controls   [K] Color Mode   [O] FPS",
             ];
             let line_right = [
                 "[V] Vision Rays   [U] Unified Overlay",
