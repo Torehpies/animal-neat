@@ -8,21 +8,34 @@
 // Evolution / Population
 // =====================
 /// Number of agents/genomes in the population and per episode
-pub const POPULATION_SIZE: usize = 50;
+pub const POPULATION_SIZE: usize = 30;
 /// Episodes per generation for fitness averaging
 pub const EPISODES_PER_GEN: usize = 3;
 
 // ======
 // World
 // ======
-pub const WORLD_W: f32 = 750.0;
-pub const WORLD_H: f32 = 750.0;
+pub const WORLD_W: f32 = 500.0;
+pub const WORLD_H: f32 = 500.0;
 // Agent starting and maximum energy
 pub const INITIAL_ENERGY: f32 = 500.0;
 pub const MAX_ENERGY: f32 = 5000.0;  // clamp upper bound for energy; can be >= INITIAL_ENERGY
 pub const ENERGY_DRAIN_PER_STEP: f32 = 0.05;
 pub const MAX_STEPS: usize = 10_000;
 pub const AGENT_RADIUS: f32 = 1.5;
+
+// =============
+// Spawning
+// =============
+// When creating a new live episode, place agents in species-specific clusters
+// to improve the odds of conspecific encounters (mating, grouping).
+// Standard deviation of the Gaussian jitter around each species center (world units).
+pub const SPECIES_SPAWN_CLUSTERING_ENABLED: bool = true;
+pub const SPECIES_SPAWN_CLUSTER_STD: f32 = 30.0;
+// Target number of members per cluster center; large species will get multiple centers.
+pub const SPECIES_CLUSTER_TARGET_SIZE: usize = 10;
+// Upper bound to avoid creating too many centers for very large species.
+pub const SPECIES_SPAWN_MAX_CENTERS_PER_SPECIES: usize = 5;
 
 // =====
 // Food
@@ -154,9 +167,9 @@ pub const ECO_MAX_POP: usize = 250;                 // maximum concurrent agents
 pub const ECO_MIN_POP: usize = 10;                 // minimum seeding on reset if all die
 pub const ECO_BIRTH_ENERGY_THRESHOLD: f32 = 250.0; // minimum energy to allow birth
 pub const ECO_BIRTH_ENERGY_COST: f32 = 50.0;      // energy deducted from parent per birth
-pub const ECO_BIRTH_COOLDOWN_STEPS: usize = 120;    // steps before the same parent can reproduce again
+pub const ECO_BIRTH_COOLDOWN_STEPS: usize = 40;    // steps before the same parent can reproduce again
 pub const ECO_MAX_OFFSPRING_PER_AGENT: usize = 50;  // per-episode cap
-pub const ECO_NEWBORN_ENERGY: f32 = 250.0;         // initial energy for newborns
+pub const ECO_NEWBORN_ENERGY: f32 = 150.0;         // initial energy for newborns
 pub const ECO_NEWBORN_HEALTH: f32 = AGENT_BASE_HEALTH / 2.0;
 /// Distance within which two same-species, eligible parents can mate to produce an offspring
 pub const ECO_MATE_RADIUS: f32 = 8.0 * AGENT_RADIUS;
@@ -224,7 +237,7 @@ pub const SOUND_ATTENUATION_EXP: f32 = 2.0;
 pub const CORPSE_INITIAL_ENERGY: f32 = MEAT_ENERGY;
 pub const CORPSE_DECAY_RATE: f32 = 0.02;
 pub const DIGEST_STEPS_PLANT: u16 = 25;
-pub const DIGEST_STEPS_MEAT: u16 = 55;
+pub const DIGEST_STEPS_MEAT: u16 = 45;
 
 // =============================
 // Speciation (visualizer)
@@ -233,7 +246,7 @@ pub const DIGEST_STEPS_MEAT: u16 = 55;
 pub const SPECIES_TARGET: usize = 8;     // e.g., aim for ~8 species
 pub const SPECIES_ADAPT_RATE: f32 = 0.01; // how fast the threshold adapts towards target
 // During eco culling, keep at least this many per species (subject to POPULATION_SIZE cap)
-pub const ECO_CULL_MIN_PER_SPECIES: usize = 4;
+pub const ECO_CULL_MIN_PER_SPECIES: usize = 10;
 // =============================
 // Snapshotting
 // =============================

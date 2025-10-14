@@ -1,5 +1,6 @@
 
 use macroquad::prelude::Vec2;
+use rand_distr::Distribution;
 use ::rand::Rng;
 use std::collections::VecDeque;
 use neat::genome::Genome;
@@ -21,11 +22,48 @@ pub struct Episode {
 
 impl Episode {
     pub fn new<R: Rng>(rng: &mut R, agent_count: usize, species_map: &[usize]) -> Self {
+        // Build species -> members index map
+        let mut by_species: std::collections::HashMap<usize, Vec<usize>> = std::collections::HashMap::new();
+        for (i, sid) in species_map.iter().enumerate().take(agent_count) {
+            by_species.entry(*sid).or_default().push(i);
+        }
+        // Sample one or multiple random centers per species if clustering is enabled
+        let mut species_centers: std::collections::HashMap<usize, Vec<Vec2>> = std::collections::HashMap::new();
+        for (&sid, members) in by_species.iter() {
+            if SPECIES_SPAWN_CLUSTERING_ENABLED {
+                let mut centers = Vec::new();
+                let n_centers = ((members.len() + SPECIES_CLUSTER_TARGET_SIZE - 1) / SPECIES_CLUSTER_TARGET_SIZE)
+                    .clamp(1, SPECIES_SPAWN_MAX_CENTERS_PER_SPECIES);
+                for _ in 0..n_centers { centers.push(world::rand_pos(rng)); }
+                species_centers.insert(sid, centers);
+            } else {
+                species_centers.insert(sid, vec![world::rand_pos(rng)]);
+            }
+        }
+
         let mut agents = Vec::with_capacity(agent_count);
         for i in 0..agent_count {
+            let sid = *species_map.get(i).unwrap_or(&0);
+            let centers = species_centers.get(&sid).cloned().unwrap_or_else(|| vec![world::rand_pos(rng)]);
+            // Deterministically assign member to a center by index partitioning for stability
+            let center = if centers.len() == 1 { centers[0] } else {
+                let members = by_species.get(&sid).map(|v| v.as_slice()).unwrap_or(&[]);
+                if members.is_empty() { centers[0] } else {
+                    let pos_in_species = members.iter().position(|&idx| idx == i).unwrap_or(0);
+                    let chunk = (members.len() + centers.len() - 1) / centers.len();
+                    let cidx = (pos_in_species / chunk).min(centers.len()-1);
+                    centers[cidx]
+                }
+            };
+            // Gaussian jitter around center
+            let normal: rand_distr::StandardNormal = rand_distr::StandardNormal;
+            let jx: f32 = Distribution::<f32>::sample(&normal, rng) * SPECIES_SPAWN_CLUSTER_STD;
+            let jy: f32 = Distribution::<f32>::sample(&normal, rng) * SPECIES_SPAWN_CLUSTER_STD;
+            let mut pos = Vec2 { x: center.x + jx, y: center.y + jy };
+            pos = world::wrap_to_world(pos);
             agents.push(Agent {
                 id: AgentId(i),
-                body: Body { pos: world::rand_pos(rng), vel: Vec2::new(0.0, 0.0), radius: AGENT_RADIUS },
+                body: Body { pos, vel: Vec2::new(0.0, 0.0), radius: AGENT_RADIUS },
                 theta: -std::f32::consts::FRAC_PI_2,
                 energy: INITIAL_ENERGY.min(MAX_ENERGY),
                 health: AGENT_BASE_HEALTH,
