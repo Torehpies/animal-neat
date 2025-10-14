@@ -6,6 +6,7 @@ use crate::ui_common::{
     PANEL_BG, PANEL_BORDER, SUBPANEL_BG, PAD, GAP, FONT,
 };
 use crate::ui_network::{draw_network_panel, draw_network_panel_activations};
+use crate::ui_graphs::draw_graphs_panel;
 
 // Compact HUD with essential stats; best-network panel retained.
 pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _member_species: &[usize]) {
@@ -16,12 +17,14 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
     let mut y = area.y + PAD;
 
     // Reserve bottom portion for network panel; can be hidden via toggles
+    let graphs_h = if state.show_graphs_panel { (area.h * 0.36).clamp(140.0, 320.0) } else { 0.0 };
     let network_h = if state.show_best_network_panel || state.show_live_network { (area.h * 0.42).clamp(160.0, 380.0) } else { 0.0 };
-    let max_y = area.y + area.h - PAD - network_h - 8.0;
+    let reserved_h = graphs_h + network_h;
+    let max_y = area.y + area.h - PAD - reserved_h - 8.0;
     let max_w = area.w - (x - area.x) - PAD;
 
     // Derived stats
-    let mode = if !running { "Paused" } else if fast_mode { "Running (Fast)" } else { "Running (Normal)" };
+    let mode = if !running { "Paused" } else { "Running" };
     let species_count = state.speciator.get_species().len();
     let alive = state.episode.agents.iter().filter(|a| a.energy > 0.0).count();
     let corpses = state.episode.agents.iter().filter(|a| a.energy <= 0.0 && !a.consumed).count();
@@ -40,7 +43,7 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
         let pill_h = fs + 2.0 * pad_y;
         let px = area.x + area.w - PAD - pill_w;
         let py = area.y + 6.0;
-        let col = if !running { Color::new(0.95, 0.75, 0.30, 1.0) } else if fast_mode { Color::new(0.30, 0.85, 0.45, 1.0) } else { Color::new(0.30, 0.60, 1.0, 1.0) };
+    let col = if !running { Color::new(0.95, 0.75, 0.30, 1.0) } else if fast_mode { Color::new(0.30, 0.85, 0.45, 1.0) } else { Color::new(0.30, 0.60, 1.0, 1.0) };
         draw_rectangle(px, py, pill_w, pill_h, Color::new(col.r, col.g, col.b, 0.18));
         draw_rectangle_lines(px, py, pill_w, pill_h, 1.0, Color::new(col.r, col.g, col.b, 0.55));
         draw_text(mode, px + pad_x, py + fs, fs, Color::new(0.90, 0.92, 0.95, 1.0));
@@ -50,9 +53,9 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
     y = section_title("Overview", x, y, max_w);
     let essentials = [
         if ECO_CONTINUOUS {
-            format!("ECO ep {} | {}", state.eco_episode_counter, mode)
+            format!("ECO ep {}", state.eco_episode_counter)
         } else {
-            format!("Gen {} | {}", state.generation, mode)
+            format!("Gen {}", state.generation)
         },
         format!("Pop {} | Species {}", state.population.len(), species_count),
         format!("Best {:.2} | Avg {:.2}", state.last_best, state.last_avg),
@@ -98,18 +101,18 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
             y = section_title("Controls", x, y, max_w);
             let line_left = [
                 "[P] Pause/Resume   [F] Fast Mode   [R] Reset Episode   [Esc] Clear Focus",
-                "[Click] Focus Agent   [N] Toggle Best Panel   [M] Toggle Live Net   [H] Toggle Controls   [K] Color: Species/Diet",
+                "[Click] Focus Agent   [N] Best Panel   [M] Live Net   [H] Toggle Controls   [K] Color Mode",
             ];
             let line_right = [
-                "[V] Show/Hide Vision Rays   [U] Unified Overlay (vision grid + memory)",
-                "[E] Energy Bar   [C] Collision Radii   [G] Exploration Grid",
+                "[V] Vision Rays   [U] Unified Overlay",
+                "[E] Energy Bar   [C] Collision Radii   [G] Exploration Grid   [Z] Graphs Panel",
             ];
             let col_gap = 12.0;
             let col_w = (max_w - col_gap) * 0.5;
             let mut yl = y;
-            for line in line_left.iter() { if yl <= max_y { yl = draw_text_wrapped(line, x + 6.0, yl, 15.0, GRAY, col_w, 4.0); } }
+            for line in line_left.iter() { if yl <= max_y { yl = draw_text_wrapped(line, x + 6.0, yl, 17.0, LIGHTGRAY, col_w, 6.0); } }
             let mut yr = y;
-            for line in line_right.iter() { if yr <= max_y { yr = draw_text_wrapped(line, x + 6.0 + col_w + col_gap, yr, 15.0, GRAY, col_w, 4.0); } }
+            for line in line_right.iter() { if yr <= max_y { yr = draw_text_wrapped(line, x + 6.0 + col_w + col_gap, yr, 17.0, LIGHTGRAY, col_w, 6.0); } }
             let _y_end = yl.max(yr) + GAP;
         }
     } else {
@@ -118,6 +121,12 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
             let hint = "[H] Show Controls";
             let _ = draw_text_wrapped(hint, x, y, 16.0, GRAY, max_w, GAP);
         }
+    }
+
+    // Graphs panel area (trends)
+    if state.show_graphs_panel && graphs_h > 0.0 {
+        let panel = Rect { x: area.x + 8.0, y: area.y + area.h - (network_h + graphs_h) + 8.0, w: area.w - 16.0, h: graphs_h - 16.0 };
+        draw_graphs_panel(panel, &state.graphs);
     }
 
     // Network panel area (for best or live activations)

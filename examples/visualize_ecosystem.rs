@@ -41,6 +41,8 @@ mod ui_hud;
 mod ui_network;
 #[path = "visualize_ecosystem/ui/menu.rs"]
 mod ui_menu;
+#[path = "visualize_ecosystem/ui/graphs.rs"]
+mod ui_graphs;
 #[path = "visualize_ecosystem/elements/body.rs"]
 mod body;
 #[path = "visualize_ecosystem/sim/mod.rs"]
@@ -81,6 +83,9 @@ struct AppState {
     eco_episode_counter: usize,
     show_controls: bool,
     color_by_species: bool,
+    // Graphs
+    show_graphs_panel: bool,
+    graphs: ui_graphs::Trends,
     // Runtime config
     #[allow(dead_code)]
     pub sim_config: SimConfig,
@@ -130,6 +135,8 @@ impl AppState {
             eco_episode_counter: 0,
             show_controls: true,
             color_by_species: false,
+            show_graphs_panel: true,
+            graphs: ui_graphs::Trends::new(1024),
             sim_config,
         }
     }
@@ -266,10 +273,11 @@ async fn main() {
             if is_key_pressed(KeyCode::E) { state.show_energy_overlay = !state.show_energy_overlay; }
         if is_key_pressed(KeyCode::C) { state.show_collision_radii = !state.show_collision_radii; }
         if is_key_pressed(KeyCode::G) { state.show_grid = !state.show_grid; }
-        if is_key_pressed(KeyCode::N) { state.show_best_network_panel = !state.show_best_network_panel; }
-        if is_key_pressed(KeyCode::M) { state.show_live_network = !state.show_live_network; }
-        if is_key_pressed(KeyCode::H) { state.show_controls = !state.show_controls; }
-        if is_key_pressed(KeyCode::K) { state.color_by_species = !state.color_by_species; }
+    if is_key_pressed(KeyCode::N) { state.show_best_network_panel = !state.show_best_network_panel; }
+    if is_key_pressed(KeyCode::M) { state.show_live_network = !state.show_live_network; }
+    if is_key_pressed(KeyCode::H) { state.show_controls = !state.show_controls; }
+    if is_key_pressed(KeyCode::K) { state.color_by_species = !state.color_by_species; }
+    if is_key_pressed(KeyCode::Z) { state.show_graphs_panel = !state.show_graphs_panel; }
         
         // ESC: if focused on an agent, clear focus; otherwise go back to menu
         if is_key_pressed(KeyCode::Escape) {
@@ -302,6 +310,14 @@ async fn main() {
                         }
                     }
                     state.episode.step(&state.population, &mut rng);
+                    // Update graphs trends per step
+                    let alive_ct = state.episode.agents.iter().filter(|a| a.energy > 0.0).count() as f32;
+                    let species_ct = state.speciator.get_species().len() as f32;
+                    let deaths_ct = state.episode.agents.iter().filter(|a| a.energy <= 0.0 && !a.consumed).count() as f32;
+                    state.graphs.pop.push(alive_ct);
+                    state.graphs.species.push(species_ct);
+                    state.graphs.births.push(state.episode.births_this_episode as f32);
+                    state.graphs.deaths.push(deaths_ct);
                     if ECO_CONTINUOUS {
                         // Reproduction pass: try to spawn offspring for eligible parents
                         spawn_offspring_if_needed(
@@ -325,6 +341,8 @@ async fn main() {
                         state.evolve_one_generation();
                         state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
                     }
+                    // Push fitness trends after evaluation window
+                    if state.last_best.is_finite() { state.graphs.best.push(state.last_best); state.graphs.mean.push(state.last_avg); }
                 }
             } else {
                 // Normal mode: advance one simulation step per second
@@ -340,8 +358,18 @@ async fn main() {
                             state.evolve_one_generation();
                             state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
                         }
+                        // Push fitness trends after evaluation window
+                        if state.last_best.is_finite() { state.graphs.best.push(state.last_best); state.graphs.mean.push(state.last_avg); }
                     } else {
                         state.episode.step(&state.population, &mut rng);
+                        // Update graphs per step
+                        let alive_ct = state.episode.agents.iter().filter(|a| a.energy > 0.0).count() as f32;
+                        let species_ct = state.speciator.get_species().len() as f32;
+                        let deaths_ct = state.episode.agents.iter().filter(|a| a.energy <= 0.0 && !a.consumed).count() as f32;
+                        state.graphs.pop.push(alive_ct);
+                        state.graphs.species.push(species_ct);
+                        state.graphs.births.push(state.episode.births_this_episode as f32);
+                        state.graphs.deaths.push(deaths_ct);
                         if ECO_CONTINUOUS {
                             spawn_offspring_if_needed(
                                 &mut state.population,
