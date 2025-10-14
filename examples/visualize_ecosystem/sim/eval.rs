@@ -34,6 +34,8 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         call_intensity: 0.0, heard_sectors: [0.0;3],
         repro_cooldown: 0,
         offspring_count: 0,
+        attack_hits: 0,
+        kills_caused: 0,
     }).collect();
     // Track exploration (unique grid cells)
     let mut visited: Vec<HashSet<u32>> = vec![HashSet::new(); agents.len()];
@@ -42,6 +44,8 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
     let mut comm_fit: Vec<f32> = vec![0.0; agents.len()];
 
     let mut steps = 0usize;
+    // Track average energy: accumulate per-agent energy while alive
+    let mut energy_accum: Vec<f32> = vec![0.0; agents.len()];
     while steps < MAX_STEPS {
         if agents.iter().all(|a| a.energy <= 0.0 || a.health <= DEATH_HEALTH_THRESHOLD) { break; }
         // Use shared step logic
@@ -57,6 +61,10 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             &mut rng,
             None,
         );
+        // Accumulate energy for alive agents this step
+        for (i, a) in agents.iter().enumerate() {
+            if a.energy > 0.0 && a.health > DEATH_HEALTH_THRESHOLD { energy_accum[i] += a.energy; }
+        }
         steps += 1;
     }
 
@@ -72,7 +80,11 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         let frac = if total_cells > 0.0 { (visited[i].len() as f32) / total_cells } else { 0.0 };
         let exploration = frac * EXPL_WEIGHT;
         let survival = (a.alive_steps as f32).powf(SURVIVAL_TIME_EXP) * SURVIVAL_STEP_FITNESS;
-        intake + exploration + survival + comm_fit[i]
+        let predation_reward = (a.attack_hits as f32) * ATTACK_HIT_FITNESS + (a.kills_caused as f32) * KILL_CAUSED_FITNESS;
+        // Average energy while alive (normalized 0..1)
+        let avg_energy_norm = if a.alive_steps > 0 { (energy_accum[i] / a.alive_steps as f32) / MAX_ENERGY } else { 0.0 };
+        let energy_term = avg_energy_norm * ENERGY_AVG_WEIGHT;
+        intake + exploration + survival + predation_reward + energy_term + comm_fit[i]
     }).collect()
 }
 

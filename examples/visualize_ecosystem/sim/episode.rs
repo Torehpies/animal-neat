@@ -45,6 +45,8 @@ impl Episode {
                 call_intensity: 0.0, heard_sectors: [0.0;3],
                 repro_cooldown: 0,
                 offspring_count: 0,
+                attack_hits: 0,
+                kills_caused: 0,
             });
         }
         Self {
@@ -85,6 +87,7 @@ impl Episode {
     }
 
     pub fn is_finished(&self) -> bool {
+        self.steps >= MAX_STEPS ||
         self.agents.iter().all(|a| a.energy <= 0.0 || a.health <= DEATH_HEALTH_THRESHOLD)
     }
 }

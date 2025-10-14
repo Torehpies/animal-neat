@@ -25,6 +25,9 @@ pub struct Agent {
     pub last_food_mem: Vec2,         // memory of last step's nearest-food local vector
     pub last_danger_mem: Vec2,       // memory of last step's nearest-agent local vector
     pub species_id: usize,           // stable species index captured at episode start
+    // Predation stats for fitness shaping
+    pub attack_hits: usize,          // number of successful damage applications to live targets
+    pub kills_caused: usize,         // number of times this agent's damage caused a death
     // (Removed) pooled sector proximities in revised vision model
     // Communication
     pub call_intensity: f32,      // emitted this step (0..1)

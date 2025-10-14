@@ -385,27 +385,80 @@ async fn main() {
 
 fn eco_cull_population_by_fitness(state: &mut AppState) {
     // Evaluate current population with the same single-episode fitness used for evolution
-    let scores = eval_population_single_episode(&state.population);
-    // Sort indices by descending fitness and retain the top POPULATION_SIZE
-    let mut idxs: Vec<usize> = (0..state.population.len()).collect();
-    idxs.sort_by(|&a, &b| scores[b]
+    let mut scores = eval_population_single_episode(&state.population);
+    // Augment scores with reproduction reward from the just-finished live episode
+    // Parents get a bonus per successful birth this episode.
+    for (i, a) in state.episode.agents.iter().enumerate() {
+        if i < scores.len() {
+            scores[i] += (a.offspring_count as f32) * REPRO_BIRTH_FITNESS_PARENT;
+        }
+    }
+    // Build indices sorted by fitness desc
+    let mut all_idxs: Vec<usize> = (0..state.population.len()).collect();
+    all_idxs.sort_by(|&a, &b| scores[b]
         .partial_cmp(&scores[a])
         .unwrap_or(std::cmp::Ordering::Equal));
-    let keep = POPULATION_SIZE.min(idxs.len());
-    let keep_idxs = &idxs[..keep];
-    // Rebuild population vector keeping only top individuals
-    let mut new_pop = Vec::with_capacity(keep);
-    for &i in keep_idxs { new_pop.push(state.population[i].clone()); }
+
+    // 1) Keep up to ECO_CULL_MIN_PER_SPECIES per species by best fitness within that species
+    use std::collections::HashMap;
+    let mut by_species: HashMap<usize, Vec<usize>> = HashMap::new();
+    for (idx, sid) in state.member_species.iter().enumerate() { by_species.entry(*sid).or_default().push(idx); }
+    for v in by_species.values_mut() {
+        v.sort_by(|&a, &b| scores[b]
+            .partial_cmp(&scores[a])
+            .unwrap_or(std::cmp::Ordering::Equal));
+    }
+
+    let mut selected: Vec<usize> = Vec::new();
+    if ECO_CULL_MIN_PER_SPECIES > 0 {
+        for v in by_species.values() {
+            let take = v.len().min(ECO_CULL_MIN_PER_SPECIES);
+            selected.extend_from_slice(&v[..take]);
+        }
+    }
+
+    // 2) Fill remaining slots by global fitness order, skipping already selected
+    let mut seen: std::collections::HashSet<usize> = selected.iter().copied().collect();
+    for i in &all_idxs {
+        if selected.len() >= POPULATION_SIZE { break; }
+        if !seen.contains(i) { selected.push(*i); seen.insert(*i); }
+    }
+
+    // If we still exceed POPULATION_SIZE (e.g., many species × min), trim globally
+    if selected.len() > POPULATION_SIZE {
+        selected.sort_by(|&a, &b| scores[b]
+            .partial_cmp(&scores[a])
+            .unwrap_or(std::cmp::Ordering::Equal));
+        selected.truncate(POPULATION_SIZE);
+    }
+
+    // Rebuild population vector in selected order
+    let mut new_pop = Vec::with_capacity(selected.len());
+    for &i in &selected { new_pop.push(state.population[i].clone()); }
     state.population = new_pop;
+
+    // After culling, perform mutation pass on the survivor population (post-episode),
+    // keeping with standard NEAT where mutation happens between generations/episodes.
+    // Apply mutation to all but optionally the top elite (could be added later if desired).
+    for g in state.population.iter_mut() {
+        g.mutate(&mut state.innov, &state.cfg);
+    }
     // Update best/avg stats for HUD
-    if !scores.is_empty() {
-        let best_score = scores[*keep_idxs.first().unwrap_or(&0)];
-        let avg_score = if keep > 0 { keep_idxs.iter().map(|&i| scores[i]).sum::<f32>() / keep as f32 } else { 0.0 };
+    if !scores.is_empty() && !state.population.is_empty() {
+        // Recompute best/avg over kept indices
+        let best_score = selected.iter().copied().map(|i| scores[i]).fold(f32::NEG_INFINITY, f32::max);
+        let avg_score = selected.iter().copied().map(|i| scores[i]).sum::<f32>() / (selected.len() as f32);
         state.last_best = best_score;
         state.last_avg = avg_score;
         state.last_best_generation = state.eco_episode_counter; // repurpose as last eval eco-episode id
         // Snapshot the best genome for the network panel
-        state.last_best_genome = state.population.get(0).cloned(); // index 0 is best after rebuild
+        // Find which kept index had best score and clone its genome
+        if let Some((&best_idx, _)) = selected.iter().zip(selected.iter().map(|&i| scores[i])).max_by(|a,b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)) {
+            let pos = selected.iter().position(|&x| x == best_idx).unwrap_or(0);
+            state.last_best_genome = state.population.get(pos).cloned();
+        } else {
+            state.last_best_genome = state.population.get(0).cloned();
+        }
     }
         // Important: clear existing species to avoid stale representative indices
         state.speciator.get_species_mut().clear();
@@ -422,8 +475,8 @@ fn eco_cull_population_by_fitness(state: &mut AppState) {
 fn spawn_offspring_if_needed<R: Rng>(
     population: &mut Vec<Genome>,
     episode: &mut Episode,
-    innov: &mut InnovationTracker,
-    cfg: &EvolutionConfig,
+    _innov: &mut InnovationTracker,
+    _cfg: &EvolutionConfig,
     rng: &mut R,
     speciator: &mut Speciator,
     member_species: &mut Vec<usize>,
@@ -491,8 +544,8 @@ fn spawn_offspring_if_needed<R: Rng>(
         if i >= population.len() || j >= population.len() { continue; }
         let p1 = &population[i];
         let p2 = &population[j];
-        let mut child_g = neat::neat::crossover::crossover(p1, p2);
-        child_g.mutate(innov, cfg);
+    // Offspring are produced by crossover only; no mutation here (mutation happens after episode)
+    let child_g = neat::neat::crossover::crossover(p1, p2);
         population.push(child_g);
 
         // Update species map using existing speciator (child species determined after speciation)
@@ -528,21 +581,25 @@ fn spawn_offspring_if_needed<R: Rng>(
             heard_sectors: [0.0;3],
             repro_cooldown: ECO_BIRTH_COOLDOWN_STEPS,
             offspring_count: 0,
+            attack_hits: 0,
+            kills_caused: 0,
         });
         // Extend comm fitness accumulator to match agents length
         episode.comm_fitness_accum.push(0.0);
         episode.births_this_episode += 1;
 
-        // Apply costs and cooldowns to parents
+        // Apply costs and cooldowns to parents; award reproduction fitness bonus to parents
         if let Some(pa) = episode.agents.get_mut(i) {
             pa.energy = (pa.energy - cost * 0.5).max(0.0);
             pa.repro_cooldown = ECO_BIRTH_COOLDOWN_STEPS;
             pa.offspring_count += 1;
+            if let Some(fit) = episode.comm_fitness_accum.get_mut(i) { *fit += REPRO_BIRTH_FITNESS_PARENT; }
         }
         if let Some(pb) = episode.agents.get_mut(j) {
             pb.energy = (pb.energy - cost * 0.5).max(0.0);
             pb.repro_cooldown = ECO_BIRTH_COOLDOWN_STEPS;
             pb.offspring_count += 1;
+            if let Some(fit) = episode.comm_fitness_accum.get_mut(j) { *fit += REPRO_BIRTH_FITNESS_PARENT; }
         }
     }
 }

@@ -15,13 +15,13 @@ pub const EPISODES_PER_GEN: usize = 3;
 // ======
 // World
 // ======
-pub const WORLD_W: f32 = 500.0;
-pub const WORLD_H: f32 = 500.0;
+pub const WORLD_W: f32 = 750.0;
+pub const WORLD_H: f32 = 750.0;
 // Agent starting and maximum energy
-pub const INITIAL_ENERGY: f32 = 250.0;
-pub const MAX_ENERGY: f32 = 1000.0;  // clamp upper bound for energy; can be >= INITIAL_ENERGY
-pub const ENERGY_DRAIN_PER_STEP: f32 = 0.25;
-pub const MAX_STEPS: usize = 500;
+pub const INITIAL_ENERGY: f32 = 500.0;
+pub const MAX_ENERGY: f32 = 5000.0;  // clamp upper bound for energy; can be >= INITIAL_ENERGY
+pub const ENERGY_DRAIN_PER_STEP: f32 = 0.05;
+pub const MAX_STEPS: usize = 10_000;
 pub const AGENT_RADIUS: f32 = 1.5;
 
 // =====
@@ -42,14 +42,14 @@ pub const SEASONAL_ENABLED: bool = true;
 pub const SEASONAL_PERIOD_STEPS: usize = 4000; // higher = slower seasons
 pub const SEASONAL_AMPLITUDE: f32 = 0.35;      // 0.0..1.0; multiplies growth by (1 + A*sin(...))
 pub const BIOME_SEASON_PHASE: [f32; 3] = [0.0, 1.2, 2.4]; // radians offset per biome
-pub const FOOD_COUNT: usize = 100;
+pub const FOOD_COUNT: usize = 300;
 pub const FOOD_RADIUS: f32 = 1.2;
 pub const FOOD_ENERGY: f32 = 60.0;
 
 // Plant/food dynamics
-pub const MAX_FOOD: usize = 100;
+pub const MAX_FOOD: usize = 300;
 pub const FOOD_MIN_SEP: f32 = 2.5;
-pub const FOOD_RESPAWN_PROB: f32 = 0.01;
+pub const FOOD_RESPAWN_PROB: f32 = 0.006;
 pub const FOOD_SPREAD_CHANCE: f32 = 0.01;
 pub const FOOD_SPREAD_RADIUS: f32 = 15.0;
 
@@ -57,8 +57,8 @@ pub const FOOD_SPREAD_RADIUS: f32 = 15.0;
 // Vision cone parameters
 // =====================
 pub const VISION_RAYS: usize = 7;
-pub const VISION_ANGLE_DEG: f32 = 70.0;
-pub const VISION_RANGE: f32 = 50.0;
+pub const VISION_ANGLE_DEG: f32 = 80.0;
+pub const VISION_RANGE: f32 = 90.0;
 /// Derived: radians for convenience if needed by math
 
 // ========
@@ -104,22 +104,32 @@ pub const ENABLE_MEMORY_INPUTS: bool = true;   // last food & danger memory vect
 // ==========================
 // Exploration (simplified)
 // ==========================
-pub const EXPL_CELL_SIZE: f32 = 25.0;            // grid resolution for exploration coverage
-pub const EXPL_WEIGHT: f32 = 10.0;                // reward for 100% coverage (typically unreachable)
+pub const EXPL_CELL_SIZE: f32 = 50.0;            // grid resolution for exploration coverage
+pub const EXPL_WEIGHT: f32 = 30.0;                // reward for 100% coverage (typically unreachable)
 
 // ========================
 // Core movement & fitness (simplified)
 // ========================
 // Fitness: we collapse plant/meat shaping into two simple weights.
-pub const PLANT_FITNESS: f32 = 4.0;            // reward per plant eaten
-pub const MEAT_FITNESS: f32 = 8.0;             // reward per meat (kill or scavenged corpse) event
+pub const PLANT_FITNESS: f32 = 6.0;            // reward per plant eaten
+pub const MEAT_FITNESS: f32 = 10.0;             // reward per meat (kill or scavenged corpse) event
 pub const SURVIVAL_STEP_FITNESS: f32 = 0.03;  // reward per simulation step survived (alive or not? counted via total steps for now)
 // Updated: SURVIVAL_STEP_FITNESS now applied per-agent using alive_steps^SURVIVAL_TIME_EXP
 pub const SURVIVAL_TIME_EXP: f32 = 0.75;       // 0.5 => sqrt diminishing returns; 1.0 would be linear
+// Predation shaping: reward successful attack hits and kills caused
+pub const ATTACK_HIT_FITNESS: f32 = 2.5;       // reward per successful damage application to a live target
+pub const KILL_CAUSED_FITNESS: f32 = 12.0;      // reward when an agent's hit reduces target health to <= 0
+// Energy shaping: reward agents that maintain higher average energy while alive
+// avg_energy is normalized by MAX_ENERGY before weighting
+pub const ENERGY_AVG_WEIGHT: f32 = 10.0;
+// Reproduction shaping: reward per successful birth (applied to each parent)
+// This is applied during ECO culling by adding offspring_count * REPRO_BIRTH_FITNESS_PARENT
+// to the parent's score. Keep modest to avoid runaway reproduction loops.
+pub const REPRO_BIRTH_FITNESS_PARENT: f32 = 8.0;
 // Intake penalty: penalize agents with very low or zero intake to discourage camping/aimless wandering
 // If an agent eats fewer than INTAKE_MIN_EVENTS times, apply a linear penalty per missing event.
 // Example: INTAKE_MIN_EVENTS=2, INTAKE_MISS_PENALTY=5.0 => 0 eats: -10, 1 eat: -5, 2+ eats: 0
-pub const INTAKE_MIN_EVENTS: usize = 2;
+pub const INTAKE_MIN_EVENTS: usize = 10;
 pub const INTAKE_MISS_PENALTY: f32 = 5.0;
 // Communication economics
 pub const CALL_COST: f32 = 0.003;             // linear energy cost per step scaled by call_intensity (0..1)
@@ -140,22 +150,22 @@ pub const COMM_CALLER_REWARD: f32 = 0.4;       // fitness added to original call
 // agents are removed. The genomes vector is kept aligned with the agents vector.
 pub const ECO_CONTINUOUS: bool = true;
 // Hard caps and thresholds
-pub const ECO_MAX_POP: usize = 80;                 // maximum concurrent agents
+pub const ECO_MAX_POP: usize = 250;                 // maximum concurrent agents
 pub const ECO_MIN_POP: usize = 10;                 // minimum seeding on reset if all die
-pub const ECO_BIRTH_ENERGY_THRESHOLD: f32 = 150.0; // minimum energy to allow birth
+pub const ECO_BIRTH_ENERGY_THRESHOLD: f32 = 250.0; // minimum energy to allow birth
 pub const ECO_BIRTH_ENERGY_COST: f32 = 50.0;      // energy deducted from parent per birth
-pub const ECO_BIRTH_COOLDOWN_STEPS: usize = 80;    // steps before the same parent can reproduce again
-pub const ECO_MAX_OFFSPRING_PER_AGENT: usize = 15;  // per-episode cap
-pub const ECO_NEWBORN_ENERGY: f32 = 220.0;         // initial energy for newborns
-pub const ECO_NEWBORN_HEALTH: f32 = AGENT_BASE_HEALTH;
+pub const ECO_BIRTH_COOLDOWN_STEPS: usize = 120;    // steps before the same parent can reproduce again
+pub const ECO_MAX_OFFSPRING_PER_AGENT: usize = 50;  // per-episode cap
+pub const ECO_NEWBORN_ENERGY: f32 = 250.0;         // initial energy for newborns
+pub const ECO_NEWBORN_HEALTH: f32 = AGENT_BASE_HEALTH / 2.0;
 /// Distance within which two same-species, eligible parents can mate to produce an offspring
 pub const ECO_MATE_RADIUS: f32 = 8.0 * AGENT_RADIUS;
 
 // =====================
 // Predation/scavenging
 // =====================
-pub const EAT_AGENT_RADIUS: f32 = AGENT_RADIUS + AGENT_RADIUS;
-pub const MEAT_ENERGY: f32 = 150.0;
+pub const EAT_AGENT_RADIUS: f32 = 2.5 * AGENT_RADIUS;
+pub const MEAT_ENERGY: f32 = 220.0;
 pub const PREDATION_ENABLED: bool = true;
 pub const SCAVENGE_ENABLED: bool = true;
 // Health / injury system
@@ -164,9 +174,9 @@ pub const HEALTH_DECAY_PER_STEP: f32 = 0.0;      // passive health decay (0 to d
 pub const INJURY_HEAL_RATE: f32 = 0.04;          // health regained per step while alive (scaled by energy fraction)
 pub const EAT_HEAL_FRACTION: f32 = 0.10;         // fraction of max health restored on plant eat
 pub const MEAT_HEAL_BONUS: f32 = 12.0;           // flat bonus health on meat intake (before clamp)
-pub const PREDATION_DAMAGE: f32 = 55.0;          // health damage dealt on a successful predation attempt
+pub const PREDATION_DAMAGE: f32 = 80.0;          // health damage dealt on a successful predation attempt
 pub const SCAVENGE_TOUCH_DAMAGE: f32 = 0.0;      // health damage to scavenger when consuming corpse (risk factor)
-pub const INVULN_AFTER_HIT_STEPS: usize = 6;     // brief invulnerability frames after taking damage
+pub const INVULN_AFTER_HIT_STEPS: usize = 2;     // brief invulnerability frames after taking damage
 pub const HEALTH_TO_ENERGY_RATIO: f32 = 0.25;    // when health reaches 0 convert leftover health deficit to energy penalty (soft coupling)
 pub const DEATH_HEALTH_THRESHOLD: f32 = 0.0;     // health <= this means agent dead (corpse logic kicks in)
 
@@ -212,9 +222,9 @@ pub const SOUND_ATTENUATION_EXP: f32 = 2.0;
 // Digestion / Corpse decay
 // ==============================
 pub const CORPSE_INITIAL_ENERGY: f32 = MEAT_ENERGY;
-pub const CORPSE_DECAY_RATE: f32 = 0.08;
+pub const CORPSE_DECAY_RATE: f32 = 0.02;
 pub const DIGEST_STEPS_PLANT: u16 = 25;
-pub const DIGEST_STEPS_MEAT: u16 = 65;
+pub const DIGEST_STEPS_MEAT: u16 = 55;
 
 // =============================
 // Speciation (visualizer)
@@ -222,6 +232,8 @@ pub const DIGEST_STEPS_MEAT: u16 = 65;
 // Target number of species and adaptation rate for the compatibility threshold.
 pub const SPECIES_TARGET: usize = 8;     // e.g., aim for ~8 species
 pub const SPECIES_ADAPT_RATE: f32 = 0.01; // how fast the threshold adapts towards target
+// During eco culling, keep at least this many per species (subject to POPULATION_SIZE cap)
+pub const ECO_CULL_MIN_PER_SPECIES: usize = 4;
 // =============================
 // Snapshotting
 // =============================

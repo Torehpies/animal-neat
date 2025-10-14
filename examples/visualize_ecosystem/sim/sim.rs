@@ -34,9 +34,13 @@ pub fn resolve_predation(
                     agents[j].health -= PREDATION_DAMAGE;
                     agents[j].invuln_steps = INVULN_AFTER_HIT_STEPS;
                     agents[i].predation_flash_steps = agents[i].predation_flash_steps.saturating_add(8);
+                    // Count a successful attack hit (damage applied)
+                    agents[i].attack_hits = agents[i].attack_hits.saturating_add(1);
                 }
                 // If target died due to damage, convert to corpse and award meat later when scavenged/predated again.
                 if agents[j].health <= DEATH_HEALTH_THRESHOLD {
+                    // Count kill caused by this attacker
+                    agents[i].kills_caused = agents[i].kills_caused.saturating_add(1);
                     agents[j].dead_since.get_or_insert(step_idx);
                     agents[j].corpse_energy = MEAT_ENERGY;
                     agents[j].energy = 0.0; // energy drained on death
