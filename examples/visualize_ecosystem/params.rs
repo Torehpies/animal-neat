@@ -154,8 +154,6 @@ pub const DIET_OMNIVORE_EFFICIENCY: f32 = 1.0;   // omnivores get full value fro
 pub const SURVIVAL_STEP_FITNESS: f32 = 0.08;  // reward per simulation step survived (increased to prioritize survival)
 // Updated: SURVIVAL_STEP_FITNESS now applied per-agent using alive_steps^SURVIVAL_TIME_EXP
 pub const SURVIVAL_TIME_EXP: f32 = 1.0;       // 1.0 = linear survival reward (was 0.75 with diminishing returns)
-pub const EARLY_DEATH_PENALTY: f32 = 15.0;    // penalty if agent dies before EARLY_DEATH_THRESHOLD
-pub const EARLY_DEATH_THRESHOLD: f32 = 0.6;   // 60% of MAX_STEPS - dying early is bad!
 // Intake penalty: penalize agents with very low or zero intake to discourage camping/aimless wandering
 // If an agent eats fewer than INTAKE_MIN_EVENTS times, apply a linear penalty per missing event.
 // Example: INTAKE_MIN_EVENTS=2, INTAKE_MISS_PENALTY=5.0 => 0 eats: -10, 1 eat: -5, 2+ eats: 0
@@ -204,7 +202,10 @@ pub const HEALTH_DECAY_PER_STEP: f32 = 0.0;      // passive health decay (0 to d
 pub const INJURY_HEAL_RATE: f32 = 0.04;          // health regained per step while alive (scaled by energy fraction)
 pub const EAT_HEAL_FRACTION: f32 = 0.10;         // fraction of max health restored on plant eat
 pub const MEAT_HEAL_BONUS: f32 = 12.0;           // flat bonus health on meat intake (before clamp)
-pub const PREDATION_DAMAGE: f32 = 55.0;          // health damage dealt on a successful predation attempt
+pub const PREDATION_DAMAGE: f32 = 55.0;          // base health damage dealt on a successful predation attempt
+pub const HERBIVORE_DAMAGE_MULTIPLIER: f32 = 0.0; // herbivores deal 40% of base damage (weaker attackers)
+pub const OMNIVORE_DAMAGE_MULTIPLIER: f32 = 0.8;  // omnivores deal 80% of base damage
+pub const CARNIVORE_DAMAGE_MULTIPLIER: f32 = 1.2; // carnivores deal 120% of base damage (stronger attackers)
 pub const SCAVENGE_TOUCH_DAMAGE: f32 = 0.0;      // health damage to scavenger when consuming corpse (risk factor)
 pub const INVULN_AFTER_HIT_STEPS: usize = 6;     // brief invulnerability frames after taking damage
 pub const HEALTH_TO_ENERGY_RATIO: f32 = 0.25;    // when health reaches 0 convert leftover health deficit to energy penalty (soft coupling)
@@ -252,7 +253,7 @@ pub const SOUND_ATTENUATION_EXP: f32 = 2.0;
 // Digestion / Corpse decay
 // ==============================
 pub const CORPSE_INITIAL_ENERGY: f32 = MEAT_ENERGY;
-pub const CORPSE_DECAY_RATE: f32 = 0.08;
+pub const CORPSE_DECAY_RATE: f32 = 0.02;
 pub const DIGEST_STEPS_PLANT: u16 = 25;
 pub const DIGEST_STEPS_MEAT: u16 = 65;
 

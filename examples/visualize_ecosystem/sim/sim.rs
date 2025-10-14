@@ -37,7 +37,24 @@ pub fn resolve_predation(
             if target_alive {
                 // Apply damage first. Respect brief invulnerability.
                 if agents[j].invuln_steps == 0 {
-                    agents[j].health -= PREDATION_DAMAGE;
+                    // Calculate damage based on attacker's diet
+                    let total_intake = agents[i].eaten as f32;
+                    let meat_intake = agents[i].kills as f32;
+                    let damage_multiplier = if total_intake > 0.0 {
+                        let meat_ratio = meat_intake / total_intake;
+                        if meat_ratio < DIET_HERBIVORE_THRESHOLD {
+                            HERBIVORE_DAMAGE_MULTIPLIER  // weak attacker
+                        } else if meat_ratio > DIET_CARNIVORE_THRESHOLD {
+                            CARNIVORE_DAMAGE_MULTIPLIER  // strong attacker
+                        } else {
+                            OMNIVORE_DAMAGE_MULTIPLIER   // moderate attacker
+                        }
+                    } else {
+                        // No intake history yet - default to omnivore multiplier
+                        OMNIVORE_DAMAGE_MULTIPLIER
+                    };
+                    let damage = PREDATION_DAMAGE * damage_multiplier;
+                    agents[j].health -= damage;
                     agents[j].invuln_steps = INVULN_AFTER_HIT_STEPS;
                     agents[i].predation_flash_steps = agents[i].predation_flash_steps.saturating_add(8);
                 }

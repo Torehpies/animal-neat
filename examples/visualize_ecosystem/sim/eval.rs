@@ -96,14 +96,7 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         let exploration = frac * EXPL_WEIGHT;
         let survival = (a.alive_steps as f32).powf(SURVIVAL_TIME_EXP) * SURVIVAL_STEP_FITNESS;
         
-        // Apply early death penalty if agent died before threshold
-        let death_penalty = if a.alive_steps < (MAX_STEPS as f32 * EARLY_DEATH_THRESHOLD) as u32 {
-            EARLY_DEATH_PENALTY
-        } else {
-            0.0
-        };
-        
-        intake + exploration + survival + comm_fit[i] - death_penalty
+        intake + exploration + survival + comm_fit[i]
     }).collect()
 }
 
