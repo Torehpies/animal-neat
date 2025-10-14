@@ -29,6 +29,11 @@ See comments in `params.rs` and use `sensing::input_ranges()` to avoid hardcodin
 - E: show/hide energy overlay
 - S: save population snapshot
 
+HUD tips
+- H: toggle controls section in HUD
+- N: toggle best network panel; M: toggle live network panel (focus an agent by clicking)
+- K: cycle agent color mode (species/diet)
+
 ## Code map
 - `sensing.rs` — inputs and perception helpers
 - `sim.rs` — physics/movement, predation & digestion, corpse decay

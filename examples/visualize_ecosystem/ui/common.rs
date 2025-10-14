@@ -1,8 +1,44 @@
 use macroquad::prelude::*;
 
 // Re-export types/traits from parent
-use crate::params::*;
 use crate::Vec2;
+
+// --- Lightweight UI theme & helpers ---
+// Centralized colors and spacing used across UI panels
+pub const PANEL_BG: Color = Color::new(0.08, 0.08, 0.10, 0.95);
+pub const PANEL_BORDER: Color = Color::new(0.25, 0.25, 0.30, 1.0);
+pub const SUBPANEL_BG: Color = Color::new(0.05, 0.05, 0.07, 0.95);
+pub const ACCENT: Color = Color::new(0.30, 0.70, 1.0, 1.0);
+
+pub const PAD: f32 = 12.0;
+pub const GAP: f32 = 6.0;
+pub const FONT: f32 = 18.0;
+
+pub fn draw_panel(area: Rect, bg: Color, border: Color, thickness: f32) {
+    draw_rectangle(area.x, area.y, area.w, area.h, bg);
+    if thickness > 0.0 {
+        draw_rectangle_lines(area.x, area.y, area.w, area.h, thickness, border);
+    }
+}
+
+// Draw a section header with a subtle underline. Returns next y.
+pub fn section_title(text: &str, x: f32, y: f32, max_w: f32) -> f32 {
+    let title_fs = 18.0;
+    draw_text_clamped(text, x, y, title_fs, LIGHTGRAY, max_w);
+    let dims = measure_text(text, None, title_fs as u16, 1.0);
+    let underline_w = dims.width.min(max_w);
+    let uy = y + 6.0;
+    // subtle accent underline
+    let mut c = ACCENT; c.a = 0.25;
+    draw_line(x, uy, x + underline_w, uy, 1.0, c);
+    uy + GAP
+}
+
+// Draw a horizontal divider line. Returns next y.
+pub fn draw_divider(x: f32, y: f32, w: f32) -> f32 {
+    draw_line(x, y, x + w, y, 1.0, Color::new(1.0, 1.0, 1.0, 0.10));
+    y + GAP
+}
 
 // Compute a rectangle inside `area` that preserves the world's aspect ratio (WORLD_W:WORLD_H)
 pub fn fit_world_rect(area: Rect) -> Rect {
@@ -61,6 +97,7 @@ pub fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (f32, f32, f32) {
     match i as i32 % 6 { 0 => (v, t, p), 1 => (q, v, p), 2 => (p, v, t), 3 => (p, q, v), 4 => (t, p, v), _ => (v, p, q) }
 }
 
+#[allow(dead_code)]
 pub fn species_color(species_idx: usize) -> Color {
     let hue = ((species_idx as f32) * 0.618_033_988) % 1.0; // golden ratio spacing
     let (r, g, b) = hsv_to_rgb(hue, 0.65, 0.95);
