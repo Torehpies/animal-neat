@@ -16,7 +16,7 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         id: AgentId(i),
         body: Body { pos: world::rand_pos(&mut rng), vel: Vec2::new(0.0, 0.0), radius: AGENT_RADIUS },
         theta: -std::f32::consts::FRAC_PI_2,
-    energy: INITIAL_ENERGY.min(MAX_ENERGY),
+    energy: crate::params::get_initial_energy().min(crate::params::get_max_energy()),
         health: AGENT_BASE_HEALTH,
         max_health: AGENT_BASE_HEALTH,
         invuln_steps: 0,
@@ -82,7 +82,7 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         let survival = (a.alive_steps as f32).powf(SURVIVAL_TIME_EXP) * SURVIVAL_STEP_FITNESS;
         let predation_reward = (a.attack_hits as f32) * ATTACK_HIT_FITNESS + (a.kills_caused as f32) * KILL_CAUSED_FITNESS;
         // Average energy while alive (normalized 0..1)
-        let avg_energy_norm = if a.alive_steps > 0 { (energy_accum[i] / a.alive_steps as f32) / MAX_ENERGY } else { 0.0 };
+        let avg_energy_norm = if a.alive_steps > 0 { (energy_accum[i] / a.alive_steps as f32) / crate::params::get_max_energy() } else { 0.0 };
         let energy_term = avg_energy_norm * ENERGY_AVG_WEIGHT;
         intake + exploration + survival + predation_reward + energy_term + comm_fit[i]
     }).collect()

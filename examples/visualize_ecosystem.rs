@@ -236,6 +236,7 @@ async fn main() {
         
         // Apply configuration to global params (via world module)
         world::set_runtime_config(sim_config.world_width, sim_config.world_height, sim_config.max_food, sim_config.food_respawn_prob);
+        params::set_runtime_energy_config(sim_config.initial_energy, sim_config.max_energy, sim_config.energy_drain_per_step);
         
         let mut state = AppState::new(sim_config);
         let mut running = true;      // continuous evolution by default

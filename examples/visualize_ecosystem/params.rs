@@ -4,6 +4,27 @@
 // ecology, sensing/memory, fitness/shaping, digestion, evolution/speciation.
 // Where possible, keep names stable to avoid touching call sites.
 
+use std::cell::Cell;
+
+// Runtime config storage for energy parameters (thread-local)
+thread_local! {
+    static RUNTIME_INITIAL_ENERGY: Cell<f32> = Cell::new(500.0);
+    static RUNTIME_MAX_ENERGY: Cell<f32> = Cell::new(5000.0);
+    static RUNTIME_ENERGY_DRAIN: Cell<f32> = Cell::new(0.05);
+}
+
+// Getters for runtime energy config (fallback to these constants if not set)
+pub fn get_initial_energy() -> f32 { RUNTIME_INITIAL_ENERGY.with(|c| c.get()) }
+pub fn get_max_energy() -> f32 { RUNTIME_MAX_ENERGY.with(|c| c.get()) }
+pub fn get_energy_drain_per_step() -> f32 { RUNTIME_ENERGY_DRAIN.with(|c| c.get()) }
+
+// Setter for runtime energy config
+pub fn set_runtime_energy_config(initial: f32, max: f32, drain: f32) {
+    RUNTIME_INITIAL_ENERGY.with(|c| c.set(initial));
+    RUNTIME_MAX_ENERGY.with(|c| c.set(max));
+    RUNTIME_ENERGY_DRAIN.with(|c| c.set(drain));
+}
+
 // =====================
 // Evolution / Population
 // =====================
@@ -17,7 +38,7 @@ pub const EPISODES_PER_GEN: usize = 3;
 // ======
 pub const WORLD_W: f32 = 750.0;
 pub const WORLD_H: f32 = 750.0;
-// Agent starting and maximum energy
+// Agent starting and maximum energy (these are default values; use get_* functions for runtime values)
 pub const INITIAL_ENERGY: f32 = 500.0;
 pub const MAX_ENERGY: f32 = 5000.0;  // clamp upper bound for energy; can be >= INITIAL_ENERGY
 pub const ENERGY_DRAIN_PER_STEP: f32 = 0.05;

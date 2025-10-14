@@ -9,6 +9,9 @@ pub struct SimConfig {
     pub population_size: usize,
     pub max_food: usize,
     pub food_respawn_prob: f32,
+    pub initial_energy: f32,
+    pub max_energy: f32,
+    pub energy_drain_per_step: f32,
 }
 
 impl Default for SimConfig {
@@ -19,6 +22,9 @@ impl Default for SimConfig {
             population_size: 50,
             max_food: 300,
             food_respawn_prob: 0.006,
+            initial_energy: 500.0,
+            max_energy: 5000.0,
+            energy_drain_per_step: 0.05,
         }
     }
 }
@@ -36,6 +42,9 @@ enum EditField {
     PopSize,
     MaxFood,
     FoodRespawnRate,
+    InitialEnergy,
+    MaxEnergy,
+    EnergyDrain,
 }
 
 impl MenuState {
@@ -55,7 +64,7 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
     let w = screen_width();
     let h = screen_height();
     let panel_w = 600.0;
-    let panel_h = 500.0;
+    let panel_h = 620.0;
     let panel_x = (w - panel_w) / 2.0;
     let panel_y = (h - panel_h) / 2.0;
     
@@ -185,6 +194,67 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
             state.input_buffer = format!("{:.4}", state.config.food_respawn_prob);
         }
     }
+    y += line_h + 15.0;
+    
+    // Energy settings
+    draw_text("Energy:", x, y, label_size, LIGHTGRAY);
+    y += line_h;
+    
+    draw_text("Initial:", field_x, y, label_size, WHITE);
+    let is_editing_init_energy = state.editing_field == Some(EditField::InitialEnergy);
+    let init_energy_text = if is_editing_init_energy {
+        format!("{}_", state.input_buffer)
+    } else {
+        format!("{:.1}", state.config.initial_energy)
+    };
+    let init_energy_color = if is_editing_init_energy { YELLOW } else { Color::new(0.5, 0.9, 0.5, 1.0) };
+    draw_text(&init_energy_text, value_x, y, value_size, init_energy_color);
+    if is_mouse_button_pressed(MouseButton::Left) {
+        let mx = mouse_position().0;
+        let my = mouse_position().1;
+        if mx >= value_x && mx <= value_x + 150.0 && my >= y - 20.0 && my <= y + 5.0 {
+            state.editing_field = Some(EditField::InitialEnergy);
+            state.input_buffer = format!("{:.1}", state.config.initial_energy);
+        }
+    }
+    y += line_h;
+    
+    draw_text("Maximum:", field_x, y, label_size, WHITE);
+    let is_editing_max_energy = state.editing_field == Some(EditField::MaxEnergy);
+    let max_energy_text = if is_editing_max_energy {
+        format!("{}_", state.input_buffer)
+    } else {
+        format!("{:.1}", state.config.max_energy)
+    };
+    let max_energy_color = if is_editing_max_energy { YELLOW } else { Color::new(0.5, 0.9, 0.5, 1.0) };
+    draw_text(&max_energy_text, value_x, y, value_size, max_energy_color);
+    if is_mouse_button_pressed(MouseButton::Left) {
+        let mx = mouse_position().0;
+        let my = mouse_position().1;
+        if mx >= value_x && mx <= value_x + 150.0 && my >= y - 20.0 && my <= y + 5.0 {
+            state.editing_field = Some(EditField::MaxEnergy);
+            state.input_buffer = format!("{:.1}", state.config.max_energy);
+        }
+    }
+    y += line_h;
+    
+    draw_text("Drain/Step:", field_x, y, label_size, WHITE);
+    let is_editing_drain = state.editing_field == Some(EditField::EnergyDrain);
+    let drain_text = if is_editing_drain {
+        format!("{}_", state.input_buffer)
+    } else {
+        format!("{:.3}", state.config.energy_drain_per_step)
+    };
+    let drain_color = if is_editing_drain { YELLOW } else { Color::new(0.5, 0.9, 0.5, 1.0) };
+    draw_text(&drain_text, value_x, y, value_size, drain_color);
+    if is_mouse_button_pressed(MouseButton::Left) {
+        let mx = mouse_position().0;
+        let my = mouse_position().1;
+        if mx >= value_x && mx <= value_x + 150.0 && my >= y - 20.0 && my <= y + 5.0 {
+            state.editing_field = Some(EditField::EnergyDrain);
+            state.input_buffer = format!("{:.3}", state.config.energy_drain_per_step);
+        }
+    }
     y += line_h + 30.0;
     
     // Handle keyboard input for editing
@@ -213,6 +283,15 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
                     EditField::FoodRespawnRate => {
                         state.config.food_respawn_prob = val.max(0.0001).min(0.1);
                     }
+                    EditField::InitialEnergy => {
+                        state.config.initial_energy = val.max(10.0).min(10000.0);
+                    }
+                    EditField::MaxEnergy => {
+                        state.config.max_energy = val.max(100.0).min(50000.0);
+                    }
+                    EditField::EnergyDrain => {
+                        state.config.energy_drain_per_step = val.max(0.0).min(10.0);
+                    }
                 }
             }
             state.editing_field = None;
@@ -232,16 +311,15 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
         }
     }
     
-    // Instructions
-    draw_text("Click on values to edit. Press Enter to confirm, Esc to cancel.", 
-              x, y, 16.0, Color::new(0.7, 0.7, 0.7, 1.0));
-    y += 30.0;
-    
     // Start button
     let button_w = 200.0;
     let button_h = 50.0;
     let button_x = panel_x + (panel_w - button_w) / 2.0;
     let button_y = panel_y + panel_h - button_h - padding;
+    
+    // Instructions (draw after calculating button position to avoid overlap)
+    draw_text("Click on values to edit. Press Enter to confirm, Esc to cancel.", 
+              x, button_y - 10.0, 16.0, Color::new(0.7, 0.7, 0.7, 1.0));
     
     let mx = mouse_position().0;
     let my = mouse_position().1;
