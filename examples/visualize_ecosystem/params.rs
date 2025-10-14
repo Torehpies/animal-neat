@@ -47,7 +47,7 @@ pub const FOOD_RADIUS: f32 = 1.2;
 pub const FOOD_ENERGY: f32 = 60.0;
 
 // Plant/food dynamics
-pub const MAX_FOOD: usize = 300;
+pub const MAX_FOOD: usize = 100;
 pub const FOOD_MIN_SEP: f32 = 2.5;
 pub const FOOD_RESPAWN_PROB: f32 = 0.006;
 pub const FOOD_SPREAD_CHANCE: f32 = 0.01;
@@ -222,7 +222,7 @@ pub const SOUND_ATTENUATION_EXP: f32 = 2.0;
 // Digestion / Corpse decay
 // ==============================
 pub const CORPSE_INITIAL_ENERGY: f32 = MEAT_ENERGY;
-pub const CORPSE_DECAY_RATE: f32 = 0.02;
+pub const CORPSE_DECAY_RATE: f32 = 0.002;
 pub const DIGEST_STEPS_PLANT: u16 = 25;
 pub const DIGEST_STEPS_MEAT: u16 = 55;
 
