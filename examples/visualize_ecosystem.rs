@@ -82,6 +82,7 @@ struct AppState {
     show_controls: bool,
     color_by_species: bool,
     // Runtime config
+    #[allow(dead_code)]
     pub sim_config: SimConfig,
 }
 
@@ -222,52 +223,63 @@ fn window_conf() -> Conf {
 
 #[macroquad::main(window_conf)]
 async fn main() {
-    // Show menu first to get configuration
-    let mut menu_state = MenuState::new();
-    let sim_config = loop {
-        if let Some(config) = draw_menu(&mut menu_state) {
-            break config;
+    // Main loop that can restart with new config
+    'main_loop: loop {
+        // Show menu first to get configuration
+        let mut menu_state = MenuState::new();
+        let sim_config = loop {
+            if let Some(config) = draw_menu(&mut menu_state) {
+                break config;
+            }
+            next_frame().await;
+        };
+        
+        // Apply configuration to global params (via world module)
+        world::set_runtime_config(sim_config.world_width, sim_config.world_height, sim_config.max_food, sim_config.food_respawn_prob);
+        
+        let mut state = AppState::new(sim_config);
+        let mut running = true;      // continuous evolution by default
+        let mut fast_mode = false;   // start at normal speed
+        let mut normal_step_timer = 0.0f32;          // accumulates frame time for normal stepping
+        let normal_step_interval = 0.05f32;           // seconds per simulation step in normal mode
+        let fast_steps_per_frame: usize = 500;       // simulation steps per frame in fast mode
+
+        loop {
+            clear_background(BLACK);
+            let w = screen_width();
+            let h = screen_height();
+            let margin = 16.0;
+            let hud_w = (w * 0.28).clamp(240.0, 380.0);
+            let world_w = (w - hud_w - margin * 3.0).max(100.0);
+            let world_h = (h - margin * 2.0).max(100.0);
+            let world_area = Rect { x: margin, y: margin, w: world_w, h: world_h };
+            let hud_area = Rect { x: world_area.x + world_area.w + margin, y: margin, w: hud_w, h: world_h };
+
+        // Controls
+            if is_key_pressed(KeyCode::P) { running = !running; }
+            if is_key_pressed(KeyCode::F) { fast_mode = !fast_mode; }
+            if is_key_pressed(KeyCode::R) { let mut rng = ::rand::rng(); state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species); }
+        if is_key_pressed(KeyCode::V) { state.show_cones = !state.show_cones; }
+            if is_key_pressed(KeyCode::U) { state.show_unified_overlay = !state.show_unified_overlay; }
+            if is_key_pressed(KeyCode::E) { state.show_energy_overlay = !state.show_energy_overlay; }
+        if is_key_pressed(KeyCode::C) { state.show_collision_radii = !state.show_collision_radii; }
+        if is_key_pressed(KeyCode::G) { state.show_grid = !state.show_grid; }
+        if is_key_pressed(KeyCode::N) { state.show_best_network_panel = !state.show_best_network_panel; }
+        if is_key_pressed(KeyCode::M) { state.show_live_network = !state.show_live_network; }
+        if is_key_pressed(KeyCode::H) { state.show_controls = !state.show_controls; }
+        if is_key_pressed(KeyCode::K) { state.color_by_species = !state.color_by_species; }
+        
+        // ESC: if focused on an agent, clear focus; otherwise go back to menu
+        if is_key_pressed(KeyCode::Escape) {
+            if state.focused_agent.is_some() {
+                state.focused_agent = None;
+            } else {
+                // Go back to menu
+                continue 'main_loop;
+            }
         }
-        next_frame().await;
-    };
-    
-    // Apply configuration to global params (via world module)
-    world::set_runtime_config(sim_config.world_width, sim_config.world_height, sim_config.max_food, sim_config.food_respawn_prob);
-    
-    let mut state = AppState::new(sim_config);
-    let mut running = true;      // continuous evolution by default
-    let mut fast_mode = false;   // start at normal speed
-    let mut normal_step_timer = 0.0f32;          // accumulates frame time for normal stepping
-    let normal_step_interval = 0.05f32;           // seconds per simulation step in normal mode
-    let fast_steps_per_frame: usize = 500;       // simulation steps per frame in fast mode
-
-    loop {
-        clear_background(BLACK);
-        let w = screen_width();
-        let h = screen_height();
-        let margin = 16.0;
-        let hud_w = (w * 0.28).clamp(240.0, 380.0);
-        let world_w = (w - hud_w - margin * 3.0).max(100.0);
-        let world_h = (h - margin * 2.0).max(100.0);
-        let world_area = Rect { x: margin, y: margin, w: world_w, h: world_h };
-        let hud_area = Rect { x: world_area.x + world_area.w + margin, y: margin, w: hud_w, h: world_h };
-
-    // Controls
-        if is_key_pressed(KeyCode::P) { running = !running; }
-        if is_key_pressed(KeyCode::F) { fast_mode = !fast_mode; }
-        if is_key_pressed(KeyCode::R) { let mut rng = ::rand::rng(); state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species); }
-    if is_key_pressed(KeyCode::V) { state.show_cones = !state.show_cones; }
-        if is_key_pressed(KeyCode::U) { state.show_unified_overlay = !state.show_unified_overlay; }
-        if is_key_pressed(KeyCode::E) { state.show_energy_overlay = !state.show_energy_overlay; }
-    if is_key_pressed(KeyCode::C) { state.show_collision_radii = !state.show_collision_radii; }
-    if is_key_pressed(KeyCode::G) { state.show_grid = !state.show_grid; }
-    if is_key_pressed(KeyCode::N) { state.show_best_network_panel = !state.show_best_network_panel; }
-    if is_key_pressed(KeyCode::M) { state.show_live_network = !state.show_live_network; }
-    if is_key_pressed(KeyCode::H) { state.show_controls = !state.show_controls; }
-    if is_key_pressed(KeyCode::K) { state.color_by_species = !state.color_by_species; }
-    if is_key_pressed(KeyCode::Escape) { state.focused_agent = None; }
-    // Removed per-row overlay toggles (1..4). Unified overlay is controlled via 'U'.
-    // Removed: [S] save snapshot and [B] easy birth debug toggle
+        // Removed per-row overlay toggles (1..4). Unified overlay is controlled via 'U'.
+        // Removed: [S] save snapshot and [B] easy birth debug toggle
 
         if running {
             let mut rng = ::rand::rng();
@@ -398,8 +410,9 @@ async fn main() {
     );
     ui_hud::draw_hud(hud_area, &state, running, fast_mode, &state.member_species);
 
-        next_frame().await
-    }
+        next_frame().await;
+    } // end 'sim_loop
+    } // end 'main_loop
 }
 
 fn eco_cull_population_by_fitness(state: &mut AppState) {

@@ -1,6 +1,6 @@
 use super::params::{
     WORLD_W, WORLD_H,
-    FOOD_COUNT, FOOD_MIN_SEP, MAX_FOOD,
+    FOOD_MIN_SEP, MAX_FOOD,
     FOOD_RESPAWN_PROB, FOOD_SPREAD_CHANCE, FOOD_SPREAD_RADIUS,
     FOOD_RADIUS,
     BIOME_X_SPLITS, BIOME_RESPAWN_MULT, BIOME_SPREAD_MULT,
@@ -51,9 +51,10 @@ fn can_place_food(existing: &[Vec2], p: Vec2) -> bool {
 }
 
 pub fn build_world<R: Rng>(rng: &mut R) -> Vec<Vec2> {
-    let mut food = Vec::with_capacity(FOOD_COUNT);
+    let target_food = max_food();
+    let mut food = Vec::with_capacity(target_food);
     let mut attempts = 0;
-    while food.len() < FOOD_COUNT && attempts < FOOD_COUNT * 50 {
+    while food.len() < target_food && attempts < target_food * 50 {
         attempts += 1;
         let p = rand_pos(rng);
         if can_place_food(&food, p) { food.push(p); }
