@@ -4,6 +4,34 @@
 // ecology, sensing/memory, fitness/shaping, digestion, evolution/speciation.
 // Where possible, keep names stable to avoid touching call sites.
 
+use std::cell::Cell;
+
+// Runtime config storage for energy parameters (thread-local)
+thread_local! {
+    static RUNTIME_INITIAL_ENERGY: Cell<f32> = Cell::new(500.0);
+    static RUNTIME_MAX_ENERGY: Cell<f32> = Cell::new(5000.0);
+    static RUNTIME_ENERGY_DRAIN: Cell<f32> = Cell::new(0.05);
+    static RUNTIME_POPULATION_SIZE: Cell<usize> = Cell::new(50);
+}
+
+// Getters for runtime energy config (fallback to these constants if not set)
+pub fn get_initial_energy() -> f32 { RUNTIME_INITIAL_ENERGY.with(|c| c.get()) }
+pub fn get_max_energy() -> f32 { RUNTIME_MAX_ENERGY.with(|c| c.get()) }
+pub fn get_energy_drain_per_step() -> f32 { RUNTIME_ENERGY_DRAIN.with(|c| c.get()) }
+pub fn get_population_size() -> usize { RUNTIME_POPULATION_SIZE.with(|c| c.get()) }
+
+// Setter for runtime energy config
+pub fn set_runtime_energy_config(initial: f32, max: f32, drain: f32) {
+    RUNTIME_INITIAL_ENERGY.with(|c| c.set(initial));
+    RUNTIME_MAX_ENERGY.with(|c| c.set(max));
+    RUNTIME_ENERGY_DRAIN.with(|c| c.set(drain));
+}
+
+// Setter for runtime population size
+pub fn set_runtime_population_size(size: usize) {
+    RUNTIME_POPULATION_SIZE.with(|c| c.set(size));
+}
+
 // =====================
 // Evolution / Population
 // =====================
@@ -15,10 +43,10 @@ pub const EPISODES_PER_GEN: usize = 3;
 // ======
 // World
 // ======
-pub const WORLD_W: f32 = 500.0;
-pub const WORLD_H: f32 = 500.0;
-// Agent starting and maximum energy
-pub const INITIAL_ENERGY: f32 = 1000.0;
+pub const WORLD_W: f32 = 750.0;
+pub const WORLD_H: f32 = 750.0;
+// Agent starting and maximum energy (these are default values; use get_* functions for runtime values)
+pub const INITIAL_ENERGY: f32 = 500.0;
 pub const MAX_ENERGY: f32 = 5000.0;  // clamp upper bound for energy; can be >= INITIAL_ENERGY
 pub const ENERGY_DRAIN_PER_STEP: f32 = 0.05;
 pub const MAX_STEPS: usize = 5_000;
@@ -60,7 +88,7 @@ pub const FOOD_RADIUS: f32 = 1.2;
 pub const FOOD_ENERGY: f32 = 60.0;
 
 // Plant/food dynamics
-pub const MAX_FOOD: usize = 300;
+pub const MAX_FOOD: usize = 100;
 pub const FOOD_MIN_SEP: f32 = 2.5;
 pub const FOOD_RESPAWN_PROB: f32 = 0.006;
 pub const FOOD_SPREAD_CHANCE: f32 = 0.01;
@@ -70,8 +98,8 @@ pub const FOOD_SPREAD_RADIUS: f32 = 15.0;
 // Vision cone parameters
 // =====================
 pub const VISION_RAYS: usize = 7;
-pub const VISION_ANGLE_DEG: f32 = 80.0;
-pub const VISION_RANGE: f32 = 90.0;
+pub const VISION_ANGLE_DEG: f32 = 45.0;  // Narrower cone (was 80.0)
+pub const VISION_RANGE: f32 = 150.0;     // Longer range (was 90.0)
 /// Derived: radians for convenience if needed by math
 
 // ========
@@ -126,7 +154,7 @@ pub const EXPL_WEIGHT: f32 = 30.0;                // reward for 100% coverage (t
 // Fitness: we collapse plant/meat shaping into two simple weights.
 pub const PLANT_FITNESS: f32 = 6.0;            // reward per plant eaten
 pub const MEAT_FITNESS: f32 = 10.0;             // reward per meat (kill or scavenged corpse) event
-pub const SURVIVAL_STEP_FITNESS: f32 = 0.03;  // reward per simulation step survived (alive or not? counted via total steps for now)
+pub const SURVIVAL_STEP_FITNESS: f32 = 0.00;  // reward per simulation step survived (alive or not? counted via total steps for now)
 // Updated: SURVIVAL_STEP_FITNESS now applied per-agent using alive_steps^SURVIVAL_TIME_EXP
 pub const SURVIVAL_TIME_EXP: f32 = 0.75;       // 0.5 => sqrt diminishing returns; 1.0 would be linear
 // Predation shaping: reward successful attack hits and kills caused
@@ -195,6 +223,10 @@ pub const EAT_AGENT_RADIUS: f32 = 2.5 * AGENT_RADIUS;
 pub const MEAT_ENERGY: f32 = 220.0;
 pub const PREDATION_ENABLED: bool = true;
 pub const SCAVENGE_ENABLED: bool = true;
+/// Require live prey to be within predator's vision cone to attack (enables ambush tactics)
+pub const PREDATION_REQUIRES_VISION: bool = true;
+/// Require corpses to be within vision cone to scavenge (set false for easier scavenging)
+pub const SCAVENGE_REQUIRES_VISION: bool = false;
 // Health / injury system
 pub const AGENT_BASE_HEALTH: f32 = 100.0;        // starting and max health baseline
 pub const HEALTH_DECAY_PER_STEP: f32 = 0.0;      // passive health decay (0 to disable)
@@ -206,6 +238,18 @@ pub const SCAVENGE_TOUCH_DAMAGE: f32 = 0.0;      // health damage to scavenger w
 pub const INVULN_AFTER_HIT_STEPS: usize = 2;     // brief invulnerability frames after taking damage
 pub const HEALTH_TO_ENERGY_RATIO: f32 = 0.25;    // when health reaches 0 convert leftover health deficit to energy penalty (soft coupling)
 pub const DEATH_HEALTH_THRESHOLD: f32 = 0.0;     // health <= this means agent dead (corpse logic kicks in)
+
+// ===============================
+// Idleness Penalty
+// ===============================
+/// Enable penalty for staying in the same place too long
+pub const IDLENESS_PENALTY_ENABLED: bool = true;
+/// Number of steps before idleness penalty kicks in (5 seconds ≈ varies by sim speed, using steps)
+pub const IDLENESS_THRESHOLD_STEPS: usize = 100;
+/// Distance threshold to consider agent as "staying in same place"
+pub const IDLENESS_DISTANCE_THRESHOLD: f32 = 3.0;
+/// Fitness penalty applied per step when idle beyond threshold
+pub const IDLENESS_PENALTY_PER_STEP: f32 = 0.02;
 
 // ===============================
 // Motor model (relative turn + speed)
@@ -249,7 +293,7 @@ pub const SOUND_ATTENUATION_EXP: f32 = 2.0;
 // Digestion / Corpse decay
 // ==============================
 pub const CORPSE_INITIAL_ENERGY: f32 = MEAT_ENERGY;
-pub const CORPSE_DECAY_RATE: f32 = 0.02;
+pub const CORPSE_DECAY_RATE: f32 = 0.002;
 pub const DIGEST_STEPS_PLANT: u16 = 25;
 pub const DIGEST_STEPS_MEAT: u16 = 45;
 

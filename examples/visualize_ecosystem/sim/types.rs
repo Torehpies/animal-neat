@@ -38,6 +38,10 @@ pub struct Agent {
     // Reproduction (eco continuous): cooldown and per-episode offspring count
     pub repro_cooldown: usize,
     pub offspring_count: usize,
+    // Idleness tracking
+    pub idle_anchor: Vec2,           // position where idleness check started
+    pub idle_steps: usize,           // consecutive steps at roughly the same position
+    pub total_idle_penalty: f32,     // accumulated idle penalty for fitness
 }
 
 #[derive(Clone, Copy, Debug)]

@@ -39,6 +39,8 @@ mod ui_world_view;
 mod ui_hud;
 #[path = "visualize_ecosystem/ui/network.rs"]
 mod ui_network;
+#[path = "visualize_ecosystem/ui/menu.rs"]
+mod ui_menu;
 #[path = "visualize_ecosystem/elements/body.rs"]
 mod body;
 #[path = "visualize_ecosystem/sim/mod.rs"]
@@ -47,6 +49,7 @@ use sim::{Episode, Agent, AgentId};
 use ::rand::Rng;
 use params::*;
 use sim::eval_population_single_episode;
+use ui_menu::{SimConfig, MenuState, draw_menu};
 
 
 // Episode methods are defined in sim::episode
@@ -78,10 +81,14 @@ struct AppState {
     eco_episode_counter: usize,
     show_controls: bool,
     color_by_species: bool,
+    // Runtime config
+    #[allow(dead_code)]
+    pub sim_config: SimConfig,
 }
 
 impl AppState {
-    fn new(pop_size: usize) -> Self {
+    fn new(sim_config: SimConfig) -> Self {
+        let pop_size = sim_config.population_size;
         let num_inputs = INPUTS as u32;
         let num_outputs = OUTPUTS as u32;
         let mut rng = ::rand::rng();
@@ -123,6 +130,7 @@ impl AppState {
             eco_episode_counter: 0,
             show_controls: true,
             color_by_species: false,
+            sim_config,
         }
     }
 
@@ -215,40 +223,65 @@ fn window_conf() -> Conf {
 
 #[macroquad::main(window_conf)]
 async fn main() {
-    let mut state = AppState::new(params::POPULATION_SIZE);
-    let mut running = true;      // continuous evolution by default
-    let mut fast_mode = false;   // start at normal speed
-    let mut normal_step_timer = 0.0f32;          // accumulates frame time for normal stepping
-    let normal_step_interval = 0.05f32;           // seconds per simulation step in normal mode
-    let fast_steps_per_frame: usize = 500;       // simulation steps per frame in fast mode
+    // Main loop that can restart with new config
+    'main_loop: loop {
+        // Show menu first to get configuration
+        let mut menu_state = MenuState::new();
+        let sim_config = loop {
+            if let Some(config) = draw_menu(&mut menu_state) {
+                break config;
+            }
+            next_frame().await;
+        };
+        
+        // Apply configuration to global params (via world module)
+        world::set_runtime_config(sim_config.world_width, sim_config.world_height, sim_config.max_food, sim_config.food_respawn_prob);
+        params::set_runtime_energy_config(sim_config.initial_energy, sim_config.max_energy, sim_config.energy_drain_per_step);
+        params::set_runtime_population_size(sim_config.population_size);
+        
+        let mut state = AppState::new(sim_config);
+        let mut running = true;      // continuous evolution by default
+        let mut fast_mode = false;   // start at normal speed
+        let mut normal_step_timer = 0.0f32;          // accumulates frame time for normal stepping
+        let normal_step_interval = 0.05f32;           // seconds per simulation step in normal mode
+        let fast_steps_per_frame: usize = 500;       // simulation steps per frame in fast mode
 
-    loop {
-        clear_background(BLACK);
-        let w = screen_width();
-        let h = screen_height();
-        let margin = 16.0;
-        let hud_w = (w * 0.28).clamp(240.0, 380.0);
-        let world_w = (w - hud_w - margin * 3.0).max(100.0);
-        let world_h = (h - margin * 2.0).max(100.0);
-        let world_area = Rect { x: margin, y: margin, w: world_w, h: world_h };
-        let hud_area = Rect { x: world_area.x + world_area.w + margin, y: margin, w: hud_w, h: world_h };
+        loop {
+            clear_background(BLACK);
+            let w = screen_width();
+            let h = screen_height();
+            let margin = 16.0;
+            let hud_w = (w * 0.28).clamp(240.0, 380.0);
+            let world_w = (w - hud_w - margin * 3.0).max(100.0);
+            let world_h = (h - margin * 2.0).max(100.0);
+            let world_area = Rect { x: margin, y: margin, w: world_w, h: world_h };
+            let hud_area = Rect { x: world_area.x + world_area.w + margin, y: margin, w: hud_w, h: world_h };
 
-    // Controls
-        if is_key_pressed(KeyCode::P) { running = !running; }
-        if is_key_pressed(KeyCode::F) { fast_mode = !fast_mode; }
-        if is_key_pressed(KeyCode::R) { let mut rng = ::rand::rng(); state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species); }
-    if is_key_pressed(KeyCode::V) { state.show_cones = !state.show_cones; }
-        if is_key_pressed(KeyCode::U) { state.show_unified_overlay = !state.show_unified_overlay; }
-        if is_key_pressed(KeyCode::E) { state.show_energy_overlay = !state.show_energy_overlay; }
-    if is_key_pressed(KeyCode::C) { state.show_collision_radii = !state.show_collision_radii; }
-    if is_key_pressed(KeyCode::G) { state.show_grid = !state.show_grid; }
-    if is_key_pressed(KeyCode::N) { state.show_best_network_panel = !state.show_best_network_panel; }
-    if is_key_pressed(KeyCode::M) { state.show_live_network = !state.show_live_network; }
-    if is_key_pressed(KeyCode::H) { state.show_controls = !state.show_controls; }
-    if is_key_pressed(KeyCode::K) { state.color_by_species = !state.color_by_species; }
-    if is_key_pressed(KeyCode::Escape) { state.focused_agent = None; }
-    // Removed per-row overlay toggles (1..4). Unified overlay is controlled via 'U'.
-    // Removed: [S] save snapshot and [B] easy birth debug toggle
+        // Controls
+            if is_key_pressed(KeyCode::P) { running = !running; }
+            if is_key_pressed(KeyCode::F) { fast_mode = !fast_mode; }
+            if is_key_pressed(KeyCode::R) { let mut rng = ::rand::rng(); state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species); }
+        if is_key_pressed(KeyCode::V) { state.show_cones = !state.show_cones; }
+            if is_key_pressed(KeyCode::U) { state.show_unified_overlay = !state.show_unified_overlay; }
+            if is_key_pressed(KeyCode::E) { state.show_energy_overlay = !state.show_energy_overlay; }
+        if is_key_pressed(KeyCode::C) { state.show_collision_radii = !state.show_collision_radii; }
+        if is_key_pressed(KeyCode::G) { state.show_grid = !state.show_grid; }
+        if is_key_pressed(KeyCode::N) { state.show_best_network_panel = !state.show_best_network_panel; }
+        if is_key_pressed(KeyCode::M) { state.show_live_network = !state.show_live_network; }
+        if is_key_pressed(KeyCode::H) { state.show_controls = !state.show_controls; }
+        if is_key_pressed(KeyCode::K) { state.color_by_species = !state.color_by_species; }
+        
+        // ESC: if focused on an agent, clear focus; otherwise go back to menu
+        if is_key_pressed(KeyCode::Escape) {
+            if state.focused_agent.is_some() {
+                state.focused_agent = None;
+            } else {
+                // Go back to menu
+                continue 'main_loop;
+            }
+        }
+        // Removed per-row overlay toggles (1..4). Unified overlay is controlled via 'U'.
+        // Removed: [S] save snapshot and [B] easy birth debug toggle
 
         if running {
             let mut rng = ::rand::rng();
@@ -379,8 +412,9 @@ async fn main() {
     );
     ui_hud::draw_hud(hud_area, &state, running, fast_mode, &state.member_species);
 
-        next_frame().await
-    }
+        next_frame().await;
+    } // end 'sim_loop
+    } // end 'main_loop
 }
 
 fn eco_cull_population_by_fitness(state: &mut AppState) {
@@ -430,24 +464,24 @@ fn eco_cull_population_by_fitness(state: &mut AppState) {
         let mut chosen_species: Vec<usize> = species_best.into_iter().take(k).map(|(sid, _)| sid).collect();
 
         // Compute base quota and distribute remainder to top species
-        let base = POPULATION_SIZE / k;
-        let mut remainder = POPULATION_SIZE % k;
+    let pop_cap = params::get_population_size();
+    let base = pop_cap / k;
+    let mut remainder = pop_cap % k;
 
         // Take from each chosen species up to its quota, or all available if fewer
         for (rank, sid) in chosen_species.iter().enumerate() {
-            if selected.len() >= POPULATION_SIZE { break; }
+            if selected.len() >= pop_cap { break; }
             let quota = base + if rank < remainder { 1 } else { 0 };
             if let Some(members) = by_species.get(sid) {
                 let take = members.len().min(quota);
                 selected.extend_from_slice(&members[..take]);
             }
         }
-
         // If underfilled (some species didn't have enough members), fill by global fitness
-        if selected.len() < POPULATION_SIZE {
+        if selected.len() < pop_cap {
             let mut seen: std::collections::HashSet<usize> = selected.iter().copied().collect();
             for i in &all_idxs {
-                if selected.len() >= POPULATION_SIZE { break; }
+                if selected.len() >= pop_cap { break; }
                 if !seen.contains(i) { selected.push(*i); seen.insert(*i); }
             }
         }
@@ -463,16 +497,16 @@ fn eco_cull_population_by_fitness(state: &mut AppState) {
         // 2) Fill remaining slots by global fitness order, skipping already selected
         let mut seen: std::collections::HashSet<usize> = selected.iter().copied().collect();
         for i in &all_idxs {
-            if selected.len() >= POPULATION_SIZE { break; }
+            if selected.len() >= params::get_population_size() { break; }
             if !seen.contains(i) { selected.push(*i); seen.insert(*i); }
         }
 
-        // If we still exceed POPULATION_SIZE (e.g., many species × min), trim globally
-        if selected.len() > POPULATION_SIZE {
+        // If we still exceed population size (e.g., many species × min), trim globally
+        if selected.len() > params::get_population_size() {
             selected.sort_by(|&a, &b| scores[b]
                 .partial_cmp(&scores[a])
                 .unwrap_or(std::cmp::Ordering::Equal));
-            selected.truncate(POPULATION_SIZE);
+            selected.truncate(params::get_population_size());
         }
     }
 
@@ -602,6 +636,7 @@ fn spawn_offspring_if_needed<R: Rng>(
     let child_species = *member_species.get(population.len()-1).unwrap_or(&sid);
 
         // Append newborn agent aligned with last genome
+        let birth_pos = body.pos;  // Save position before moving body
         episode.agents.push(Agent {
             id: AgentId(episode.agents.len()),
             body,
@@ -632,6 +667,9 @@ fn spawn_offspring_if_needed<R: Rng>(
             offspring_count: 0,
             attack_hits: 0,
             kills_caused: 0,
+            idle_anchor: birth_pos,
+            idle_steps: 0,
+            total_idle_penalty: 0.0,
         });
         // Extend comm fitness accumulator to match agents length
         episode.comm_fitness_accum.push(0.0);

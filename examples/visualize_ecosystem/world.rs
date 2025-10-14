@@ -1,6 +1,6 @@
 use super::params::{
     WORLD_W, WORLD_H,
-    FOOD_COUNT, FOOD_MIN_SEP, MAX_FOOD,
+    FOOD_MIN_SEP, MAX_FOOD,
     FOOD_RESPAWN_PROB, FOOD_SPREAD_CHANCE, FOOD_SPREAD_RADIUS,
     FOOD_RADIUS,
     BIOME_X_SPLITS, BIOME_RESPAWN_MULT, BIOME_SPREAD_MULT,
@@ -9,9 +9,36 @@ use super::params::{
 use ::rand::Rng;
 use macroquad::prelude::Vec2;
 use crate::body::{Body, Plant};
+use std::cell::Cell;
+
+// Runtime config storage (thread-local)
+thread_local! {
+    static RUNTIME_WORLD_W: Cell<f32> = Cell::new(WORLD_W);
+    static RUNTIME_WORLD_H: Cell<f32> = Cell::new(WORLD_H);
+    static RUNTIME_MAX_FOOD: Cell<usize> = Cell::new(MAX_FOOD);
+    static RUNTIME_FOOD_RESPAWN: Cell<f32> = Cell::new(FOOD_RESPAWN_PROB);
+}
+
+// Getters for runtime config (fallback to constants if not set)
+fn world_w() -> f32 { RUNTIME_WORLD_W.with(|c| c.get()) }
+fn world_h() -> f32 { RUNTIME_WORLD_H.with(|c| c.get()) }
+fn max_food() -> usize { RUNTIME_MAX_FOOD.with(|c| c.get()) }
+fn food_respawn_prob() -> f32 { RUNTIME_FOOD_RESPAWN.with(|c| c.get()) }
+
+// Setter for runtime config (called from main before simulation starts)
+pub fn set_runtime_config(world_width: f32, world_height: f32, max_food_count: usize, food_respawn_rate: f32) {
+    RUNTIME_WORLD_W.with(|c| c.set(world_width));
+    RUNTIME_WORLD_H.with(|c| c.set(world_height));
+    RUNTIME_MAX_FOOD.with(|c| c.set(max_food_count));
+    RUNTIME_FOOD_RESPAWN.with(|c| c.set(food_respawn_rate));
+}
+
+// Public getters for use by other modules (e.g., UI)
+pub fn get_world_w() -> f32 { world_w() }
+pub fn get_world_h() -> f32 { world_h() }
 
 pub fn rand_pos<R: Rng>(rng: &mut R) -> Vec2 {
-    Vec2 { x: rng.random_range(0.0..WORLD_W), y: rng.random_range(0.0..WORLD_H) }
+    Vec2 { x: rng.random_range(0.0..world_w()), y: rng.random_range(0.0..world_h()) }
 }
 
 fn can_place_food(existing: &[Vec2], p: Vec2) -> bool {
@@ -24,9 +51,10 @@ fn can_place_food(existing: &[Vec2], p: Vec2) -> bool {
 }
 
 pub fn build_world<R: Rng>(rng: &mut R) -> Vec<Vec2> {
-    let mut food = Vec::with_capacity(FOOD_COUNT);
+    let target_food = max_food();
+    let mut food = Vec::with_capacity(target_food);
     let mut attempts = 0;
-    while food.len() < FOOD_COUNT && attempts < FOOD_COUNT * 50 {
+    while food.len() < target_food && attempts < target_food * 50 {
         attempts += 1;
         let p = rand_pos(rng);
         if can_place_food(&food, p) { food.push(p); }
@@ -35,7 +63,7 @@ pub fn build_world<R: Rng>(rng: &mut R) -> Vec<Vec2> {
 }
 
 fn biome_index_for_x(x: f32) -> usize {
-    let nx = x / WORLD_W;
+    let nx = x / world_w();
     if nx < BIOME_X_SPLITS[0] { 0 }
     else if nx < BIOME_X_SPLITS[1] { 1 }
     else { 2 }
@@ -44,10 +72,10 @@ fn biome_index_for_x(x: f32) -> usize {
 // Removed unused try_spawn_food_random (random spawns handled in food_growth_step)
 
 pub fn try_spawn_food_near<R: Rng>(food: &mut Vec<Vec2>, rng: &mut R, center: Vec2) {
-    if food.len() >= MAX_FOOD { return; }
+    if food.len() >= max_food() { return; }
     let ang = rng.random_range(0.0..(std::f32::consts::PI * 2.0));
     let r = rng.random_range(0.5..FOOD_SPREAD_RADIUS);
-    let p = Vec2 { x: (center.x + ang.cos() * r).clamp(0.0, WORLD_W), y: (center.y + ang.sin() * r).clamp(0.0, WORLD_H) };
+    let p = Vec2 { x: (center.x + ang.cos() * r).clamp(0.0, world_w()), y: (center.y + ang.sin() * r).clamp(0.0, world_h()) };
     if can_place_food(food, p) { food.push(p); }
 }
 
@@ -62,16 +90,16 @@ pub fn food_growth_step<R: Rng>(food: &mut Vec<Vec2>, rng: &mut R) {
     };
 
     // Random respawn attempt (biome-scaled)
-    if food.len() < MAX_FOOD {
+    if food.len() < max_food() {
         let p = rand_pos(rng);
         let biome = biome_index_for_x(p.x);
-        let prob = FOOD_RESPAWN_PROB * BIOME_RESPAWN_MULT[biome] * season_factor(biome);
+        let prob = food_respawn_prob() * BIOME_RESPAWN_MULT[biome] * season_factor(biome);
         if rng.random_range(0.0..1.0) < prob { if can_place_food(food, p) { food.push(p); } }
     }
     // Spread from existing foods (biome-scaled)
     let base_len = food.len();
     for i in 0..base_len {
-        if food.len() >= MAX_FOOD { break; }
+        if food.len() >= max_food() { break; }
         let parent = food[i];
         let biome = biome_index_for_x(parent.x);
         let prob = FOOD_SPREAD_CHANCE * BIOME_SPREAD_MULT[biome] * season_factor(biome);
@@ -140,8 +168,8 @@ pub fn set_current_step(step: usize) { CURRENT_STEP.with(|c| c.set(step)); }
 
 pub fn wrap_to_world(pos: Vec2) -> Vec2 {
     Vec2::new(
-        pos.x.rem_euclid(WORLD_W),
-        pos.y.rem_euclid(WORLD_H),
+        pos.x.rem_euclid(world_w()),
+        pos.y.rem_euclid(world_h()),
     )
 }
 
