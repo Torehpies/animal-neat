@@ -11,18 +11,25 @@ thread_local! {
     static RUNTIME_INITIAL_ENERGY: Cell<f32> = Cell::new(500.0);
     static RUNTIME_MAX_ENERGY: Cell<f32> = Cell::new(5000.0);
     static RUNTIME_ENERGY_DRAIN: Cell<f32> = Cell::new(0.05);
+    static RUNTIME_POPULATION_SIZE: Cell<usize> = Cell::new(50);
 }
 
 // Getters for runtime energy config (fallback to these constants if not set)
 pub fn get_initial_energy() -> f32 { RUNTIME_INITIAL_ENERGY.with(|c| c.get()) }
 pub fn get_max_energy() -> f32 { RUNTIME_MAX_ENERGY.with(|c| c.get()) }
 pub fn get_energy_drain_per_step() -> f32 { RUNTIME_ENERGY_DRAIN.with(|c| c.get()) }
+pub fn get_population_size() -> usize { RUNTIME_POPULATION_SIZE.with(|c| c.get()) }
 
 // Setter for runtime energy config
 pub fn set_runtime_energy_config(initial: f32, max: f32, drain: f32) {
     RUNTIME_INITIAL_ENERGY.with(|c| c.set(initial));
     RUNTIME_MAX_ENERGY.with(|c| c.set(max));
     RUNTIME_ENERGY_DRAIN.with(|c| c.set(drain));
+}
+
+// Setter for runtime population size
+pub fn set_runtime_population_size(size: usize) {
+    RUNTIME_POPULATION_SIZE.with(|c| c.set(size));
 }
 
 // =====================
@@ -134,7 +141,7 @@ pub const EXPL_WEIGHT: f32 = 30.0;                // reward for 100% coverage (t
 // Fitness: we collapse plant/meat shaping into two simple weights.
 pub const PLANT_FITNESS: f32 = 6.0;            // reward per plant eaten
 pub const MEAT_FITNESS: f32 = 10.0;             // reward per meat (kill or scavenged corpse) event
-pub const SURVIVAL_STEP_FITNESS: f32 = 0.03;  // reward per simulation step survived (alive or not? counted via total steps for now)
+pub const SURVIVAL_STEP_FITNESS: f32 = 0.00;  // reward per simulation step survived (alive or not? counted via total steps for now)
 // Updated: SURVIVAL_STEP_FITNESS now applied per-agent using alive_steps^SURVIVAL_TIME_EXP
 pub const SURVIVAL_TIME_EXP: f32 = 0.75;       // 0.5 => sqrt diminishing returns; 1.0 would be linear
 // Predation shaping: reward successful attack hits and kills caused
