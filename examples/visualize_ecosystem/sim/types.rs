@@ -44,6 +44,8 @@ pub struct Agent {
     pub total_idle_penalty: f32,     // accumulated idle penalty for fitness
     // Scratch neural input buffer (length = params::INPUTS) reused each step to avoid allocation
     pub input_buf: Vec<f32>,
+    // Accumulated energy while alive (for eco-mode live fitness computation to avoid extra evaluation pass)
+    pub energy_accum: f32,
 }
 
 #[derive(Clone, Copy, Debug)]

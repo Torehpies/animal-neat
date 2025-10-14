@@ -456,14 +456,35 @@ async fn main() {
 }
 
 fn eco_cull_population_by_fitness(state: &mut AppState) {
-    // Evaluate current population with the same single-episode fitness used for evolution
-    let mut scores = eval_population_single_episode(&state.population);
-    // Augment scores with reproduction reward from the just-finished live episode
-    // Parents get a bonus per successful birth this episode.
-    for (i, a) in state.episode.agents.iter().enumerate() {
-        if i < scores.len() {
-            scores[i] += (a.offspring_count as f32) * REPRO_BIRTH_FITNESS_PARENT;
-        }
+    // Compute fitness directly from live episode stats to avoid costly headless re-simulation.
+    // This removes the freeze at episode end in fast mode.
+    // (Exploration proxy does not use actual cell coverage; omit total_cells computation.)
+    // Build exploration sets on demand: we didn't store per-agent visited cells in live mode; approximate with alive_steps fraction.
+    // Simple proxy: exploration_reward = (alive_steps / MAX_STEPS) * EXPL_WEIGHT (cheap; avoids tracking HashSet each step).
+    let mut scores: Vec<f32> = Vec::with_capacity(state.population.len());
+    for a in state.episode.agents.iter() {
+        // Intake components
+        let eaten_plants = a.eaten.saturating_sub(a.kills) as f32;
+        let eaten_meat = a.kills as f32;
+        let intake_events = a.eaten as usize;
+        let missing = INTAKE_MIN_EVENTS.saturating_sub(intake_events) as f32;
+        let intake_penalty = missing * INTAKE_MISS_PENALTY;
+        let intake = eaten_plants * PLANT_FITNESS + eaten_meat * MEAT_FITNESS - intake_penalty;
+        // Exploration proxy
+        let exploration = (a.alive_steps as f32 / MAX_STEPS as f32) * EXPL_WEIGHT;
+        // Survival shaping
+        let survival = (a.alive_steps as f32).powf(SURVIVAL_TIME_EXP) * SURVIVAL_STEP_FITNESS;
+        // Predation reward
+        let predation_reward = (a.attack_hits as f32) * ATTACK_HIT_FITNESS + (a.kills_caused as f32) * KILL_CAUSED_FITNESS;
+        // Average energy while alive (normalized)
+        let avg_energy_norm = if a.alive_steps > 0 { (a.energy_accum / a.alive_steps as f32) / crate::params::get_max_energy() } else { 0.0 };
+        let energy_term = avg_energy_norm * ENERGY_AVG_WEIGHT;
+        // Reproduction bonus
+        let reproduction = (a.offspring_count as f32) * REPRO_BIRTH_FITNESS_PARENT;
+        // Idleness penalty
+        let idle_penalty = a.total_idle_penalty;
+        let score = intake + exploration + survival + predation_reward + energy_term + reproduction - idle_penalty;
+        scores.push(score);
     }
     // Build indices sorted by fitness desc
     let mut all_idxs: Vec<usize> = (0..state.population.len()).collect();
@@ -709,6 +730,7 @@ fn spawn_offspring_if_needed<R: Rng>(
             idle_steps: 0,
             total_idle_penalty: 0.0,
             input_buf: Vec::with_capacity(crate::params::INPUTS),
+            energy_accum: 0.0,
         });
         // Extend comm fitness accumulator to match agents length
         episode.comm_fitness_accum.push(0.0);

@@ -63,7 +63,7 @@ pub const SPECIES_SPAWN_CLUSTER_STD: f32 = 30.0;
 // Target number of members per cluster center; large species will get multiple centers.
 pub const SPECIES_CLUSTER_TARGET_SIZE: usize = 10;
 // Upper bound to avoid creating too many centers for very large species.
-pub const SPECIES_SPAWN_MAX_CENTERS_PER_SPECIES: usize = 5;
+pub const SPECIES_SPAWN_MAX_CENTERS_PER_SPECIES: usize = 10;
 
 // =====
 // Food
