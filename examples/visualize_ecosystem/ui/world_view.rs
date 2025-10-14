@@ -22,13 +22,15 @@ pub fn draw_world(
     color_by_species: bool,
 ) {
     let fitted = fit_world_rect(area);
+    let world_w = crate::world::get_world_w();
+    let world_h = crate::world::get_world_h();
     // background: draw biome bands with seasonal tinting
     // Biomes split across X using BIOME_X_SPLITS; use episode.steps as season time
     let splits = BIOME_X_SPLITS;
     let bands = [0.0, splits[0], splits[1], 1.0];
     for b in 0..3 {
-        let x0w = bands[b] * WORLD_W;
-        let x1w = bands[b + 1] * WORLD_W;
+        let x0w = bands[b] * world_w;
+        let x1w = bands[b + 1] * world_w;
         let (x0, _) = world_to_screen(fitted, Vec2 { x: x0w, y: 0.0 });
         let (x1, _) = world_to_screen(fitted, Vec2 { x: x1w, y: 0.0 });
         let w = (x1 - x0).abs();
@@ -54,13 +56,13 @@ pub fn draw_world(
     let px_per_world = world_scale(fitted);
     // exploration grid overlay
     if show_grid {
-        let nx = (WORLD_W / EXPL_CELL_SIZE).ceil() as i32;
-        let ny = (WORLD_H / EXPL_CELL_SIZE).ceil() as i32;
+        let nx = (world_w / EXPL_CELL_SIZE).ceil() as i32;
+        let ny = (world_h / EXPL_CELL_SIZE).ceil() as i32;
         // Vertical lines
         for i in 0..=nx {
-            let xw = if i >= nx { WORLD_W } else { i as f32 * EXPL_CELL_SIZE };
+            let xw = if i >= nx { world_w } else { i as f32 * EXPL_CELL_SIZE };
             let (x0, y0) = world_to_screen(fitted, Vec2 { x: xw, y: 0.0 });
-            let (x1, y1) = world_to_screen(fitted, Vec2 { x: xw, y: WORLD_H });
+            let (x1, y1) = world_to_screen(fitted, Vec2 { x: xw, y: world_h });
             let major = i % 5 == 0;
             let col = if major { Color::new(1.0, 1.0, 1.0, 0.28) } else { Color::new(1.0, 1.0, 1.0, 0.12) };
             let w = if major { 2.0 } else { 1.0 };
@@ -68,9 +70,9 @@ pub fn draw_world(
         }
         // Horizontal lines
         for j in 0..=ny {
-            let yw = if j >= ny { WORLD_H } else { j as f32 * EXPL_CELL_SIZE };
+            let yw = if j >= ny { world_h } else { j as f32 * EXPL_CELL_SIZE };
             let (x0, y0) = world_to_screen(fitted, Vec2 { x: 0.0, y: yw });
-            let (x1, y1) = world_to_screen(fitted, Vec2 { x: WORLD_W, y: yw });
+            let (x1, y1) = world_to_screen(fitted, Vec2 { x: world_w, y: yw });
             let major = j % 5 == 0;
             let col = if major { Color::new(1.0, 1.0, 1.0, 0.28) } else { Color::new(1.0, 1.0, 1.0, 0.12) };
             let w = if major { 2.0 } else { 1.0 };
@@ -340,11 +342,13 @@ pub fn draw_world(
                 // Memory vectors (food=yellow, danger=orange)
                 if show_memory_inputs {
                 let draw_mem_vec = |vx: f32, vy: f32, color: Color| {
+                    let world_w = crate::world::get_world_w();
+                    let world_h = crate::world::get_world_h();
                     let cth = a.theta.cos(); let sth = a.theta.sin();
                     let right_x = -sth; let right_y = cth; let fwd_x = cth; let fwd_y = sth;
                     let scale = 55.0;
-                    let world_dx = (right_x * vx + fwd_x * vy) * (scale / fitted.w * WORLD_W);
-                    let world_dy = (right_y * vx + fwd_y * vy) * (scale / fitted.h * WORLD_H);
+                    let world_dx = (right_x * vx + fwd_x * vy) * (scale / fitted.w * world_w);
+                    let world_dy = (right_y * vx + fwd_y * vy) * (scale / fitted.h * world_h);
                     let end = Vec2 { x: a.body.pos.x + world_dx, y: a.body.pos.y + world_dy };
                     let (ex, ey) = world_to_screen(fitted, end);
                     draw_line(ax, ay, ex, ey, 2.0, color);

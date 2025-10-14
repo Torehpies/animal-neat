@@ -39,6 +39,8 @@ mod ui_world_view;
 mod ui_hud;
 #[path = "visualize_ecosystem/ui/network.rs"]
 mod ui_network;
+#[path = "visualize_ecosystem/ui/menu.rs"]
+mod ui_menu;
 #[path = "visualize_ecosystem/elements/body.rs"]
 mod body;
 #[path = "visualize_ecosystem/sim/mod.rs"]
@@ -47,6 +49,7 @@ use sim::{Episode, Agent, AgentId};
 use ::rand::Rng;
 use params::*;
 use sim::eval_population_single_episode;
+use ui_menu::{SimConfig, MenuState, draw_menu};
 
 
 // Episode methods are defined in sim::episode
@@ -78,10 +81,13 @@ struct AppState {
     eco_episode_counter: usize,
     show_controls: bool,
     color_by_species: bool,
+    // Runtime config
+    pub sim_config: SimConfig,
 }
 
 impl AppState {
-    fn new(pop_size: usize) -> Self {
+    fn new(sim_config: SimConfig) -> Self {
+        let pop_size = sim_config.population_size;
         let num_inputs = INPUTS as u32;
         let num_outputs = OUTPUTS as u32;
         let mut rng = ::rand::rng();
@@ -123,6 +129,7 @@ impl AppState {
             eco_episode_counter: 0,
             show_controls: true,
             color_by_species: false,
+            sim_config,
         }
     }
 
@@ -215,7 +222,19 @@ fn window_conf() -> Conf {
 
 #[macroquad::main(window_conf)]
 async fn main() {
-    let mut state = AppState::new(params::POPULATION_SIZE);
+    // Show menu first to get configuration
+    let mut menu_state = MenuState::new();
+    let sim_config = loop {
+        if let Some(config) = draw_menu(&mut menu_state) {
+            break config;
+        }
+        next_frame().await;
+    };
+    
+    // Apply configuration to global params (via world module)
+    world::set_runtime_config(sim_config.world_width, sim_config.world_height, sim_config.max_food, sim_config.food_respawn_prob);
+    
+    let mut state = AppState::new(sim_config);
     let mut running = true;      // continuous evolution by default
     let mut fast_mode = false;   // start at normal speed
     let mut normal_step_timer = 0.0f32;          // accumulates frame time for normal stepping
