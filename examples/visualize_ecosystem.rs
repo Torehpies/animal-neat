@@ -592,6 +592,7 @@ fn spawn_offspring_if_needed<R: Rng>(
         let child_species = *member_species.get(population.len()-1).unwrap_or(&sid);
 
         // Append newborn agent aligned with last genome
+        let birth_pos = body.pos;  // Save position before moving body
         episode.agents.push(Agent {
             id: AgentId(episode.agents.len()),
             body,
@@ -617,6 +618,9 @@ fn spawn_offspring_if_needed<R: Rng>(
             offspring_count: 0,
             attack_hits: 0,
             kills_caused: 0,
+            idle_anchor: birth_pos,
+            idle_steps: 0,
+            total_idle_penalty: 0.0,
         });
         // Extend comm fitness accumulator to match agents length
         episode.comm_fitness_accum.push(0.0);

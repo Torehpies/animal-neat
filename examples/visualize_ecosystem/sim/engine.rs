@@ -109,6 +109,22 @@ pub fn tick_step<R: Rng>(
             a.body.pos = wrap_to_world(a.body.pos);
         }
 
+        // Idleness tracking: penalize staying in the same place
+        if IDLENESS_PENALTY_ENABLED {
+            let dist_from_anchor = (a.body.pos - a.idle_anchor).length();
+            if dist_from_anchor < IDLENESS_DISTANCE_THRESHOLD {
+                a.idle_steps += 1;
+                if a.idle_steps > IDLENESS_THRESHOLD_STEPS {
+                    let penalty = IDLENESS_PENALTY_PER_STEP;
+                    a.total_idle_penalty += penalty;
+                }
+            } else {
+                // Moved significantly, reset idleness tracking
+                a.idle_anchor = a.body.pos;
+                a.idle_steps = 0;
+            }
+        }
+
         // Eating: require actual overlap at end position (disable swept path exploit)
         let ate = if world::eat_if_near(food, &a.body) {
             if DIGEST_STEPS_PLANT > 0 { a.digest.push_back(DigestEvent { remaining: DIGEST_STEPS_PLANT, per_step: FOOD_ENERGY / (DIGEST_STEPS_PLANT as f32) }); }
@@ -129,7 +145,40 @@ pub fn tick_step<R: Rng>(
                 if alive_j && species_j == my_species { continue; }
                 if (alive_j && !PREDATION_ENABLED) || ((!alive_j || is_corpse_j) && !SCAVENGE_ENABLED) { continue; }
                 let dx = pos_j.x - a.body.pos.x; let dy = pos_j.y - a.body.pos.y;
-                if (dx*dx + dy*dy).sqrt() <= EAT_AGENT_RADIUS { target = Some(j); break; }
+                let dist2 = dx*dx + dy*dy;
+                if dist2.sqrt() > EAT_AGENT_RADIUS { continue; }
+                
+                // NEW: For live prey, require target to be within vision cone (enables ambush tactics)
+                if alive_j && PREDATION_REQUIRES_VISION {
+                    let to_target = Vec2::new(dx, dy);
+                    let to_len = to_target.length();
+                    if to_len < 1e-6 { continue; } // avoid division by zero
+                    let to_norm = to_target / to_len;
+                    
+                    // Check if target is within vision cone angle
+                    let dot = dir.dot(to_norm);
+                    let half_cone = (VISION_ANGLE_DEG.to_radians() * 0.5).cos();
+                    if dot < half_cone {
+                        continue; // target outside vision cone, cannot attack
+                    }
+                }
+                
+                // For corpses, optionally require vision (easier scavenging if disabled)
+                if (!alive_j || is_corpse_j) && SCAVENGE_REQUIRES_VISION {
+                    let to_target = Vec2::new(dx, dy);
+                    let to_len = to_target.length();
+                    if to_len < 1e-6 { continue; }
+                    let to_norm = to_target / to_len;
+                    
+                    let dot = dir.dot(to_norm);
+                    let half_cone = (VISION_ANGLE_DEG.to_radians() * 0.5).cos();
+                    if dot < half_cone {
+                        continue; // corpse outside vision cone
+                    }
+                }
+                
+                target = Some(j); 
+                break;
             }
             prey_targets[i] = target;
         }

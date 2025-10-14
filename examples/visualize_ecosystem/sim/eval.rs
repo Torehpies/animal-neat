@@ -36,6 +36,9 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         offspring_count: 0,
         attack_hits: 0,
         kills_caused: 0,
+        idle_anchor: world::rand_pos(&mut rng),
+        idle_steps: 0,
+        total_idle_penalty: 0.0,
     }).collect();
     // Track exploration (unique grid cells)
     let mut visited: Vec<HashSet<u32>> = vec![HashSet::new(); agents.len()];
@@ -84,7 +87,9 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         // Average energy while alive (normalized 0..1)
         let avg_energy_norm = if a.alive_steps > 0 { (energy_accum[i] / a.alive_steps as f32) / crate::params::get_max_energy() } else { 0.0 };
         let energy_term = avg_energy_norm * ENERGY_AVG_WEIGHT;
-        intake + exploration + survival + predation_reward + energy_term + comm_fit[i]
+        // Subtract idle penalty
+        let idle_penalty = a.total_idle_penalty;
+        intake + exploration + survival + predation_reward + energy_term + comm_fit[i] - idle_penalty
     }).collect()
 }
 

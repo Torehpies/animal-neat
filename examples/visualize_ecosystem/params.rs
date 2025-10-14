@@ -85,8 +85,8 @@ pub const FOOD_SPREAD_RADIUS: f32 = 15.0;
 // Vision cone parameters
 // =====================
 pub const VISION_RAYS: usize = 7;
-pub const VISION_ANGLE_DEG: f32 = 80.0;
-pub const VISION_RANGE: f32 = 90.0;
+pub const VISION_ANGLE_DEG: f32 = 45.0;  // Narrower cone (was 80.0)
+pub const VISION_RANGE: f32 = 150.0;     // Longer range (was 90.0)
 /// Derived: radians for convenience if needed by math
 
 // ========
@@ -196,6 +196,10 @@ pub const EAT_AGENT_RADIUS: f32 = 2.5 * AGENT_RADIUS;
 pub const MEAT_ENERGY: f32 = 220.0;
 pub const PREDATION_ENABLED: bool = true;
 pub const SCAVENGE_ENABLED: bool = true;
+/// Require live prey to be within predator's vision cone to attack (enables ambush tactics)
+pub const PREDATION_REQUIRES_VISION: bool = true;
+/// Require corpses to be within vision cone to scavenge (set false for easier scavenging)
+pub const SCAVENGE_REQUIRES_VISION: bool = false;
 // Health / injury system
 pub const AGENT_BASE_HEALTH: f32 = 100.0;        // starting and max health baseline
 pub const HEALTH_DECAY_PER_STEP: f32 = 0.0;      // passive health decay (0 to disable)
@@ -207,6 +211,18 @@ pub const SCAVENGE_TOUCH_DAMAGE: f32 = 0.0;      // health damage to scavenger w
 pub const INVULN_AFTER_HIT_STEPS: usize = 2;     // brief invulnerability frames after taking damage
 pub const HEALTH_TO_ENERGY_RATIO: f32 = 0.25;    // when health reaches 0 convert leftover health deficit to energy penalty (soft coupling)
 pub const DEATH_HEALTH_THRESHOLD: f32 = 0.0;     // health <= this means agent dead (corpse logic kicks in)
+
+// ===============================
+// Idleness Penalty
+// ===============================
+/// Enable penalty for staying in the same place too long
+pub const IDLENESS_PENALTY_ENABLED: bool = true;
+/// Number of steps before idleness penalty kicks in (5 seconds ≈ varies by sim speed, using steps)
+pub const IDLENESS_THRESHOLD_STEPS: usize = 100;
+/// Distance threshold to consider agent as "staying in same place"
+pub const IDLENESS_DISTANCE_THRESHOLD: f32 = 3.0;
+/// Fitness penalty applied per step when idle beyond threshold
+pub const IDLENESS_PENALTY_PER_STEP: f32 = 0.02;
 
 // ===============================
 // Motor model (relative turn + speed)

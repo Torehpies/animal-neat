@@ -47,6 +47,9 @@ impl Episode {
                 offspring_count: 0,
                 attack_hits: 0,
                 kills_caused: 0,
+                idle_anchor: world::rand_pos(rng),
+                idle_steps: 0,
+                total_idle_penalty: 0.0,
             });
         }
         Self {
