@@ -1,22 +1,36 @@
+//! Visualize Ecosystem example
+//!
+//! High-level flow:
+//! - AppState holds the evolving NEAT population plus visualization flags.
+//! - Each generation, we evaluate genomes over EPISODES_PER_GEN episodes.
+//! - Fitness combines intake (plants/meat), exploration, survival, and optional comm rewards.
+//! - In live mode, an Episode advances step-by-step and the UI renders agents, overlays, and HUD.
+//!
+//! Inputs: see params.rs for the fixed layout; use `sensing::input_ranges()` for indices.
+//! Outputs: [turn, thrust, call]. Movement uses an inertia model when enabled.
+//!
+//! Key files:
+//! - params.rs: all configuration
+//! - sensing.rs: input building (distance-based vision), hearing
+//! - sim.rs: movement & interactions (predation/scavenging)
+//! - world.rs: plant growth and seasonality
+//! - ui/: world view, HUD, network panel
+
 use macroquad::prelude::*;
 use neat::neat::{
     config::EvolutionConfig,
     evolution,
     genome::Genome,
     innovation_tracker::InnovationTracker,
+    io,
     speciator::Speciator,
 };
-use neat::neat::species::Species;
-use std::collections::VecDeque;
-use ::rand::Rng;
 #[path = "visualize_ecosystem/params.rs"]
 mod params;
 #[path = "visualize_ecosystem/sensing.rs"]
 mod sensing;
 #[path = "visualize_ecosystem/world.rs"]
 mod world;
-#[path = "visualize_ecosystem/sim.rs"]
-mod sim;
 #[path = "visualize_ecosystem/ui/common.rs"]
 mod ui_common;
 #[path = "visualize_ecosystem/ui/world_view.rs"]
@@ -25,334 +39,20 @@ mod ui_world_view;
 mod ui_hud;
 #[path = "visualize_ecosystem/ui/network.rs"]
 mod ui_network;
-
-// Use centralized params
+#[path = "visualize_ecosystem/ui/menu.rs"]
+mod ui_menu;
+#[path = "visualize_ecosystem/elements/body.rs"]
+mod body;
+#[path = "visualize_ecosystem/sim/mod.rs"]
+mod sim;
+use sim::{Episode, Agent, AgentId};
+use ::rand::Rng;
 use params::*;
-
-#[derive(Clone, Copy, Debug)]
-struct Vec2 { x: f32, y: f32 }
-
-#[allow(dead_code)]
-impl Vec2 {
-    fn new(x: f32, y: f32) -> Self { Self { x, y } }
-    fn add(self, o: Self) -> Self { Self::new(self.x + o.x, self.y + o.y) }
-    fn sub(self, o: Self) -> Self { Self::new(self.x - o.x, self.y - o.y) }
-    fn mul(self, s: f32) -> Self { Self::new(self.x * s, self.y * s) }
-    fn dot(self, o: Self) -> f32 { self.x * o.x + self.y * o.y }
-    fn length(self) -> f32 { self.dot(self).sqrt() }
-    fn normalized(self) -> Self { let len = self.length().max(1e-6); Self::new(self.x/len, self.y/len) }
-    fn clamp_to_world(self) -> Self { Self::new(self.x.clamp(0.0, WORLD_W), self.y.clamp(0.0, WORLD_H)) }
-}
-
-// world.rs now provides rand_pos/build_world/food growth helpers
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-struct AgentId(usize);
-
-#[derive(Clone, Debug)]
-struct Agent {
-    id: AgentId,
-    pos: Vec2,
-    theta: f32,
-    energy: f32,
-    eaten: usize,
-    consumed: bool, // true if this agent's body has been eaten and removed from world
-    kills: usize,                // number of agents eaten (live or dead) in this episode
-    predation_flash_steps: u16,  // visual cue counter for recent predation
-    dead_since: Option<usize>,   // step index when this agent died
-    corpse_energy: f32,          // remaining energy in corpse (for scavenging)
-    digest: VecDeque<DigestEvent>, // incoming energy deliveries
-    last_food_mem: Vec2,         // memory of last step's nearest-food local vector
-    last_danger_mem: Vec2,       // memory of last step's nearest-agent local vector
-}
-
-#[derive(Clone, Copy, Debug)]
-struct DigestEvent { remaining: u16, per_step: f32 }
-
-struct Episode {
-    food: Vec<Vec2>,
-    agents: Vec<Agent>,
-    steps: usize,
-    first_eat_step: Option<usize>,
-    // Motor usage stats (for HUD): aggregated over agent-steps this episode
-    total_agent_steps: usize,
-    sprint_used: usize,
-    brake_used: usize,
-    thrust_sum: f32,
-    abs_turn_sum: f32,
-}
-
-fn dir_from_theta(theta: f32) -> Vec2 { Vec2 { x: theta.cos(), y: theta.sin() } }
+use sim::eval_population_single_episode;
+use ui_menu::{SimConfig, MenuState, draw_menu};
 
 
-// sample_inputs replaced by build_inputs in Phase 3
-
-fn grid_index(p: Vec2) -> u32 {
-    let nx = (WORLD_W / EXPL_CELL_SIZE).ceil() as u32;
-    let ix = (p.x / EXPL_CELL_SIZE).floor().clamp(0.0, nx as f32 - 1.0) as u32;
-    let iy = (p.y / EXPL_CELL_SIZE).floor().clamp(0.0, (WORLD_H / EXPL_CELL_SIZE).ceil() as f32 - 1.0) as u32;
-    iy * nx + ix
-}
-
-// eat_if_near moved to world.rs
-
-fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
-    let mut rng = ::rand::rng();
-    let mut food = world::build_world(&mut rng);
-    let mut agents: Vec<Agent> = population.iter().enumerate().map(|(i, _)| Agent {
-        id: AgentId(i),
-    pos: world::rand_pos(&mut rng),
-        theta: -std::f32::consts::FRAC_PI_2,
-        energy: INITIAL_ENERGY,
-        eaten: 0,
-        consumed: false,
-        kills: 0,
-        predation_flash_steps: 0,
-        dead_since: None,
-        corpse_energy: 0.0,
-        digest: VecDeque::new(),
-        last_food_mem: Vec2 { x: 0.0, y: 0.0 },
-        last_danger_mem: Vec2 { x: 0.0, y: 0.0 },
-    }).collect();
-    let mut visited: Vec<std::collections::HashSet<u32>> = vec![std::collections::HashSet::new(); agents.len()];
-    let mut avoid_penalty: Vec<f32> = vec![0.0; agents.len()];
-
-    let mut steps = 0usize;
-    // Headless-only shaping trackers
-    let mut last_food_d: Vec<f32> = agents.iter().map(|a| {
-        sensing::nearest_food_distance(a.pos, &food).unwrap_or(f32::INFINITY)
-    }).collect();
-    while steps < MAX_STEPS {
-        if agents.iter().all(|a| a.energy <= 0.0) { break; }
-        // Snapshot for predation decisions to avoid borrow conflicts
-        let snapshot: Vec<(Vec2, bool, bool)> = agents.iter().map(|a| (a.pos, a.energy > 0.0, a.consumed)).collect();
-        let mut prey_targets: Vec<Option<usize>> = vec![None; agents.len()];
-        for (i, a) in agents.iter_mut().enumerate() {
-            if a.energy <= 0.0 { continue; }
-            // Build extended inputs (ray-first): per-ray signals + energy + memory + density
-            let (cur_fx, cur_fy) = sensing::food_vector_from_rays(a.pos, a.theta, &food);
-            let density = sensing::density_sectors(a.pos, a.theta, &snapshot, i);
-            // Digest before acting (shared)
-            sim::apply_digestion(a);
-            visited[i].insert(grid_index(a.pos));
-            let energy_in = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
-            let inputs = sensing::build_inputs(a.pos, a.theta, &food, energy_in, a.last_food_mem, a.last_danger_mem, &density, &snapshot, i);
-            let out = population[i].evaluate_slice(&inputs);
-            let mut turn = out.get(0).copied().unwrap_or(0.0);
-            let mut thrust = out.get(1).copied().unwrap_or(0.0);
-            let mut sprint_sig = out.get(2).copied().unwrap_or(0.0);
-            let mut brake_sig = out.get(3).copied().unwrap_or(0.0);
-            // Noise
-            turn += rng.random_range(-MOTOR_NOISE..MOTOR_NOISE);
-            thrust += rng.random_range(-MOTOR_NOISE..MOTOR_NOISE);
-            sprint_sig += rng.random_range(-MOTOR_NOISE..MOTOR_NOISE);
-            brake_sig += rng.random_range(-MOTOR_NOISE..MOTOR_NOISE);
-            // Clamp ranges
-            let turn = turn.clamp(-1.0, 1.0);
-            let thrust = thrust.clamp(0.0, 1.0);
-            let sprint_sig = sprint_sig.clamp(0.0, 1.0);
-            let brake_sig = brake_sig.clamp(0.0, 1.0);
-            // Decide sprint/brake (prioritize strongest)
-            let sprint = sprint_sig >= SPRINT_THRESHOLD && sprint_sig >= brake_sig;
-            let brake = !sprint && (brake_sig >= BRAKE_THRESHOLD);
-            // Coupling: reduce thrust when turning strongly
-            let thrust_eff = (thrust * (1.0 - THRUST_TURN_COUPLING * turn.abs())).clamp(0.0, 1.0);
-            a.theta += turn * MAX_TURN;
-            let mut speed_scale = 1.0;
-            if sprint { speed_scale = SPRINT_MULT; } else if brake { speed_scale = BRAKE_MULT; }
-            let dir = dir_from_theta(a.theta);
-            let vel = dir.mul(thrust_eff * MAX_SPEED * speed_scale);
-            a.pos = a.pos.add(vel).clamp_to_world();
-            if world::eat_if_near(&mut food, a.pos) {
-                if DIGEST_STEPS_PLANT > 0 { a.digest.push_back(DigestEvent { remaining: DIGEST_STEPS_PLANT, per_step: FOOD_ENERGY / (DIGEST_STEPS_PLANT as f32) }); }
-                else { a.energy = (a.energy + FOOD_ENERGY).min(INITIAL_ENERGY); }
-                a.eaten += 1; }
-            // Predation/scavenging: choose a nearby target (record only)
-            if PREDATION_ENABLED || SCAVENGE_ENABLED {
-                let mut target: Option<usize> = None;
-                for j in 0..snapshot.len() {
-                    if j == i { continue; }
-                    let (pos_j, alive_j, consumed_j) = snapshot[j];
-                    if consumed_j { continue; }
-                    if (alive_j && !PREDATION_ENABLED) || (!alive_j && !SCAVENGE_ENABLED) { continue; }
-                    let dx = pos_j.x - a.pos.x; let dy = pos_j.y - a.pos.y;
-                    if (dx*dx + dy*dy).sqrt() <= EAT_AGENT_RADIUS { target = Some(j); break; }
-                }
-                prey_targets[i] = target;
-            }
-            let mut extra_cost = 0.0;
-            if sprint { extra_cost += SPRINT_COST; } else if brake { extra_cost += BRAKE_COST; }
-            a.energy -= ENERGY_DRAIN_PER_STEP + thrust_eff * 0.2 + TURN_COST * turn.abs() + extra_cost;
-            if a.energy <= 0.0 { if a.dead_since.is_none() { a.dead_since = Some(steps); a.corpse_energy = CORPSE_INITIAL_ENERGY; } }
-            // Update memories after acting
-            a.last_food_mem = Vec2 { x: cur_fx, y: cur_fy };
-            let (dx_mem, dy_mem) = sensing::nearest_agent_vector_local(a.pos, a.theta, &snapshot, i);
-            a.last_danger_mem = Vec2 { x: dx_mem, y: dy_mem };
-            // Headless shaping: approach reward and spin penalty
-            if a.energy > 0.0 {
-                if let Some(d) = sensing::nearest_food_distance(a.pos, &food) {
-                    if last_food_d[i].is_finite() && d.is_finite() && d < APPROACH_MAX_RANGE {
-                        let delta = (last_food_d[i] - d).clamp(-10.0, 10.0);
-                        avoid_penalty[i] -= delta * APPROACH_REWARD_SCALE; // subtract negative to add reward
-                    }
-                    last_food_d[i] = d;
-                }
-                avoid_penalty[i] += turn.abs() * SPIN_PENALTY_SCALE;
-            }
-        }
-        // Resolve predation and tick corpse/flash decay (shared)
-        sim::resolve_predation(&mut agents, &prey_targets, steps);
-        sim::decay_corpses_and_flashes(&mut agents);
-        if steps % AVOID_CHECK_EVERY == 0 {
-            for i in 0..agents.len() {
-                if agents[i].energy <= 0.0 { continue; }
-                let pi = agents[i].pos;
-                let mut pen = 0.0f32;
-                for j in 0..agents.len() {
-                    if i == j || agents[j].energy <= 0.0 { continue; }
-                    let pj = agents[j].pos;
-                    let dx = pj.x - pi.x; let dy = pj.y - pi.y; let d2 = dx*dx + dy*dy; let r2 = AVOID_RADIUS * AVOID_RADIUS;
-                    if d2 < r2 { let d = d2.sqrt(); let m = (AVOID_RADIUS - d) / AVOID_RADIUS; pen += m * AVOID_PENALTY_SCALE; }
-                }
-                avoid_penalty[i] += pen;
-            }
-        }
-        // Plants grow/spread over time
-    world::food_growth_step(&mut food, &mut rng);
-        steps += 1;
-    }
-
-    agents.iter().enumerate().map(|(i, a)| {
-        let expl = visited[i].len() as f32 * EXPL_REWARD_PER_CELL;
-        (a.eaten as f32) * EAT_WEIGHT + (steps as f32) * STEP_WEIGHT + expl - avoid_penalty[i]
-    }).collect()
-}
-
-impl Episode {
-    fn new<R: Rng>(rng: &mut R, agent_count: usize) -> Self {
-        let mut agents = Vec::with_capacity(agent_count);
-        for i in 0..agent_count {
-            agents.push(Agent {
-                id: AgentId(i),
-                pos: world::rand_pos(rng),
-                theta: -std::f32::consts::FRAC_PI_2,
-                energy: INITIAL_ENERGY,
-                eaten: 0,
-                consumed: false,
-                kills: 0,
-                predation_flash_steps: 0,
-                dead_since: None,
-                corpse_energy: 0.0,
-                digest: VecDeque::new(),
-                last_food_mem: Vec2 { x: 0.0, y: 0.0 },
-                last_danger_mem: Vec2 { x: 0.0, y: 0.0 },
-            });
-        }
-    Self {
-        food: world::build_world(rng),
-        agents,
-        steps: 0,
-        first_eat_step: None,
-        total_agent_steps: 0,
-        sprint_used: 0,
-        brake_used: 0,
-        thrust_sum: 0.0,
-        abs_turn_sum: 0.0,
-    }
-    }
-
-    fn step<R: Rng>(&mut self, population: &[Genome], rng: &mut R) -> bool {
-        // Live episode: continue until all agents are dead (ignore max steps and food exhaustion)
-        if self.agents.iter().all(|a| a.energy <= 0.0) { return false; }
-        // Snapshot for predation decisions
-        let snapshot: Vec<(Vec2, bool, bool)> = self.agents.iter().map(|a| (a.pos, a.energy > 0.0, a.consumed)).collect();
-        let mut prey_targets: Vec<Option<usize>> = vec![None; self.agents.len()];
-        for (i, a) in self.agents.iter_mut().enumerate() {
-            if a.energy <= 0.0 { continue; }
-            // Build extended inputs (Phase 3): rays + current food vec + energy + memory + density
-            let (cur_fx, cur_fy) = sensing::food_vector_from_rays(a.pos, a.theta, &self.food);
-            let (_cur_dx, _cur_dy) = sensing::nearest_agent_vector_local(a.pos, a.theta, &snapshot, i);
-            let density = sensing::density_sectors(a.pos, a.theta, &snapshot, i);
-            // Digestive intake before action (shared)
-            sim::apply_digestion(a);
-            let energy_in = (a.energy / INITIAL_ENERGY).clamp(0.0, 1.0);
-            let inputs = sensing::build_inputs(a.pos, a.theta, &self.food, energy_in, a.last_food_mem, a.last_danger_mem, &density, &snapshot, i);
-            let out = population[a.id.0].evaluate_slice(&inputs);
-            let mut turn = out.get(0).copied().unwrap_or(0.0);
-            let mut thrust = out.get(1).copied().unwrap_or(0.0);
-            let mut sprint_sig = out.get(2).copied().unwrap_or(0.0);
-            let mut brake_sig = out.get(3).copied().unwrap_or(0.0);
-            // Noise
-            let mut rng_local = ::rand::rng();
-            turn += rng_local.random_range(-MOTOR_NOISE..MOTOR_NOISE);
-            thrust += rng_local.random_range(-MOTOR_NOISE..MOTOR_NOISE);
-            sprint_sig += rng_local.random_range(-MOTOR_NOISE..MOTOR_NOISE);
-            brake_sig += rng_local.random_range(-MOTOR_NOISE..MOTOR_NOISE);
-            // Clamp ranges
-            let turn = turn.clamp(-1.0, 1.0);
-            let thrust = thrust.clamp(0.0, 1.0);
-            let sprint_sig = sprint_sig.clamp(0.0, 1.0);
-            let brake_sig = brake_sig.clamp(0.0, 1.0);
-            let sprint = sprint_sig >= SPRINT_THRESHOLD && sprint_sig >= brake_sig;
-            let brake = !sprint && (brake_sig >= BRAKE_THRESHOLD);
-            // Coupling: reduce thrust when turning strongly
-            let thrust_eff = (thrust * (1.0 - THRUST_TURN_COUPLING * turn.abs())).clamp(0.0, 1.0);
-            a.theta += turn * MAX_TURN;
-            let mut speed_scale = 1.0;
-            if sprint { speed_scale = SPRINT_MULT; } else if brake { speed_scale = BRAKE_MULT; }
-            let dir = dir_from_theta(a.theta);
-            let vel = dir.mul(thrust_eff * MAX_SPEED * speed_scale);
-            a.pos = a.pos.add(vel).clamp_to_world();
-            // eat if close (sum of radii) with digestive lag
-            if world::eat_if_near(&mut self.food, a.pos) {
-                if DIGEST_STEPS_PLANT > 0 { a.digest.push_back(DigestEvent { remaining: DIGEST_STEPS_PLANT, per_step: FOOD_ENERGY / (DIGEST_STEPS_PLANT as f32) }); }
-                else { a.energy = (a.energy + FOOD_ENERGY).min(INITIAL_ENERGY); }
-                a.eaten += 1;
-                if self.first_eat_step.is_none() { self.first_eat_step = Some(self.steps); }
-            }
-            // Predation/scavenging: choose a target to apply after the loop
-            if PREDATION_ENABLED || SCAVENGE_ENABLED {
-                let mut target: Option<usize> = None;
-                for j in 0..snapshot.len() {
-                    if j == i { continue; }
-                    let (pos_j, alive_j, consumed_j) = snapshot[j];
-                    if consumed_j { continue; }
-                    if (alive_j && !PREDATION_ENABLED) || (!alive_j && !SCAVENGE_ENABLED) { continue; }
-                    let dx = pos_j.x - a.pos.x; let dy = pos_j.y - a.pos.y;
-                    if (dx*dx + dy*dy).sqrt() <= EAT_AGENT_RADIUS { target = Some(j); break; }
-                }
-                prey_targets[i] = target;
-            }
-            let mut extra_cost = 0.0;
-            if sprint { extra_cost += SPRINT_COST; self.sprint_used += 1; } else if brake { extra_cost += BRAKE_COST; self.brake_used += 1; }
-            self.total_agent_steps += 1;
-            self.thrust_sum += thrust_eff;
-            self.abs_turn_sum += turn.abs();
-            a.energy -= ENERGY_DRAIN_PER_STEP + thrust_eff * 0.2 + TURN_COST * turn.abs() + extra_cost;
-            if a.energy <= 0.0 { if a.dead_since.is_none() { a.dead_since = Some(self.steps); a.corpse_energy = CORPSE_INITIAL_ENERGY; } }
-            // Update memories after acting
-            a.last_food_mem = Vec2 { x: cur_fx, y: cur_fy };
-            // For now, we only store danger memory; current danger not part of inputs to keep size down
-            let (dx_mem, dy_mem) = sensing::nearest_agent_vector_local(a.pos, a.theta, &snapshot, i);
-            a.last_danger_mem = Vec2 { x: dx_mem, y: dy_mem };
-        }
-        // Resolve predation after movement and decay (shared)
-        sim::resolve_predation(&mut self.agents, &prey_targets, self.steps);
-        sim::decay_corpses_and_flashes(&mut self.agents);
-        // Plants grow/spread over time in the live world too
-    world::food_growth_step(&mut self.food, rng);
-        // Decay predation flash counters
-        for a in &mut self.agents {
-            if a.predation_flash_steps > 0 { a.predation_flash_steps -= 1; }
-        }
-        self.steps += 1; true
-    }
-
-    fn is_finished(&self) -> bool {
-        // Only finish when all agents are dead
-        self.agents.iter().all(|a| a.energy <= 0.0)
-    }
-}
+// Episode methods are defined in sim::episode
 
 struct AppState {
     population: Vec<Genome>,
@@ -365,27 +65,36 @@ struct AppState {
     episode: Episode,
     show_cones: bool,
     member_species: Vec<usize>,
-    last_species: Vec<Species>,
-    // Best-ever genome tracking for HUD network rendering
-    best_ever_fitness: f32,
-    best_ever_generation: usize,
-    best_ever_genome: Option<Genome>,
-    // Best of last evaluated generation
+    // Best of last evaluated generation (for HUD panel)
     last_best_generation: usize,
     last_best_genome: Option<Genome>,
     // Debug overlays
-    show_density_overlay: bool,
-    show_vector_overlay: bool,
+    show_unified_overlay: bool,
+    show_energy_overlay: bool,
+    show_collision_radii: bool,
+    show_grid: bool,
+    // HUD/network & focus controls
+    show_best_network_panel: bool,
+    show_live_network: bool,
+    focused_agent: Option<usize>,
+    // Eco mode helpers
+    eco_episode_counter: usize,
+    show_controls: bool,
+    color_by_species: bool,
+    // Runtime config
+    #[allow(dead_code)]
+    pub sim_config: SimConfig,
 }
 
 impl AppState {
-    fn new(pop_size: usize) -> Self {
+    fn new(sim_config: SimConfig) -> Self {
+        let pop_size = sim_config.population_size;
         let num_inputs = INPUTS as u32;
         let num_outputs = OUTPUTS as u32;
         let mut rng = ::rand::rng();
-    let mut innov = InnovationTracker::new();
-    // Speciation target and adapt rate are now configurable via params
-    let mut speciator = Speciator::new(1.0).with_target(SPECIES_TARGET, SPECIES_ADAPT_RATE);
+        let mut innov = InnovationTracker::new();
+        // Speciation target and adapt rate are now configurable via params
+        let mut speciator = Speciator::new(1.0).with_target(SPECIES_TARGET, SPECIES_ADAPT_RATE);
         let cfg = EvolutionConfig { compatibility_threshold: 2.0, ..Default::default() };
         let population = Genome::create_initial_population(pop_size, num_inputs, num_outputs, &mut innov);
         // initial speciation for coloring
@@ -397,7 +106,7 @@ impl AppState {
             }
             map
         };
-        let episode = Episode::new(&mut rng, pop_size);
+    let episode = Episode::new(&mut rng, pop_size, &member_species);
         Self {
             population,
             innov,
@@ -409,14 +118,19 @@ impl AppState {
             episode,
             show_cones: true,
             member_species,
-            last_species: Vec::new(),
-            best_ever_fitness: f32::NEG_INFINITY,
-            best_ever_generation: 0,
-            best_ever_genome: None,
             last_best_generation: 0,
             last_best_genome: None,
-            show_density_overlay: false,
-            show_vector_overlay: false,
+            show_unified_overlay: false,
+            show_energy_overlay: true,
+            show_collision_radii: false,
+            show_grid: false,
+            show_best_network_panel: true,
+            show_live_network: false,
+            focused_agent: None,
+            eco_episode_counter: 0,
+            show_controls: true,
+            color_by_species: false,
+            sim_config,
         }
     }
 
@@ -438,7 +152,7 @@ impl AppState {
     fn evolve_one_generation(&mut self) {
         let fitness_scores = self.eval_population();
         // Update best-ever before population is replaced
-        if let Some((best_idx, &fit)) = fitness_scores
+    if let Some((best_idx, _)) = fitness_scores
             .iter()
             .enumerate()
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
@@ -450,14 +164,9 @@ impl AppState {
             } else {
                 self.last_best_genome = None;
             }
-            if fit > self.best_ever_fitness {
-                self.best_ever_fitness = fit;
-                self.best_ever_generation = self.generation;
-                if best_idx < self.population.len() {
-                    self.best_ever_genome = Some(self.population[best_idx].clone());
-                }
-            }
+            // (Best-ever tracking removed for simplification)
         }
+        // Evolve population
         self.population = evolution::evolution(
             std::mem::take(&mut self.population),
             fitness_scores,
@@ -465,12 +174,7 @@ impl AppState {
             &mut self.innov,
             &self.cfg,
         );
-        // snapshot species from evaluated generation for HUD
-        self.last_species = self.speciator.get_species().clone();
-        self.generation += 1;
-        let mut rng = ::rand::rng();
-        self.episode = Episode::new(&mut rng, self.population.len());
-        // speciate new population for coloring and update mapping
+        // IMPORTANT: speciate BEFORE creating the next episode so agents get correct species IDs
         self.speciator.speciate(&self.population);
         self.member_species = {
             let mut map = vec![0usize; self.population.len()];
@@ -479,10 +183,26 @@ impl AppState {
             }
             map
         };
+        self.generation += 1;
+        let mut rng = ::rand::rng();
+        self.episode = Episode::new(&mut rng, self.population.len(), &self.member_species);
+        // Clear focused agent because indices now refer to new episode
+        self.focused_agent = None;
+        // Optional periodic snapshotting after evolution completes this generation
+        if SNAPSHOT_INTERVAL > 0 && self.generation % SNAPSHOT_INTERVAL == 0 {
+            let filename = format!("snapshots/auto_pop_snapshot_gen{:0>6}.json", self.generation);
+            if let Err(e) = io::save_population_snapshot(&filename, self.generation, &self.population, &self.innov) {
+                eprintln!("Auto-snapshot failed: {e}");
+            } else {
+                println!("Auto-saved population snapshot to {filename}");
+            }
+        }
     }
 }
 
 use ui_common::screen_to_world;
+
+// (Body and wrap_to_world are used inside sim/ui modules)
 
 // draw_world moved to ui_world_view::draw_world
 
@@ -503,32 +223,65 @@ fn window_conf() -> Conf {
 
 #[macroquad::main(window_conf)]
 async fn main() {
-    let mut state = AppState::new(50);
-    let mut running = true;      // continuous evolution by default
-    let mut fast_mode = false;   // start at normal speed
-    let mut normal_step_timer = 0.0f32;          // accumulates frame time for normal stepping
-    let normal_step_interval = 0.02f32;           // seconds per simulation step in normal mode
-    let fast_steps_per_frame: usize = 500;       // simulation steps per frame in fast mode
+    // Main loop that can restart with new config
+    'main_loop: loop {
+        // Show menu first to get configuration
+        let mut menu_state = MenuState::new();
+        let sim_config = loop {
+            if let Some(config) = draw_menu(&mut menu_state) {
+                break config;
+            }
+            next_frame().await;
+        };
+        
+        // Apply configuration to global params (via world module)
+        world::set_runtime_config(sim_config.world_width, sim_config.world_height, sim_config.max_food, sim_config.food_respawn_prob);
+        params::set_runtime_energy_config(sim_config.initial_energy, sim_config.max_energy, sim_config.energy_drain_per_step);
+        params::set_runtime_population_size(sim_config.population_size);
+        
+        let mut state = AppState::new(sim_config);
+        let mut running = true;      // continuous evolution by default
+        let mut fast_mode = false;   // start at normal speed
+        let mut normal_step_timer = 0.0f32;          // accumulates frame time for normal stepping
+        let normal_step_interval = 0.05f32;           // seconds per simulation step in normal mode
+        let fast_steps_per_frame: usize = 500;       // simulation steps per frame in fast mode
 
-    loop {
-        clear_background(BLACK);
-        let w = screen_width();
-        let h = screen_height();
-        let margin = 16.0;
-        let hud_w = (w * 0.28).clamp(240.0, 380.0);
-        let world_w = (w - hud_w - margin * 3.0).max(100.0);
-        let world_h = (h - margin * 2.0).max(100.0);
-        let world_area = Rect { x: margin, y: margin, w: world_w, h: world_h };
-        let hud_area = Rect { x: world_area.x + world_area.w + margin, y: margin, w: hud_w, h: world_h };
+        loop {
+            clear_background(BLACK);
+            let w = screen_width();
+            let h = screen_height();
+            let margin = 16.0;
+            let hud_w = (w * 0.28).clamp(240.0, 380.0);
+            let world_w = (w - hud_w - margin * 3.0).max(100.0);
+            let world_h = (h - margin * 2.0).max(100.0);
+            let world_area = Rect { x: margin, y: margin, w: world_w, h: world_h };
+            let hud_area = Rect { x: world_area.x + world_area.w + margin, y: margin, w: hud_w, h: world_h };
 
-    // Controls
-        if is_key_pressed(KeyCode::P) { running = !running; }
-        if is_key_pressed(KeyCode::F) { fast_mode = !fast_mode; }
-        if is_key_pressed(KeyCode::R) { let mut rng = ::rand::rng(); state.episode = Episode::new(&mut rng, state.population.len()); }
+        // Controls
+            if is_key_pressed(KeyCode::P) { running = !running; }
+            if is_key_pressed(KeyCode::F) { fast_mode = !fast_mode; }
+            if is_key_pressed(KeyCode::R) { let mut rng = ::rand::rng(); state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species); }
         if is_key_pressed(KeyCode::V) { state.show_cones = !state.show_cones; }
-    if is_key_pressed(KeyCode::D) { state.show_density_overlay = !state.show_density_overlay; }
-    if is_key_pressed(KeyCode::B) { state.show_vector_overlay = !state.show_vector_overlay; }
-        // Removed population size controls
+            if is_key_pressed(KeyCode::U) { state.show_unified_overlay = !state.show_unified_overlay; }
+            if is_key_pressed(KeyCode::E) { state.show_energy_overlay = !state.show_energy_overlay; }
+        if is_key_pressed(KeyCode::C) { state.show_collision_radii = !state.show_collision_radii; }
+        if is_key_pressed(KeyCode::G) { state.show_grid = !state.show_grid; }
+        if is_key_pressed(KeyCode::N) { state.show_best_network_panel = !state.show_best_network_panel; }
+        if is_key_pressed(KeyCode::M) { state.show_live_network = !state.show_live_network; }
+        if is_key_pressed(KeyCode::H) { state.show_controls = !state.show_controls; }
+        if is_key_pressed(KeyCode::K) { state.color_by_species = !state.color_by_species; }
+        
+        // ESC: if focused on an agent, clear focus; otherwise go back to menu
+        if is_key_pressed(KeyCode::Escape) {
+            if state.focused_agent.is_some() {
+                state.focused_agent = None;
+            } else {
+                // Go back to menu
+                continue 'main_loop;
+            }
+        }
+        // Removed per-row overlay toggles (1..4). Unified overlay is controlled via 'U'.
+        // Removed: [S] save snapshot and [B] easy birth debug toggle
 
         if running {
             let mut rng = ::rand::rng();
@@ -536,16 +289,42 @@ async fn main() {
                 // Run many simulation steps per frame until the episode finishes, then evolve
                 for _ in 0..fast_steps_per_frame {
                     if state.episode.is_finished() {
-                        state.evolve_one_generation();
-                        state.episode = Episode::new(&mut rng, state.population.len());
-                        break;
+                        if ECO_CONTINUOUS {
+                            // In eco mode: cull by fitness back to POPULATION_SIZE, then reseed next episode
+                            state.eco_episode_counter += 1;
+                            eco_cull_population_by_fitness(&mut state);
+                            state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
+                            break;
+                        } else {
+                            state.evolve_one_generation();
+                            state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
+                            break;
+                        }
                     }
                     state.episode.step(&state.population, &mut rng);
+                    if ECO_CONTINUOUS {
+                        // Reproduction pass: try to spawn offspring for eligible parents
+                        spawn_offspring_if_needed(
+                            &mut state.population,
+                            &mut state.episode,
+                            &mut state.innov,
+                            &state.cfg,
+                            &mut rng,
+                            &mut state.speciator,
+                            &mut state.member_species,
+                        );
+                    }
                 }
                 // If it finished exactly on the last step, evolve now
                 if state.episode.is_finished() {
-                    state.evolve_one_generation();
-                    state.episode = Episode::new(&mut rng, state.population.len());
+                    if ECO_CONTINUOUS {
+                        state.eco_episode_counter += 1;
+                        eco_cull_population_by_fitness(&mut state);
+                        state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
+                    } else {
+                        state.evolve_one_generation();
+                        state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
+                    }
                 }
             } else {
                 // Normal mode: advance one simulation step per second
@@ -553,13 +332,36 @@ async fn main() {
                 if normal_step_timer >= normal_step_interval {
                     normal_step_timer -= normal_step_interval;
                     if state.episode.is_finished() {
-                        state.evolve_one_generation();
-                        state.episode = Episode::new(&mut rng, state.population.len());
+                        if ECO_CONTINUOUS {
+                            state.eco_episode_counter += 1;
+                            eco_cull_population_by_fitness(&mut state);
+                            state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
+                        } else {
+                            state.evolve_one_generation();
+                            state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
+                        }
                     } else {
                         state.episode.step(&state.population, &mut rng);
+                        if ECO_CONTINUOUS {
+                            spawn_offspring_if_needed(
+                                &mut state.population,
+                                &mut state.episode,
+                                &mut state.innov,
+                                &state.cfg,
+                                &mut rng,
+                                &mut state.speciator,
+                                &mut state.member_species,
+                            );
+                        }
                         if state.episode.is_finished() {
-                            state.evolve_one_generation();
-                            state.episode = Episode::new(&mut rng, state.population.len());
+                            if ECO_CONTINUOUS {
+                                state.eco_episode_counter += 1;
+                                eco_cull_population_by_fitness(&mut state);
+                                state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
+                            } else {
+                                state.evolve_one_generation();
+                                state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
+                            }
                         }
                     }
                 }
@@ -568,22 +370,324 @@ async fn main() {
 
     // Mouse position in world-space (for focus and overlays) if inside world rect
     let (mx, my) = mouse_position();
-    let mouse_world = if mx >= world_area.x && mx <= world_area.x + world_area.w && my >= world_area.y && my <= world_area.y + world_area.h {
-        Some(screen_to_world(world_area, mx, my))
+    // Fit the world rect so aspect ratio is preserved
+    let fitted = ui_common::fit_world_rect(world_area);
+    let mouse_world = if mx >= fitted.x && mx <= fitted.x + fitted.w && my >= fitted.y && my <= fitted.y + fitted.h {
+        Some(screen_to_world(fitted, mx, my))
     } else { None };
+
+    // Agent focus selection on left click
+    if is_mouse_button_pressed(MouseButton::Left) {
+        if let Some(mw) = mouse_world {
+            // Find nearest alive agent within a pick radius in world units
+            let pick_r = AGENT_RADIUS * 3.5; // generous
+            let mut best: Option<(usize, f32)> = None;
+            for (i, a) in state.episode.agents.iter().enumerate() {
+                if a.energy <= 0.0 && a.health <= DEATH_HEALTH_THRESHOLD { continue; }
+                let dx = a.body.pos.x - mw.x; let dy = a.body.pos.y - mw.y; let d2 = dx*dx + dy*dy;
+                if d2 <= pick_r * pick_r {
+                    if let Some((_, bd2)) = best { if d2 < bd2 { best = Some((i, d2)); } } else { best = Some((i, d2)); }
+                }
+            }
+            state.focused_agent = best.map(|(i, _)| i);
+        }
+    }
+    // (mouse_world already defined above)
 
     ui_world_view::draw_world(
         world_area,
         &state.episode,
         state.show_cones,
         &state.member_species,
-        state.show_density_overlay,
-        state.show_vector_overlay,
+        state.show_unified_overlay,
         mouse_world,
+        state.show_energy_overlay,
+        state.show_collision_radii,
+        state.focused_agent,
+        state.show_grid,
+        true,  // vision grid
+        false, // hearing disabled
+        true,  // memory vectors
+        state.color_by_species,
     );
     ui_hud::draw_hud(hud_area, &state, running, fast_mode, &state.member_species);
 
-        next_frame().await
+        next_frame().await;
+    } // end 'sim_loop
+    } // end 'main_loop
+}
+
+fn eco_cull_population_by_fitness(state: &mut AppState) {
+    // Evaluate current population with the same single-episode fitness used for evolution
+    let mut scores = eval_population_single_episode(&state.population);
+    // Augment scores with reproduction reward from the just-finished live episode
+    // Parents get a bonus per successful birth this episode.
+    for (i, a) in state.episode.agents.iter().enumerate() {
+        if i < scores.len() {
+            scores[i] += (a.offspring_count as f32) * REPRO_BIRTH_FITNESS_PARENT;
+        }
+    }
+    // Build indices sorted by fitness desc
+    let mut all_idxs: Vec<usize> = (0..state.population.len()).collect();
+    all_idxs.sort_by(|&a, &b| scores[b]
+        .partial_cmp(&scores[a])
+        .unwrap_or(std::cmp::Ordering::Equal));
+
+    // 1) Build by-species lists sorted by within-species fitness
+    use std::collections::HashMap;
+    let mut by_species: HashMap<usize, Vec<usize>> = HashMap::new();
+    for (idx, sid) in state.member_species.iter().enumerate() { by_species.entry(*sid).or_default().push(idx); }
+    for v in by_species.values_mut() {
+        v.sort_by(|&a, &b| scores[b]
+            .partial_cmp(&scores[a])
+            .unwrap_or(std::cmp::Ordering::Equal));
+    }
+
+    let mut selected: Vec<usize> = Vec::new();
+
+    if EQUAL_ALLOC_ENABLED && !by_species.is_empty() {
+        // Rank species by their best member's fitness
+        let mut species_best: Vec<(usize, f32)> = by_species
+            .iter()
+            .map(|(sid, members)| {
+                let best_score = members
+                    .iter()
+                    .copied()
+                    .map(|i| scores[i])
+                    .fold(f32::NEG_INFINITY, f32::max);
+                (*sid, best_score)
+            })
+            .collect();
+        species_best.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let k = EQUAL_ALLOC_TOP_K.max(1).min(species_best.len());
+        let mut chosen_species: Vec<usize> = species_best.into_iter().take(k).map(|(sid, _)| sid).collect();
+
+        // Compute base quota and distribute remainder to top species
+    let pop_cap = params::get_population_size();
+    let base = pop_cap / k;
+    let mut remainder = pop_cap % k;
+
+        // Take from each chosen species up to its quota, or all available if fewer
+        for (rank, sid) in chosen_species.iter().enumerate() {
+            if selected.len() >= pop_cap { break; }
+            let quota = base + if rank < remainder { 1 } else { 0 };
+            if let Some(members) = by_species.get(sid) {
+                let take = members.len().min(quota);
+                selected.extend_from_slice(&members[..take]);
+            }
+        }
+        // If underfilled (some species didn't have enough members), fill by global fitness
+        if selected.len() < pop_cap {
+            let mut seen: std::collections::HashSet<usize> = selected.iter().copied().collect();
+            for i in &all_idxs {
+                if selected.len() >= pop_cap { break; }
+                if !seen.contains(i) { selected.push(*i); seen.insert(*i); }
+            }
+        }
+    } else {
+        // Fallback: Keep up to ECO_CULL_MIN_PER_SPECIES per species by best fitness within that species
+        if ECO_CULL_MIN_PER_SPECIES > 0 {
+            for v in by_species.values() {
+                let take = v.len().min(ECO_CULL_MIN_PER_SPECIES);
+                selected.extend_from_slice(&v[..take]);
+            }
+        }
+
+        // 2) Fill remaining slots by global fitness order, skipping already selected
+        let mut seen: std::collections::HashSet<usize> = selected.iter().copied().collect();
+        for i in &all_idxs {
+            if selected.len() >= params::get_population_size() { break; }
+            if !seen.contains(i) { selected.push(*i); seen.insert(*i); }
+        }
+
+        // If we still exceed population size (e.g., many species × min), trim globally
+        if selected.len() > params::get_population_size() {
+            selected.sort_by(|&a, &b| scores[b]
+                .partial_cmp(&scores[a])
+                .unwrap_or(std::cmp::Ordering::Equal));
+            selected.truncate(params::get_population_size());
+        }
+    }
+
+    // Rebuild population vector in selected order
+    let mut new_pop = Vec::with_capacity(selected.len());
+    for &i in &selected { new_pop.push(state.population[i].clone()); }
+    state.population = new_pop;
+
+    // After culling, perform mutation pass on the survivor population (post-episode),
+    // keeping with standard NEAT where mutation happens between generations/episodes.
+    // Apply mutation to all but optionally the top elite (could be added later if desired).
+    for g in state.population.iter_mut() {
+        g.mutate(&mut state.innov, &state.cfg);
+    }
+    // Update best/avg stats for HUD
+    if !scores.is_empty() && !state.population.is_empty() {
+        // Recompute best/avg over kept indices
+        let best_score = selected.iter().copied().map(|i| scores[i]).fold(f32::NEG_INFINITY, f32::max);
+        let avg_score = selected.iter().copied().map(|i| scores[i]).sum::<f32>() / (selected.len() as f32);
+        state.last_best = best_score;
+        state.last_avg = avg_score;
+        state.last_best_generation = state.eco_episode_counter; // repurpose as last eval eco-episode id
+        // Snapshot the best genome for the network panel
+        // Find which kept index had best score and clone its genome
+        if let Some((&best_idx, _)) = selected.iter().zip(selected.iter().map(|&i| scores[i])).max_by(|a,b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)) {
+            let pos = selected.iter().position(|&x| x == best_idx).unwrap_or(0);
+            state.last_best_genome = state.population.get(pos).cloned();
+        } else {
+            state.last_best_genome = state.population.get(0).cloned();
+        }
+    }
+        // Important: clear existing species to avoid stale representative indices
+        state.speciator.get_species_mut().clear();
+    state.speciator.speciate(&state.population);
+    state.member_species = {
+        let mut map = vec![0usize; state.population.len()];
+        for (sidx, s) in state.speciator.get_species().iter().enumerate() {
+            for &m in &s.members { if m < state.population.len() { map[m] = sidx; } }
+        }
+        map
+    };
+}
+
+fn spawn_offspring_if_needed<R: Rng>(
+    population: &mut Vec<Genome>,
+    episode: &mut Episode,
+    _innov: &mut InnovationTracker,
+    _cfg: &EvolutionConfig,
+    rng: &mut R,
+    speciator: &mut Speciator,
+    member_species: &mut Vec<usize>,
+) {
+    // Count live agents and skip if at cap
+    let mut live_indices: Vec<usize> = Vec::new();
+    for (i, a) in episode.agents.iter().enumerate() {
+        if a.energy > 0.0 && a.health > DEATH_HEALTH_THRESHOLD && !a.consumed { live_indices.push(i); }
+    }
+    if live_indices.len() >= ECO_MAX_POP { return; }
+
+    // First, tick down cooldowns for all alive agents
+    for i in &live_indices {
+        let a = &mut episode.agents[*i];
+        if a.repro_cooldown > 0 { a.repro_cooldown -= 1; }
+    }
+
+    // Gather eligible parents by species (meets energy, cooldown, offspring cap)
+    let threshold = ECO_BIRTH_ENERGY_THRESHOLD;
+    let mut by_species: std::collections::HashMap<usize, Vec<usize>> = std::collections::HashMap::new();
+    for &i in &live_indices {
+        let a = &episode.agents[i];
+        if a.repro_cooldown == 0 && a.offspring_count < ECO_MAX_OFFSPRING_PER_AGENT && a.energy >= threshold {
+            by_species.entry(a.species_id).or_default().push(i);
+        }
+    }
+
+    // Attempt to find nearby pairs within species and spawn one child per found pair this step
+    let cost = ECO_BIRTH_ENERGY_COST;
+    let mut births: Vec<(usize, usize, crate::body::Body, usize)> = Vec::new(); // (p1_idx, p2_idx, child_body, species_id)
+    for (sid, indices) in by_species.into_iter() {
+        // Simple n^2 pairing; early exit when near pop cap
+        let mut used: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        'outer: for (ii, &i) in indices.iter().enumerate() {
+            if used.contains(&i) { continue; }
+            let ai = &episode.agents[i];
+            for &j in indices.iter().skip(ii+1) {
+                if used.contains(&j) { continue; }
+                let aj = &episode.agents[j];
+                // Distance check
+                let dx = ai.body.pos.x - aj.body.pos.x; let dy = ai.body.pos.y - aj.body.pos.y;
+                if dx*dx + dy*dy <= ECO_MATE_RADIUS*ECO_MATE_RADIUS {
+                    // Both will pay half cost; ensure after payment they stay >= 0 energy
+                    let half = cost * 0.5;
+                    if ai.energy >= half && aj.energy >= half {
+                        // Child spawn mid-point with small jitter
+                        let mid = Vec2 { x: (ai.body.pos.x + aj.body.pos.x) * 0.5, y: (ai.body.pos.y + aj.body.pos.y) * 0.5 };
+                        let jitter = Vec2 { x: (rng.random::<f32>() - 0.5) * 3.0 * AGENT_RADIUS, y: (rng.random::<f32>() - 0.5) * 3.0 * AGENT_RADIUS };
+                        let mut pos = mid + jitter;
+                        pos.x = (pos.x % WORLD_W + WORLD_W) % WORLD_W; pos.y = (pos.y % WORLD_H + WORLD_H) % WORLD_H;
+                        births.push((i, j, crate::body::Body { pos, vel: Vec2::new(0.0, 0.0), radius: AGENT_RADIUS }, sid));
+                        used.insert(i); used.insert(j);
+                        if live_indices.len() + births.len() >= ECO_MAX_POP { break 'outer; }
+                    }
+                }
+            }
+        }
+    }
+
+    if births.is_empty() { return; }
+
+    // Realize births: create child via crossover + mutation; debit both parents; set cooldowns; append agent + genome
+    for (i, j, body, sid) in births {
+        // Double-check alignment: parents indices map to genome indices
+        if i >= population.len() || j >= population.len() { continue; }
+        let p1 = &population[i];
+        let p2 = &population[j];
+    // Offspring are produced by crossover only; no mutation here (mutation happens after episode)
+    let child_g = neat::neat::crossover::crossover(p1, p2);
+        population.push(child_g);
+
+        // Update species map using existing speciator (child species determined after speciation)
+        speciator.speciate(&population);
+        member_species.clear();
+        member_species.resize(population.len(), 0);
+        for (sidx, s) in speciator.get_species().iter().enumerate() {
+            for &m in &s.members { if m < population.len() { member_species[m] = sidx; } }
+        }
+    let child_species = *member_species.get(population.len()-1).unwrap_or(&sid);
+
+        // Append newborn agent aligned with last genome
+        let birth_pos = body.pos;  // Save position before moving body
+        episode.agents.push(Agent {
+            id: AgentId(episode.agents.len()),
+            body,
+            theta: -std::f32::consts::FRAC_PI_2,
+            energy: ECO_NEWBORN_ENERGY.min(MAX_ENERGY),
+            health: ECO_NEWBORN_HEALTH,
+            max_health: ECO_NEWBORN_HEALTH,
+            invuln_steps: 0,
+            alive_steps: 0,
+            eaten: 0,
+            consumed: false,
+            kills: 0,
+            predation_flash_steps: 0,
+            dead_since: None,
+            corpse_energy: 0.0,
+            digest: std::collections::VecDeque::new(),
+            last_food_mem: Vec2 { x: 0.0, y: 0.0 },
+            last_danger_mem: Vec2 { x: 0.0, y: 0.0 },
+            last_same_mem: Vec2 { x: 0.0, y: 0.0 },
+            last_other_mem: Vec2 { x: 0.0, y: 0.0 },
+            // For live-episode behavior (predation/mating), tag newborn with the parents' species id
+            // to avoid immediate conspecific misclassification due to structural differences.
+            species_id: sid,
+            age_steps: 0,
+            call_intensity: 0.0,
+            heard_sectors: [0.0;3],
+            repro_cooldown: ECO_BIRTH_COOLDOWN_STEPS,
+            offspring_count: 0,
+            attack_hits: 0,
+            kills_caused: 0,
+            idle_anchor: birth_pos,
+            idle_steps: 0,
+            total_idle_penalty: 0.0,
+        });
+        // Extend comm fitness accumulator to match agents length
+        episode.comm_fitness_accum.push(0.0);
+        episode.births_this_episode += 1;
+
+        // Apply costs and cooldowns to parents; award reproduction fitness bonus to parents
+        if let Some(pa) = episode.agents.get_mut(i) {
+            pa.energy = (pa.energy - cost * 0.5).max(0.0);
+            pa.repro_cooldown = ECO_BIRTH_COOLDOWN_STEPS;
+            pa.offspring_count += 1;
+            if let Some(fit) = episode.comm_fitness_accum.get_mut(i) { *fit += REPRO_BIRTH_FITNESS_PARENT; }
+        }
+        if let Some(pb) = episode.agents.get_mut(j) {
+            pb.energy = (pb.energy - cost * 0.5).max(0.0);
+            pb.repro_cooldown = ECO_BIRTH_COOLDOWN_STEPS;
+            pb.offspring_count += 1;
+            if let Some(fit) = episode.comm_fitness_accum.get_mut(j) { *fit += REPRO_BIRTH_FITNESS_PARENT; }
+        }
     }
 }
 

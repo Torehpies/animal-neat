@@ -1,30 +1,116 @@
 use macroquad::prelude::*;
 use crate::params::*;
-use crate::{Episode, Vec2};
+use crate::{sim::Episode, Vec2};
 use crate::sensing;
-use crate::ui_common::world_to_screen;
-use crate::dir_from_theta;
+use crate::ui_common::{world_to_screen, fit_world_rect, world_scale};
+use crate::sim::{dir_from_theta};
 
-pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, _member_species: &[usize], show_density_overlay: bool, show_vector_overlay: bool, mouse_world: Option<Vec2>) {
-    // background
-    draw_rectangle(area.x, area.y, area.w, area.h, DARKGREEN);
+pub fn draw_world(
+    area: Rect,
+    episode: &Episode,
+    show_cones: bool,
+    _member_species: &[usize],
+    unified_overlay: bool,
+    mouse_world: Option<Vec2>,
+    show_energy_overlay: bool,
+    show_collision_radii: bool,
+    focused_agent: Option<usize>,
+    show_grid: bool,
+    show_vis_inputs: bool,
+    show_hearing_inputs: bool,
+    show_memory_inputs: bool,
+    color_by_species: bool,
+) {
+    let fitted = fit_world_rect(area);
+    let world_w = crate::world::get_world_w();
+    let world_h = crate::world::get_world_h();
+    // background: draw biome bands with seasonal tinting
+    // Biomes split across X using BIOME_X_SPLITS; use episode.steps as season time
+    let splits = BIOME_X_SPLITS;
+    let bands = [0.0, splits[0], splits[1], 1.0];
+    for b in 0..3 {
+        let x0w = bands[b] * world_w;
+        let x1w = bands[b + 1] * world_w;
+        let (x0, _) = world_to_screen(fitted, Vec2 { x: x0w, y: 0.0 });
+        let (x1, _) = world_to_screen(fitted, Vec2 { x: x1w, y: 0.0 });
+        let w = (x1 - x0).abs();
+        // Base tint per biome + seasonal brightness
+        let base = match b {
+            0 => Color::new(0.08, 0.20, 0.08, 1.0),
+            1 => Color::new(0.09, 0.24, 0.09, 1.0),
+            _ => Color::new(0.10, 0.28, 0.10, 1.0),
+        };
+    let (mut r, mut g, mut bl, a) = (base.r, base.g, base.b, 1.0);
+        if SEASONAL_ENABLED && SEASONAL_PERIOD_STEPS > 0 {
+            let t = episode.steps as f32 * std::f32::consts::TAU / (SEASONAL_PERIOD_STEPS as f32) + BIOME_SEASON_PHASE[b];
+            let s = (1.0 + SEASONAL_AMPLITUDE * t.sin()).max(0.0);
+            let brighten = 0.15 * (s - 1.0); // modest seasonal effect
+            r = (r + brighten).clamp(0.0, 1.0);
+            g = (g + brighten * 1.3).clamp(0.0, 1.0);
+            bl = (bl + brighten).clamp(0.0, 1.0);
+        }
+        draw_rectangle(x0.min(x1), fitted.y, w, fitted.h, Color::new(r, g, bl, a));
+    }
     // border
-    draw_rectangle_lines(area.x, area.y, area.w, area.h, 2.0, BLACK);
+    draw_rectangle_lines(fitted.x, fitted.y, fitted.w, fitted.h, 2.0, BLACK);
+    let px_per_world = world_scale(fitted);
+    // exploration grid overlay
+    if show_grid {
+        let nx = (world_w / EXPL_CELL_SIZE).ceil() as i32;
+        let ny = (world_h / EXPL_CELL_SIZE).ceil() as i32;
+        // Vertical lines
+        for i in 0..=nx {
+            let xw = if i >= nx { world_w } else { i as f32 * EXPL_CELL_SIZE };
+            let (x0, y0) = world_to_screen(fitted, Vec2 { x: xw, y: 0.0 });
+            let (x1, y1) = world_to_screen(fitted, Vec2 { x: xw, y: world_h });
+            let major = i % 5 == 0;
+            let col = if major { Color::new(1.0, 1.0, 1.0, 0.28) } else { Color::new(1.0, 1.0, 1.0, 0.12) };
+            let w = if major { 2.0 } else { 1.0 };
+            draw_line(x0, y0, x1, y1, w, col);
+        }
+        // Horizontal lines
+        for j in 0..=ny {
+            let yw = if j >= ny { world_h } else { j as f32 * EXPL_CELL_SIZE };
+            let (x0, y0) = world_to_screen(fitted, Vec2 { x: 0.0, y: yw });
+            let (x1, y1) = world_to_screen(fitted, Vec2 { x: world_w, y: yw });
+            let major = j % 5 == 0;
+            let col = if major { Color::new(1.0, 1.0, 1.0, 0.28) } else { Color::new(1.0, 1.0, 1.0, 0.12) };
+            let w = if major { 2.0 } else { 1.0 };
+            draw_line(x0, y0, x1, y1, w, col);
+        }
+        // Label with cell size
+        let pad = 6.0;
+        let label = format!("Grid {:.0}×{:.0}", EXPL_CELL_SIZE, EXPL_CELL_SIZE);
+        let tw = measure_text(&label, None, 16, 1.0).width;
+        let th = 16.0;
+        let bx = fitted.x + pad;
+        let by = fitted.y + pad;
+        draw_rectangle(bx - 4.0, by - th + 2.0, tw + 10.0, th + 6.0, Color::new(0.05, 0.05, 0.08, 0.7));
+        draw_text(&label, bx, by + 2.0, 16.0, WHITE);
+    }
     // food
     for p in &episode.food {
-        let (px, py) = world_to_screen(area, *p);
-        let r = ((FOOD_RADIUS / WORLD_W) * area.w).max(2.0);
+        let (px, py) = world_to_screen(fitted, *p);
+        let r = (FOOD_RADIUS * px_per_world).max(2.0);
         draw_circle(px, py, r, YELLOW);
+        if show_collision_radii {
+            // High-contrast collision radius for food (white ring)
+            draw_circle_lines(px, py, (FOOD_RADIUS * px_per_world).max(1.0), 2.0, Color::new(1.0, 1.0, 1.0, 0.95));
+        }
     }
     // Precompute snapshot for overlays
-    let snapshot: Vec<(Vec2, bool, bool)> = episode.agents.iter().map(|a| (a.pos, a.energy > 0.0, a.consumed)).collect();
+    let snapshot: Vec<(Vec2, bool, bool, usize, bool)> = episode.agents.iter().map(|a| {
+        let alive = a.energy > 0.0;
+        let is_corpse = !alive && !a.consumed && a.corpse_energy > 0.1;
+        (a.body.pos, alive, a.consumed, 0usize, is_corpse)
+    }).collect();
 
     // Determine focused agent (nearest to mouse)
     let focused_idx: Option<usize> = mouse_world.and_then(|mw| {
         let mut best: Option<(usize, f32)> = None;
         for (i, a) in episode.agents.iter().enumerate() {
             if a.energy <= 0.0 { continue; }
-            let dx = a.pos.x - mw.x; let dy = a.pos.y - mw.y; let d2 = dx*dx + dy*dy;
+            let dx = a.body.pos.x - mw.x; let dy = a.body.pos.y - mw.y; let d2 = dx*dx + dy*dy;
             if let Some((_, b)) = best { if d2 < b { best = Some((i, d2)); } } else { best = Some((i, d2)); }
         }
         best.map(|(i, _)| i)
@@ -32,23 +118,42 @@ pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, _member_speci
 
     // agents
     for (idx, a) in episode.agents.iter().enumerate() {
-        let (px, py) = world_to_screen(area, a.pos);
-        let agent_r = ((AGENT_RADIUS / WORLD_W) * area.w).max(3.0);
+    let (px, py) = world_to_screen(fitted, a.body.pos);
+    let agent_r = (AGENT_RADIUS * px_per_world).max(3.0);
     // species index unused for coloring now that diet-based coloring is applied
         // draw alive vs dead differently
-        if a.energy > 0.0 {
-            // Color by diet: greener for plant-eaters, redder for meat-eaters.
-            // Use episode stats: a.eaten counts all edible events; a.kills counts meat events (live or corpse).
-            let meat = a.kills as f32;
-            let plants = a.eaten.saturating_sub(a.kills) as f32;
-            let total = meat + plants;
-            let meat_ratio = if total > 0.0 { meat / total } else { 0.0 };
-            let hue = (1.0 / 3.0) * (1.0 - meat_ratio); // 1/3 = green, 0 = red
-            let sat = if total > 0.0 { 0.85 } else { 0.25 }; // pale before first meal
-            let val = 0.95;
-            let (r, g, b) = crate::ui_common::hsv_to_rgb(hue, sat, val);
-            let fill = Color::new(r, g, b, 1.0);
+        if a.energy > 0.0 && a.health > DEATH_HEALTH_THRESHOLD {
+            // Color either by species or by diet, based on toggle
+            let fill = if color_by_species {
+                let sidx = a.species_id as u32;
+                let hue = ((sidx % 12) as f32) / 12.0; // 12 distinct hues cycling
+                let (r, g, b) = crate::ui_common::hsv_to_rgb(hue, 0.85, 0.95);
+                let hf = (a.health / a.max_health).clamp(0.0,1.0);
+                Color::new(r * (0.5 + 0.5*hf), g * (0.5 + 0.5*hf), b * (0.5 + 0.5*hf), 1.0)
+            } else {
+                // Diet-based tint: greener for plant-eaters, redder for meat-eaters
+                let meat = a.kills as f32;
+                let plants = a.eaten.saturating_sub(a.kills) as f32;
+                let total = meat + plants;
+                let meat_ratio = if total > 0.0 { meat / total } else { 0.0 };
+                let hue = (1.0 / 3.0) * (1.0 - meat_ratio); // 1/3 = green, 0 = red
+                let sat = if total > 0.0 { 0.85 } else { 0.25 }; // pale before first meal
+                let val = 0.95;
+                let (r, g, b) = crate::ui_common::hsv_to_rgb(hue, sat, val);
+                let hf = (a.health / a.max_health).clamp(0.0,1.0);
+                Color::new(r * (0.5 + 0.5*hf), g * (0.5 + 0.5*hf), b * (0.5 + 0.5*hf), 1.0)
+            };
             draw_circle(px, py, agent_r, fill);
+            // Communication: call emission ring (intensity-based)
+            if a.call_intensity > 0.03 {
+                let ring_r = agent_r + 6.0 + a.call_intensity * 22.0;
+                let alpha = 0.15 + 0.55 * a.call_intensity;
+                draw_circle_lines(px, py, ring_r, 2.0, Color::new(0.95, 0.2, 1.0, alpha));
+                // Inner pulse (faint fill) for stronger calls
+                if a.call_intensity > 0.6 {
+                    draw_circle(px, py, agent_r + 4.0, Color::new(0.95, 0.2, 1.0, 0.08 + 0.12 * (a.call_intensity - 0.6)));                    
+                }
+            }
         } else {
             // If corpse is fully consumed or flagged consumed, skip rendering
             if a.consumed || a.corpse_energy <= 0.1 { continue; }
@@ -56,42 +161,50 @@ pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, _member_speci
             draw_circle(px, py, agent_r, fill);
         }
         draw_circle_lines(px, py, agent_r, 2.0, Color::new(0.2, 0.2, 0.2, 0.6));
+        if show_collision_radii {
+            // High-contrast collision radius for agents (white ring)
+            draw_circle_lines(px, py, (AGENT_RADIUS * px_per_world).max(1.0), 2.0, Color::new(1.0, 1.0, 1.0, 0.95));
+        }
         // heading line
         if a.energy > 0.0 {
             let dir = dir_from_theta(a.theta);
-            let (hx, hy) = world_to_screen(area, Vec2 { x: a.pos.x + dir.x * 2.0, y: a.pos.y + dir.y * 2.0 });
+            let (hx, hy) = world_to_screen(fitted, Vec2 { x: a.body.pos.x + dir.x * 2.0, y: a.body.pos.y + dir.y * 2.0 });
             draw_line(px, py, hx, hy, 2.0, BLUE);
         }
 
         if show_cones && a.energy > 0.0 {
+            // Visualize mating radius: faint ring showing ECO_MATE_RADIUS for pair reproduction
+            let mate_r_px = (ECO_MATE_RADIUS * px_per_world).max(1.0);
+            draw_circle_lines(px, py, mate_r_px, 1.5, Color::new(0.95, 0.3, 1.0, 0.35));
+
             let dir = dir_from_theta(a.theta);
             for r in sensing::ray_directions(dir) {
-                let food_t = sensing::nearest_food_along_ray(a.pos, r, &episode.food);
-                let meat_t = sensing::nearest_meat_along_ray(a.pos, r, &snapshot, idx);
+                let food_t = sensing::nearest_food_along_ray(a.body.pos, r, &episode.food);
+                let meat_t = sensing::nearest_meat_along_ray(a.body.pos, r, &snapshot, idx);
                 match food_t {
                     Some(t) => {
-                        let sense_pt = Vec2 { x: a.pos.x + r.x * t, y: a.pos.y + r.y * t };
-                        let (sx, sy) = world_to_screen(area, sense_pt);
+                        let sense_pt = Vec2 { x: a.body.pos.x + r.x * t, y: a.body.pos.y + r.y * t };
+                        let (sx, sy) = world_to_screen(fitted, sense_pt);
                         // draw sensed segment in green up to the food point
                         let green = Color::new(0.2, 1.0, 0.2, 0.9);
                         draw_line(px, py, sx, sy, 2.0, green);
                         // mark the sensed point
                         draw_circle(sx, sy, 3.0, green);
                         // faint remainder to max range (lighter green)
-                        let end = Vec2 { x: a.pos.x + r.x * VISION_RANGE, y: a.pos.y + r.y * VISION_RANGE };
-                        let (x2, y2) = world_to_screen(area, end);
+                        let end = Vec2 { x: a.body.pos.x + r.x * VISION_RANGE, y: a.body.pos.y + r.y * VISION_RANGE };
+                        let (x2, y2) = world_to_screen(fitted, end);
                         draw_line(sx, sy, x2, y2, 1.0, Color::new(0.2, 1.0, 0.2, 0.25));
                     }
                     None => {
-                        let end = Vec2 { x: a.pos.x + r.x * VISION_RANGE, y: a.pos.y * 1.0 + r.y * VISION_RANGE };
-                        let (x2, y2) = world_to_screen(area, end);
+                        let end = Vec2 { x: a.body.pos.x + r.x * VISION_RANGE, y: a.body.pos.y * 1.0 + r.y * VISION_RANGE };
+                        let (x2, y2) = world_to_screen(fitted, end);
                         draw_line(px, py, x2, y2, 1.0, Color::new(0.2, 1.0, 0.2, 0.35));
                     }
                 }
                 // Overlay meat hit (orange) if present on this ray
                 if let Some(tm) = meat_t {
-                    let mpt = Vec2 { x: a.pos.x + r.x * tm, y: a.pos.y + r.y * tm };
-                    let (mx, my) = world_to_screen(area, mpt);
+                    let mpt = Vec2 { x: a.body.pos.x + r.x * tm, y: a.body.pos.y + r.y * tm };
+                    let (mx, my) = world_to_screen(fitted, mpt);
                     let orange = Color::new(1.0, 0.6, 0.1, 0.95);
                     draw_line(px, py, mx, my, 2.0, orange);
                     draw_circle(mx, my, 3.0, orange);
@@ -104,12 +217,12 @@ pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, _member_speci
             let mut edible_near = false;
             let mut best_target: Option<Vec2> = None;
             let mut best_d2: f32 = f32::INFINITY;
-            for (j, (p, alive, consumed)) in snapshot.iter().enumerate() {
+            for (j, (p, alive, consumed, _species, is_corpse)) in snapshot.iter().enumerate() {
                 if j == idx { continue; }
                 // edible if alive (predation) or dead but not yet consumed (scavenge)
-                if (*alive && !PREDATION_ENABLED) || (!*alive && !SCAVENGE_ENABLED) { continue; }
-                if !*alive && *consumed { continue; }
-                let dx = p.x - a.pos.x; let dy = p.y - a.pos.y; let d2 = dx*dx + dy*dy;
+                if (*alive && !PREDATION_ENABLED) || ((*is_corpse || !*alive) && !SCAVENGE_ENABLED) { continue; }
+                if *consumed { continue; }
+                let dx = p.x - a.body.pos.x; let dy = p.y - a.body.pos.y; let d2 = dx*dx + dy*dy;
                 if d2 <= eat_r2 {
                     edible_near = true;
                     if d2 < best_d2 {
@@ -121,7 +234,7 @@ pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, _member_speci
             if edible_near {
                 // Draw a directional line to the nearest edible target (orange), with a marker dot (no arrowheads)
                 if let Some(tp) = best_target {
-                    let (tx, ty) = world_to_screen(area, tp);
+                    let (tx, ty) = world_to_screen(fitted, tp);
                     let col = Color::new(1.0, 0.6, 0.1, 0.95);
                     draw_line(px, py, tx, ty, 2.5, col);
                     draw_circle(tx, ty, 3.0, col);
@@ -132,63 +245,144 @@ pub fn draw_world(area: Rect, episode: &Episode, show_cones: bool, _member_speci
         if a.predation_flash_steps > 0 {
             draw_circle_lines(px, py, agent_r + 5.0, 3.0, Color::new(1.0, 0.1, 0.1, 0.95));
         }
+        // Birth flash: bright expanding ring for a few frames after birth
+        if a.age_steps < NEWBORN_FLASH_STEPS {
+            let t = a.age_steps as f32 / (NEWBORN_FLASH_STEPS as f32).max(1.0);
+            let ring_r = agent_r + 4.0 + t * 18.0;
+            let alpha = 0.75 * (1.0 - t);
+            draw_circle_lines(px, py, ring_r, 3.0, Color::new(1.0, 1.0, 0.2, alpha));
+        }
+        // Newborn halo during grace window: cyan glow indicating protected status
+        if a.age_steps < NEWBORN_GRACE_STEPS && a.energy > 0.0 {
+            let frac = 1.0 - (a.age_steps as f32 / (NEWBORN_GRACE_STEPS as f32).max(1.0));
+            let halo_r = agent_r + 2.5;
+            draw_circle_lines(px, py, halo_r, 2.0, Color::new(0.2, 0.95, 1.0, 0.55 * frac + 0.25));
+        }
+
+        // Focus highlight (draw after other rings for visibility)
+        if Some(idx) == focused_agent {
+            draw_circle_lines(px, py, agent_r + 8.0, 3.0, Color::new(0.25, 0.9, 1.0, 0.95));
+            draw_circle_lines(px, py, agent_r + 11.5, 2.0, Color::new(0.25, 0.9, 1.0, 0.55));
+        }
 
         // Overlays for the focused agent
         if Some(idx) == focused_idx && a.energy > 0.0 {
-            if show_density_overlay {
-                let bins = sensing::density_sectors(a.pos, a.theta, &snapshot, idx);
-                let two_pi = std::f32::consts::PI * 2.0;
-                let sector = two_pi / (DENSITY_SECTORS as f32);
-                let base_len = 18.0_f32.max(agent_r + 4.0);
-                for s in 0..DENSITY_SECTORS {
-                    let v = bins[s].clamp(0.0, 1.0);
-                    if v <= 0.0 { continue; }
-                    // mid-angle of sector in local frame: 0 = right, +pi/2 = forward
-                    let ang_local = -std::f32::consts::PI + sector * (s as f32 + 0.5);
-                    // Convert local dir to world delta with scale
-                    let c = a.theta.cos(); let snt = a.theta.sin();
-                    let right_x = -snt; let right_y = c;
-                    let fwd_x = c; let fwd_y = snt;
-                    let dir_world_x = right_x * ang_local.cos() + fwd_x * ang_local.sin();
-                    let dir_world_y = right_y * ang_local.cos() + fwd_y * ang_local.sin();
-                    let len = base_len + v * 28.0;
-                    let end_world = Vec2 { x: a.pos.x + dir_world_x * (len / area.w * WORLD_W), y: a.pos.y + dir_world_y * (len / area.h * WORLD_H) };
-                    let (ex, ey) = world_to_screen(area, end_world);
-                    draw_line(px, py, ex, ey, 2.0, Color::new(0.1, 1.0, 1.0, 0.8));
-                }
+            // Basic energy overlay (always shown when hovering) -- draw first
+            if show_energy_overlay {
+            let energy_frac = (a.energy / crate::params::get_max_energy()).clamp(0.0, 1.0);
+            let bar_w = 70.0; let bar_h = 7.0; let pad = 3.0;
+            let bx = px - bar_w * 0.5; let by = py - agent_r - 18.0;
+            // background box
+            draw_rectangle(bx - pad, by - pad - 10.0, bar_w + pad * 2.0, bar_h + pad * 2.0 + 10.0, Color::new(0.05,0.05,0.08,0.80));
+            // bar background
+            draw_rectangle(bx, by, bar_w, bar_h, Color::new(0.15,0.15,0.2,0.9));
+            // bar fill (gradient-ish: lerp red->yellow->green via fraction)
+            let (r,g,b) = if energy_frac < 0.5 {
+                // red (low) to yellow (mid)
+                let t = energy_frac / 0.5; (1.0, 0.2 + 0.6*t, 0.1)
+            } else {
+                // yellow to green
+                let t = (energy_frac - 0.5) / 0.5; (1.0 - 0.5*t, 0.8 + 0.2*t, 0.1 + 0.4*t)
+            };
+            draw_rectangle(bx, by, bar_w * energy_frac, bar_h, Color::new(r,g,b,0.95));
+            let energy_text = format!("E: {:.0}/{:.0}", a.energy.max(0.0), crate::params::get_max_energy());
+            draw_text(&energy_text, bx, by - 2.0, 14.0, WHITE);
             }
-            if show_vector_overlay {
-                // Helper to draw an arrow for a local vector
-                let draw_local_arrow = |_label: &str, lx: f32, ly: f32, color: Color| {
-                    let c = a.theta.cos(); let snt = a.theta.sin();
-                    let right_x = -snt; let right_y = c;
-                    let fwd_x = c; let fwd_y = snt;
-                    let scale = 60.0; // pixels
-                    let world_dx = (right_x * lx + fwd_x * ly) * (scale / area.w * WORLD_W);
-                    let world_dy = (right_y * lx + fwd_y * ly) * (scale / area.h * WORLD_H);
-                    let end = Vec2 { x: a.pos.x + world_dx, y: a.pos.y + world_dy };
-                    let (ex, ey) = world_to_screen(area, end);
-                    draw_line(px, py, ex, ey, 2.0, color);
-                    // arrow head
-                    let hx = ex + (px - ex) * 0.15 + (ey - py) * 0.12;
-                    let hy = ey + (py - ey) * 0.15 - (ex - px) * 0.12;
-                    draw_line(ex, ey, hx, hy, 2.0, color);
-                    let hx2 = ex + (px - ex) * 0.15 - (ey - py) * 0.12;
-                    let hy2 = ey + (py - ey) * 0.15 + (ex - px) * 0.12;
-                    draw_line(ex, ey, hx2, hy2, 2.0, color);
+            if unified_overlay {
+                // Unified overlay: smoothed sector bars + memory vectors + density radial ticks
+                let (ax, ay) = world_to_screen(fitted, a.body.pos);
+                let w_sector = 56.0; let bar_h = 7.0; let gap = 3.0;
+                // Vision overlay for pooled inputs removed (revised vision model uses distances)
+                if show_hearing_inputs && HEARING_SECTORS > 0 {
+                    for (sector_i, _) in ["L","F","R"].iter().enumerate() {
+                        let x0 = ax - w_sector * 1.6 + sector_i as f32 * (w_sector + 16.0);
+                        let hear_v = a.heard_sectors[sector_i].clamp(0.0, 1.0);
+                        let y0 = ay - 28.0 - (4.0_f32) * (bar_h + gap);
+                        draw_rectangle(x0, y0, w_sector, bar_h, Color::new(0.08,0.05,0.10,0.65));
+                        draw_rectangle(x0, y0, w_sector * hear_v, bar_h, Color::new(0.95,0.3,1.0,0.9));
+                    }
+                    let label_x = ax + w_sector * 1.6 + 10.0;
+                    let label_y = ay - 28.0 - (4.0_f32) * (bar_h + gap) + bar_h - 1.0;
+                    draw_text("H", label_x, label_y, 16.0, Color::new(0.95,0.3,1.0,0.9));
+                }
+                if show_vis_inputs {
+                    // Draw a 3x5 grid (sectors columns, categories rows) encoding (1 - distance)
+                    // Category order: Plant, Carcass, Same, Other, Wall
+                    let grid_w = 16.0; let grid_h = 10.0; let pad = 2.0;
+                    let base_x = ax - (grid_w + pad) * 3.0 * 0.5;
+                    let base_y = ay - agent_r - 80.0; // stack above energy bar
+                    let labels = ["P","C","S","O","W"]; // left side labels
+                    // Compute inputs on the fly (reuse existing function)
+                    let vision_inputs = {
+                        let temp = sensing::build_inputs(
+                            a.body.pos,
+                            a.theta,
+                            &episode.food,
+                            (a.energy / crate::params::get_max_energy()).clamp(0.0,1.0),
+                            a.last_food_mem,
+                            a.last_same_mem,
+                            a.last_other_mem,
+                            &snapshot,
+                            idx,
+                            a.species_id,
+                            a.heard_sectors,
+                        );
+                        // slice first 15 vision values
+                        let mut arr = [0.0f32;15];
+                        for i in 0..15 { arr[i] = temp[i]; }
+                        arr
+                    };
+                    for row in 0..5 {
+                        for col in 0..3 {
+                            let idx = col * 5 + row;
+                            let dist_norm = vision_inputs[idx];
+                            let prox = (1.0 - dist_norm).clamp(0.0,1.0);
+                            let x0 = base_x + col as f32 * (grid_w + pad);
+                            let y0 = base_y + row as f32 * (grid_h + pad);
+                            // background
+                            draw_rectangle(x0, y0, grid_w, grid_h, Color::new(0.05,0.06,0.08,0.85));
+                            // fill color by category
+                            let colr = match row { 0 => Color::new(0.2,1.0,0.2,0.95), // plant
+                                                   1 => Color::new(0.9,0.65,0.2,0.95), // carcass
+                                                   2 => Color::new(0.1,0.85,1.0,0.95), // same
+                                                   3 => Color::new(1.0,0.3,0.95,0.95), // other
+                                                   _ => Color::new(0.75,0.75,0.75,0.95) }; // wall
+                            if prox > 0.0 { draw_rectangle(x0, y0, grid_w * prox, grid_h, colr); }
+                            // (numeric per-cell labels removed for clarity)
+                        }
+                        // row label
+                        let lx = base_x - 18.0;
+                        let ly = base_y + row as f32 * (grid_h + pad) + grid_h - 2.0;
+                        draw_text(labels[row], lx, ly, 14.0, GRAY);
+                    }
+                    // Sector headers L F R
+                    for col in 0..3 {
+                        let tx = base_x + col as f32 * (grid_w + pad) + 2.0;
+                        let ty = base_y - 4.0;
+                        let label = match col { 0 => "L", 1 => "F", _ => "R" };
+                        draw_text(label, tx, ty, 14.0, LIGHTGRAY);
+                        // (removed numeric index range for clarity)
+                    }
+                }
+                // Memory vectors (food=yellow, danger=orange)
+                if show_memory_inputs {
+                let draw_mem_vec = |vx: f32, vy: f32, color: Color| {
+                    let world_w = crate::world::get_world_w();
+                    let world_h = crate::world::get_world_h();
+                    let cth = a.theta.cos(); let sth = a.theta.sin();
+                    let right_x = -sth; let right_y = cth; let fwd_x = cth; let fwd_y = sth;
+                    let scale = 55.0;
+                    let world_dx = (right_x * vx + fwd_x * vy) * (scale / fitted.w * world_w);
+                    let world_dy = (right_y * vx + fwd_y * vy) * (scale / fitted.h * world_h);
+                    let end = Vec2 { x: a.body.pos.x + world_dx, y: a.body.pos.y + world_dy };
+                    let (ex, ey) = world_to_screen(fitted, end);
+                    draw_line(ax, ay, ex, ey, 2.0, color);
                 };
-                // Current food vector (green) derived from rays
-                let (fx, fy) = sensing::food_vector_from_rays(a.pos, a.theta, &episode.food);
-                draw_local_arrow("food", fx, fy, Color::new(0.2, 1.0, 0.2, 0.95));
-                // Current meat vector (orange) derived from rays (edible agents or corpses)
-                let (mx, my) = sensing::meat_vector_from_rays(a.pos, a.theta, &snapshot, idx);
-                draw_local_arrow("meat", mx, my, Color::new(1.0, 0.6, 0.1, 0.95));
-                // Current danger vector (red)
-                let (dx, dy) = sensing::nearest_agent_vector_local(a.pos, a.theta, &snapshot, idx);
-                draw_local_arrow("danger", dx, dy, Color::new(1.0, 0.2, 0.2, 0.9));
-                // Memory vectors (yellow/orange)
-                draw_local_arrow("last_food", a.last_food_mem.x, a.last_food_mem.y, Color::new(1.0, 0.9, 0.2, 0.95));
-                draw_local_arrow("last_danger", a.last_danger_mem.x, a.last_danger_mem.y, Color::new(1.0, 0.6, 0.2, 0.95));
+                draw_mem_vec(a.last_food_mem.x, a.last_food_mem.y, Color::new(1.0,0.95,0.3,0.9));
+                draw_mem_vec(a.last_same_mem.x, a.last_same_mem.y, Color::new(0.3,0.9,1.0,0.9));
+                draw_mem_vec(a.last_other_mem.x, a.last_other_mem.y, Color::new(1.0,0.6,0.2,0.9));
+                }
+                // Density visualization removed with revised sensing model
             }
         }
     }

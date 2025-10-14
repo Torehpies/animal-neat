@@ -1,4 +1,73 @@
-# neat
+# Animal-NEAT Ecosystem Visualizer
+
+A macroquad-based interactive demo that evolves simple agents using NEAT and visualizes their world, sensing, and behavior.
+
+## Quick start
+
+- Build & run the visualizer example:
+
+```bash
+# Release build is smoother
+cargo run --release --example visualize_ecosystem
+```
+
+- Controls (visual-only):
+  - P: pause/resume
+  - F: fast mode on/off
+  - R: restart episode (same generation)
+  - V: toggle vision cones
+  - U: toggle unified input overlay
+  - E: toggle energy overlay
+  - S: save population snapshot (snapshots/pop_snapshot_genXXXX.json)
+
+## Configure experiment
+
+Edit `examples/visualize_ecosystem/params.rs` to change world size, movement model, fitness weights, and modalities. To disable input modalities at compile-time (while keeping the input layout fixed):
+
+```rust
+pub const ENABLE_VISION_INPUTS: bool = true;
+pub const ENABLE_HEARING_INPUTS: bool = true;
+pub const ENABLE_MEMORY_INPUTS: bool = true;
+pub const ENABLE_DENSITY_INPUTS: bool = true;
+```
+
+Snapshots can be enabled periodically via `SNAPSHOT_INTERVAL` or ad-hoc with the S key.
+
+## Project structure
+
+- `src/neat/*` — core NEAT library (genome, speciation, crossover, innovation tracker, IO)
+- `examples/visualize_ecosystem/*` — the ecosystem demo
+  - `params.rs` — centralized configuration and constants (single source of truth)
+  - `sensing.rs` — builds neural inputs; pooling, density, hearing; `input_ranges()` helper
+  - `sim.rs` — movement, predation/scavenging, corpse decay, digestion
+  - `world.rs` — world state and plant lifecycle
+  - `ui/` — rendering (world view, HUD, network)
+
+## Inputs & outputs
+
+Input vector layout (documented in `params.rs`):
+- Vision pools: 3 sectors × 4 categories = 12
+- Energy: 1
+- Memory vectors (food_x, food_y, danger_x, danger_y): 4
+- Density sectors: DENSITY_SECTORS
+- Hearing sectors: HEARING_SECTORS
+- Position (x/W, y/H): 2
+
+Outputs: `[ turn, thrust, call ]`
+
+## Fitness (simplified)
+- Intake: plant and meat events with weights
+- Exploration fraction over a coarse grid
+- Survival with diminishing returns
+- Optional communication rewards (caller/receiver) for resource signals
+
+## Developing
+- Prefer adding new constants to `params.rs` rather than scattering literals.
+- Use `sensing::input_ranges()` to derive index ranges; avoid magic indices.
+- Keep UI-only toggles separate from functional parameters.
+
+## License
+MIT (or your chosen license). Contributions welcome.# neat
 
 A small, self-contained NEAT (NeuroEvolution of Augmenting Topologies) implementation in Rust.
 

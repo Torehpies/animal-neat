@@ -4,15 +4,49 @@ use macroquad::prelude::*;
 use crate::params::*;
 use crate::Vec2;
 
+// Compute a rectangle inside `area` that preserves the world's aspect ratio (WORLD_W:WORLD_H)
+pub fn fit_world_rect(area: Rect) -> Rect {
+    let world_w = crate::world::get_world_w();
+    let world_h = crate::world::get_world_h();
+    let world_ar = world_w / world_h;
+    let area_ar = area.w / area.h;
+    if area_ar >= world_ar {
+        // Fit by height
+        let h = area.h;
+        let w = world_ar * h;
+        let x = area.x + (area.w - w) * 0.5;
+        Rect { x, y: area.y, w, h }
+    } else {
+        // Fit by width
+        let w = area.w;
+        let h = w / world_ar;
+        let y = area.y + (area.h - h) * 0.5;
+        Rect { x: area.x, y, w, h }
+    }
+}
+
+// Pixels per one world unit (uniform scale) for a fitted world rect
+pub fn world_scale(fitted: Rect) -> f32 { 
+    let world_w = crate::world::get_world_w();
+    let world_h = crate::world::get_world_h();
+    (fitted.w / world_w).min(fitted.h / world_h) 
+}
+
 pub fn world_to_screen(area: Rect, p: Vec2) -> (f32, f32) {
-    let sx = area.x + (p.x / WORLD_W) * area.w;
-    let sy = area.y + (p.y / WORLD_H) * area.h;
+    let world_w = crate::world::get_world_w();
+    let world_h = crate::world::get_world_h();
+    // Assumes `area` is the fitted world rect from fit_world_rect
+    let sx = area.x + (p.x / world_w) * area.w;
+    let sy = area.y + (p.y / world_h) * area.h;
     (sx, sy)
 }
 
 pub fn screen_to_world(area: Rect, sx: f32, sy: f32) -> Vec2 {
-    let x = ((sx - area.x) / area.w).clamp(0.0, 1.0) * WORLD_W;
-    let y = ((sy - area.y) / area.h).clamp(0.0, 1.0) * WORLD_H;
+    let world_w = crate::world::get_world_w();
+    let world_h = crate::world::get_world_h();
+    // Assumes `area` is the fitted world rect from fit_world_rect
+    let x = ((sx - area.x) / area.w).clamp(0.0, 1.0) * world_w;
+    let y = ((sy - area.y) / area.h).clamp(0.0, 1.0) * world_h;
     Vec2 { x, y }
 }
 
