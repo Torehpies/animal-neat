@@ -185,6 +185,8 @@ pub const ECO_MATE_RADIUS: f32 = 8.0 * AGENT_RADIUS;
 // cannot be targeted for predation. This prevents immediate culling of offspring by
 // their own parents or other nearby predators due to transient speciation flips.
 pub const NEWBORN_GRACE_STEPS: usize = 60;
+// Visual: how long to show a bright birth flash ring after an agent is created
+pub const NEWBORN_FLASH_STEPS: usize = 18;
 
 // =====================
 // Predation/scavenging
