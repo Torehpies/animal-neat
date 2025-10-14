@@ -103,17 +103,18 @@ pub const OUTPUTS: usize = 2 + (COMMUNICATION_ENABLED as usize);
 // Satiety parameters: slower passive decay and gentler per-step conversion so agents
 // stay nourished longer but can still convert their satiety reserve into energy.
 // Decrease `SATIETY_DECAY_PER_STEP` to make hunger build up more slowly.
-pub const SATIETY_DECAY_PER_STEP: f32 = 0.0004; // how much satiety is lost per step (was 0.0015)
-pub const SATIETY_GAIN_FROM_PLANT: f32 = 0.25; // immediate satiety gain when eating a plant
-pub const SATIETY_GAIN_FROM_MEAT: f32 = 0.8;   // immediate satiety bump when consuming meat
+// Further reduced for better learning: agents now have much more time to associate hunger with seeking food.
+pub const SATIETY_DECAY_PER_STEP: f32 = 0.0001; // passive hunger increase per step (was 0.0004, now 4x slower!)
+pub const SATIETY_GAIN_FROM_PLANT: f32 = 0.35; // immediate satiety gain when eating a plant (increased from 0.25)
+pub const SATIETY_GAIN_FROM_MEAT: f32 = 1.2;   // immediate satiety bump when consuming meat (increased from 0.8)
 // When digestion delivers an energy-equivalent, increase satiety proportionally.
-pub const SATIETY_GAIN_PER_ENERGY_DELIVERED: f32 = 0.0015; // per 1 energy delivered via digestion
+pub const SATIETY_GAIN_PER_ENERGY_DELIVERED: f32 = 0.002; // per 1 energy delivered via digestion (was 0.0015)
 // Convert satiety into usable energy each step. We consume up to SATIETY_CONSUME_PER_STEP
 // of satiety and grant ENERGY_PER_SATIETY energy per 1.0 satiety consumed.
 // Reduce the amount of satiety consumed per step so the reserve drains slower,
 // and increase `ENERGY_PER_SATIETY` so the agent can still meet maintenance costs.
-pub const SATIETY_CONSUME_PER_STEP: f32 = 0.005; // satiety units consumed per step to produce energy (was 0.02)
-pub const ENERGY_PER_SATIETY: f32 = 50.0; // energy gained per 1.0 satiety consumed (was 12.5)
+pub const SATIETY_CONSUME_PER_STEP: f32 = 0.003; // satiety consumed per step for energy (was 0.005, now 40% slower)
+pub const ENERGY_PER_SATIETY: f32 = 80.0; // energy gained per 1.0 satiety consumed (was 50.0, compensates for slower consumption)
 
 // ==============================
 // Input modality enable flags (compile-time)
