@@ -202,10 +202,10 @@ pub fn meat_vector_from_rays(pos: Vec2, theta: f32, snapshot: &[(Vec2, bool, boo
 
 // Removed unused nearest_food_distance (legacy diagnostic) to reduce warnings.
 
-pub fn build_inputs(pos: Vec2, theta: f32, food: &[Vec2], energy: f32, last_food_mem: Vec2, last_same_mem: Vec2, last_other_mem: Vec2, snapshot: &[(Vec2, bool, bool, usize, bool)], self_idx: usize, my_species: usize, heard: [f32;3]) -> [f32; INPUTS] {
+pub fn build_inputs_inplace(out: &mut [f32], pos: Vec2, theta: f32, food: &[Vec2], energy: f32, last_food_mem: Vec2, last_same_mem: Vec2, last_other_mem: Vec2, snapshot: &[(Vec2, bool, bool, usize, bool)], self_idx: usize, my_species: usize, heard: [f32;3]) {
+    debug_assert_eq!(out.len(), INPUTS);
     // Vision distances per sector/category
-    let mut inputs = [0.0f32; INPUTS];
-    for i in 0..15 { inputs[i] = 1.0; } // default: nothing seen
+    for i in 0..15 { out[i] = 1.0; } // default: nothing seen
     let half_cone = VISION_ANGLE_DEG.to_radians() * 0.5;
     let forward_band = half_cone / 6.0;
     let c = theta.cos(); let s = theta.sin();
@@ -217,7 +217,7 @@ pub fn build_inputs(pos: Vec2, theta: f32, food: &[Vec2], energy: f32, last_food
     let mut write_dist = |sector: usize, cat: usize, dist: f32| {
         let norm = (dist / VISION_RANGE).clamp(0.0,1.0);
         let idx = sector * 5 + cat; // 5 categories per sector
-        if norm < inputs[idx] { inputs[idx] = norm; }
+        if norm < out[idx] { out[idx] = norm; }
     };
     // Plants
     for fpos in food.iter() {
@@ -249,18 +249,23 @@ pub fn build_inputs(pos: Vec2, theta: f32, food: &[Vec2], energy: f32, last_food
         if t.is_finite() && t>0.0 && t<=VISION_RANGE { write_dist(si, 4, t); }
     }
     // Energy scalar
-    inputs[15] = energy.clamp(0.0,1.0);
+    out[15] = energy.clamp(0.0,1.0);
     // Memory (6 floats)
-    inputs[16] = last_food_mem.x; inputs[17] = last_food_mem.y;
-    inputs[18] = last_same_mem.x; inputs[19] = last_same_mem.y;
-    inputs[20] = last_other_mem.x; inputs[21] = last_other_mem.y;
+    out[16] = last_food_mem.x; out[17] = last_food_mem.y;
+    out[18] = last_same_mem.x; out[19] = last_same_mem.y;
+    out[20] = last_other_mem.x; out[21] = last_other_mem.y;
     // Hearing
-    for si in 0..HEARING_SECTORS { inputs[22 + si] = heard[si].clamp(0.0,1.0); }
+    for si in 0..HEARING_SECTORS { out[22 + si] = heard[si].clamp(0.0,1.0); }
     // Position
     let pos_idx = 22 + HEARING_SECTORS;
-    inputs[pos_idx] = (pos.x / WORLD_W).clamp(0.0,1.0);
-    inputs[pos_idx+1] = (pos.y / WORLD_H).clamp(0.0,1.0);
-    inputs
+    out[pos_idx] = (pos.x / WORLD_W).clamp(0.0,1.0);
+    out[pos_idx+1] = (pos.y / WORLD_H).clamp(0.0,1.0);
+}
+
+pub fn build_inputs(pos: Vec2, theta: f32, food: &[Vec2], energy: f32, last_food_mem: Vec2, last_same_mem: Vec2, last_other_mem: Vec2, snapshot: &[(Vec2, bool, bool, usize, bool)], self_idx: usize, my_species: usize, heard: [f32;3]) -> [f32; INPUTS] {
+    let mut arr = [0.0f32; INPUTS];
+    build_inputs_inplace(&mut arr, pos, theta, food, energy, last_food_mem, last_same_mem, last_other_mem, snapshot, self_idx, my_species, heard);
+    arr
 }
 
 /// Update hearing sectors for all agents based on others' call_intensity

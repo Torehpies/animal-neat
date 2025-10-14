@@ -42,6 +42,7 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         idle_anchor: world::rand_pos(&mut rng),
         idle_steps: 0,
         total_idle_penalty: 0.0,
+        input_buf: vec![0.0; crate::params::INPUTS],
     }).collect();
     // Track exploration (unique grid cells)
     let mut visited: Vec<HashSet<u32>> = vec![HashSet::new(); agents.len()];

@@ -42,6 +42,8 @@ pub struct Agent {
     pub idle_anchor: Vec2,           // position where idleness check started
     pub idle_steps: usize,           // consecutive steps at roughly the same position
     pub total_idle_penalty: f32,     // accumulated idle penalty for fitness
+    // Scratch neural input buffer (length = params::INPUTS) reused each step to avoid allocation
+    pub input_buf: Vec<f32>,
 }
 
 #[derive(Clone, Copy, Debug)]

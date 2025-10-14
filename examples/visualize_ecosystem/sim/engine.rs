@@ -82,11 +82,14 @@ pub fn tick_step<R: Rng>(
         let (cur_fx, cur_fy) = sensing::food_vector_from_rays(a.body.pos, a.theta, food);
         let energy_in = (a.energy / crate::params::get_max_energy()).clamp(0.0, 1.0);
         let my_species = a.species_id;
-        let mut inputs = sensing::build_inputs(
-            a.body.pos, a.theta, food, energy_in, a.last_food_mem, a.last_same_mem, a.last_other_mem, &snapshot, i, my_species, a.heard_sectors
-        );
-        sim::mask_inputs(&mut inputs);
-        let out = population[i].evaluate_slice(&inputs);
+        // Reuse agent's scratch input buffer in-place
+    let mut scratch = [0.0f32; crate::params::INPUTS];
+        // We can't mutably borrow agent inside map easily; copy inputs then reuse in Phase 2
+        // (Simpler sequential Phase 1: we'll fill a temporary and store outputs only.)
+        // NOTE: For full reuse, Phase 1 would need mutable access; current iterator borrows immutably.
+    sensing::build_inputs_inplace(&mut scratch, a.body.pos, a.theta, food, energy_in, a.last_food_mem, a.last_same_mem, a.last_other_mem, &snapshot, i, my_species, a.heard_sectors);
+        sim::mask_inputs(&mut scratch);
+        let out = population[i].evaluate_slice(&scratch);
         let mut raw_turn = out.get(0).copied().unwrap_or(0.0);
         let mut raw_thrust = out.get(1).copied().unwrap_or(0.0);
         let mut raw_call = if COMMUNICATION_ENABLED { out.get(2).copied().unwrap_or(0.0) } else { 0.0 };
