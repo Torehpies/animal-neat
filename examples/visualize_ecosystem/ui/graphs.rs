@@ -76,24 +76,42 @@ pub fn draw_graphs_panel(area: Rect, trends: &Trends) {
     let row_h = (inner.h - GAP*2.0) / 3.0;
     let r = |i: i32| Rect { x: inner.x, y: inner.y + (row_h + GAP) * i as f32, w: inner.w, h: row_h };
 
-    // Row 1: population and species
+    // Helper to draw legend entries
+    fn legend_entry(x: f32, y: f32, text: &str, col: Color) -> f32 {
+        let box_w = 10.0; let box_h = 6.0;
+        draw_rectangle(x, y - box_h + 2.0, box_w, box_h, col);
+        draw_text(text, x + box_w + 6.0, y + 2.0, 12.0, LIGHTGRAY);
+        y + 14.0
+    }
+
+    // Row 1: population and species (per-episode)
     let a1 = r(0);
     draw_axes(a1);
     draw_line_series(a1, &trends.pop, Color::new(0.3, 0.7, 1.0, 0.9));
     draw_line_series(a1, &trends.species, Color::new(0.9, 0.7, 0.3, 0.9));
-    draw_text("Pop/Species", a1.x + 6.0, a1.y + 14.0, 14.0, LIGHTGRAY);
+    draw_text("Population / Species (per-episode)", a1.x + 6.0, a1.y + 14.0, 14.0, LIGHTGRAY);
+    // Legend
+    let mut _ly = a1.y + 30.0;
+    _ly = legend_entry(a1.x + 6.0, _ly, "Population", Color::new(0.3, 0.7, 1.0, 0.9));
+    _ly = legend_entry(a1.x + 6.0, _ly, "Species", Color::new(0.9, 0.7, 0.3, 0.9));
 
-    // Row 2: best and mean fitness
+    // Row 2: best and mean fitness (cumulative/global)
     let a2 = r(1);
     draw_axes(a2);
     draw_line_series(a2, &trends.best, Color::new(0.6, 1.0, 0.6, 0.9));
     draw_line_series(a2, &trends.mean, Color::new(0.8, 0.8, 0.9, 0.9));
-    draw_text("Best/Mean fitness", a2.x + 6.0, a2.y + 14.0, 14.0, LIGHTGRAY);
+    draw_text("Fitness (best / mean across runs)", a2.x + 6.0, a2.y + 14.0, 14.0, LIGHTGRAY);
+    let mut _ly2 = a2.y + 30.0;
+    _ly2 = legend_entry(a2.x + 6.0, _ly2, "Best", Color::new(0.6, 1.0, 0.6, 0.9));
+    _ly2 = legend_entry(a2.x + 6.0, _ly2, "Mean", Color::new(0.8, 0.8, 0.9, 0.9));
 
-    // Row 3: births and deaths
+    // Row 3: births and deaths (per-episode)
     let a3 = r(2);
     draw_axes(a3);
     draw_line_series(a3, &trends.births, Color::new(0.6, 0.9, 0.6, 0.9));
     draw_line_series(a3, &trends.deaths, Color::new(0.95, 0.5, 0.5, 0.9));
-    draw_text("Births/Deaths", a3.x + 6.0, a3.y + 14.0, 14.0, LIGHTGRAY);
+    draw_text("Births / Deaths (per-episode)", a3.x + 6.0, a3.y + 14.0, 14.0, LIGHTGRAY);
+    let mut _ly3 = a3.y + 30.0;
+    _ly3 = legend_entry(a3.x + 6.0, _ly3, "Births", Color::new(0.6, 0.9, 0.6, 0.9));
+    _ly3 = legend_entry(a3.x + 6.0, _ly3, "Deaths", Color::new(0.95, 0.5, 0.5, 0.9));
 }

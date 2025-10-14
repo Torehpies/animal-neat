@@ -49,7 +49,7 @@ pub const WORLD_H: f32 = 750.0;
 pub const INITIAL_ENERGY: f32 = 500.0;
 pub const MAX_ENERGY: f32 = 5000.0;  // clamp upper bound for energy; can be >= INITIAL_ENERGY
 pub const ENERGY_DRAIN_PER_STEP: f32 = 0.05;
-pub const MAX_STEPS: usize = 5_000;
+pub const MAX_STEPS: usize = 20_000;
 pub const AGENT_RADIUS: f32 = 1.5;
 
 // =============
