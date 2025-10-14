@@ -30,7 +30,7 @@ impl Episode {
         // Sample one or multiple random centers per species if clustering is enabled
         let mut species_centers: std::collections::HashMap<usize, Vec<Vec2>> = std::collections::HashMap::new();
         for (&sid, members) in by_species.iter() {
-            if SPECIES_SPAWN_CLUSTERING_ENABLED {
+            if SPECIES_SPAWN_CLUSTERING_ENABLED && agent_count < SPECIES_CLUSTER_DISABLE_THRESHOLD {
                 let mut centers = Vec::new();
                 let n_centers = ((members.len() + SPECIES_CLUSTER_TARGET_SIZE - 1) / SPECIES_CLUSTER_TARGET_SIZE)
                     .clamp(1, SPECIES_SPAWN_MAX_CENTERS_PER_SPECIES);

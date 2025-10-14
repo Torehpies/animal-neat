@@ -91,6 +91,9 @@ struct AppState {
     pub sim_config: SimConfig,
     // Diagnostics
     show_fps: bool,
+    // Batched speciation state (eco continuous)
+    pending_births_since_respec: usize,
+    steps_since_respec: usize,
 }
 
 impl AppState {
@@ -141,6 +144,8 @@ impl AppState {
             graphs: ui_graphs::Trends::new(),
             sim_config,
             show_fps: true,
+            pending_births_since_respec: 0,
+            steps_since_respec: 0,
         }
     }
 
@@ -322,18 +327,30 @@ async fn main() {
                     state.graphs.species.push(species_ct);
                     state.graphs.births.push(state.episode.births_this_episode as f32);
                     state.graphs.deaths.push(deaths_ct);
-                    if ECO_CONTINUOUS {
-                        // Reproduction pass: try to spawn offspring for eligible parents
-                        spawn_offspring_if_needed(
-                            &mut state.population,
-                            &mut state.episode,
-                            &mut state.innov,
-                            &state.cfg,
-                            &mut rng,
-                            &mut state.speciator,
-                            &mut state.member_species,
-                        );
-                    }
+                        if ECO_CONTINUOUS {
+                            let births = spawn_offspring_if_needed(
+                                &mut state.population,
+                                &mut state.episode,
+                                &mut state.innov,
+                                &state.cfg,
+                                &mut rng,
+                            );
+                            state.pending_births_since_respec += births;
+                        }
+                        // Batched speciation
+                        state.steps_since_respec += 1;
+                        if state.pending_births_since_respec > 0 && (state.steps_since_respec >= RESPEC_INTERVAL_STEPS || state.pending_births_since_respec >= RESPEC_MAX_PENDING) {
+                            state.speciator.speciate(&state.population);
+                            state.member_species = {
+                                let mut map = vec![0usize; state.population.len()];
+                                for (sidx, s) in state.speciator.get_species().iter().enumerate() {
+                                    for &m in &s.members { if m < state.population.len() { map[m] = sidx; } }
+                                }
+                                map
+                            };
+                            state.pending_births_since_respec = 0;
+                            state.steps_since_respec = 0;
+                        }
                 }
                 // If it finished exactly on the last step, evolve now
                 if state.episode.is_finished() {
@@ -379,15 +396,28 @@ async fn main() {
                         state.graphs.births.push(state.episode.births_this_episode as f32);
                         state.graphs.deaths.push(deaths_ct);
                         if ECO_CONTINUOUS {
-                            spawn_offspring_if_needed(
+                            let births = spawn_offspring_if_needed(
                                 &mut state.population,
                                 &mut state.episode,
                                 &mut state.innov,
                                 &state.cfg,
                                 &mut rng,
-                                &mut state.speciator,
-                                &mut state.member_species,
                             );
+                            state.pending_births_since_respec += births;
+                        }
+                        // Batched speciation
+                        state.steps_since_respec += 1;
+                        if state.pending_births_since_respec > 0 && (state.steps_since_respec >= RESPEC_INTERVAL_STEPS || state.pending_births_since_respec >= RESPEC_MAX_PENDING) {
+                            state.speciator.speciate(&state.population);
+                            state.member_species = {
+                                let mut map = vec![0usize; state.population.len()];
+                                for (sidx, s) in state.speciator.get_species().iter().enumerate() {
+                                    for &m in &s.members { if m < state.population.len() { map[m] = sidx; } }
+                                }
+                                map
+                            };
+                            state.pending_births_since_respec = 0;
+                            state.steps_since_respec = 0;
                         }
                         if state.episode.is_finished() {
                             if ECO_CONTINUOUS {
@@ -615,15 +645,13 @@ fn spawn_offspring_if_needed<R: Rng>(
     _innov: &mut InnovationTracker,
     _cfg: &EvolutionConfig,
     rng: &mut R,
-    speciator: &mut Speciator,
-    member_species: &mut Vec<usize>,
-) {
+) -> usize {
     // Count live agents and skip if at cap
     let mut live_indices: Vec<usize> = Vec::new();
     for (i, a) in episode.agents.iter().enumerate() {
         if a.energy > 0.0 && a.health > DEATH_HEALTH_THRESHOLD && !a.consumed { live_indices.push(i); }
     }
-    if live_indices.len() >= ECO_MAX_POP { return; }
+    if live_indices.len() >= ECO_MAX_POP { return 0; }
 
     // First, tick down cooldowns for all alive agents
     for i in &live_indices {
@@ -673,9 +701,10 @@ fn spawn_offspring_if_needed<R: Rng>(
         }
     }
 
-    if births.is_empty() { return; }
+    if births.is_empty() { return 0; }
 
     // Realize births: create child via crossover + mutation; debit both parents; set cooldowns; append agent + genome
+    let mut realized = 0usize;
     for (i, j, body, sid) in births {
         // Double-check alignment: parents indices map to genome indices
         if i >= population.len() || j >= population.len() { continue; }
@@ -684,14 +713,6 @@ fn spawn_offspring_if_needed<R: Rng>(
     // Offspring are produced by crossover only; no mutation here (mutation happens after episode)
     let child_g = neat::neat::crossover::crossover(p1, p2);
         population.push(child_g);
-
-        // Update species map using existing speciator (child species determined after speciation)
-        speciator.speciate(&population);
-        member_species.clear();
-        member_species.resize(population.len(), 0);
-        for (sidx, s) in speciator.get_species().iter().enumerate() {
-            for &m in &s.members { if m < population.len() { member_species[m] = sidx; } }
-        }
     // let child_species = *member_species.get(population.len()-1).unwrap_or(&sid); // unused currently
 
         // Append newborn agent aligned with last genome
@@ -736,7 +757,7 @@ fn spawn_offspring_if_needed<R: Rng>(
         episode.comm_fitness_accum.push(0.0);
         episode.births_this_episode += 1;
 
-        // Apply costs and cooldowns to parents; award reproduction fitness bonus to parents
+    // Apply costs and cooldowns to parents; award reproduction fitness bonus to parents
         if let Some(pa) = episode.agents.get_mut(i) {
             pa.energy = (pa.energy - cost * 0.5).max(0.0);
             pa.repro_cooldown = ECO_BIRTH_COOLDOWN_STEPS;
@@ -749,7 +770,9 @@ fn spawn_offspring_if_needed<R: Rng>(
             pb.offspring_count += 1;
             if let Some(fit) = episode.comm_fitness_accum.get_mut(j) { *fit += REPRO_BIRTH_FITNESS_PARENT; }
         }
+        realized += 1;
     }
+    realized
 }
 
 // draw_text_clamped moved to ui_common::draw_text_clamped

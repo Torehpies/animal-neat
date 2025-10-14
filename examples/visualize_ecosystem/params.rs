@@ -64,6 +64,8 @@ pub const SPECIES_SPAWN_CLUSTER_STD: f32 = 30.0;
 pub const SPECIES_CLUSTER_TARGET_SIZE: usize = 10;
 // Upper bound to avoid creating too many centers for very large species.
 pub const SPECIES_SPAWN_MAX_CENTERS_PER_SPECIES: usize = 10;
+// Disable clustering for very large populations to reduce Episode::new overhead
+pub const SPECIES_CLUSTER_DISABLE_THRESHOLD: usize = 200;
 
 // =====
 // Food
@@ -208,6 +210,10 @@ pub const ECO_NEWBORN_ENERGY: f32 = 150.0;         // initial energy for newborn
 pub const ECO_NEWBORN_HEALTH: f32 = AGENT_BASE_HEALTH / 2.0;
 /// Distance within which two same-species, eligible parents can mate to produce an offspring
 pub const ECO_MATE_RADIUS: f32 = 8.0 * AGENT_RADIUS;
+// Batched speciation (eco continuous): run full speciation every N simulation steps OR when
+// pending births exceed a threshold, instead of per-birth, to reduce pauses at high population.
+pub const RESPEC_INTERVAL_STEPS: usize = 25; // tune: bigger = fewer speciation passes
+pub const RESPEC_MAX_PENDING: usize = 40;    // trigger early if many births accumulate
 
 // Newborn safety: for the first N steps of life, newborns cannot attack others and
 // cannot be targeted for predation. This prevents immediate culling of offspring by
