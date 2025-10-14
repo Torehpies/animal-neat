@@ -146,44 +146,29 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
         let panel = Rect { x: area.x + 8.0, y: area.y + area.h - network_h + 8.0, w: area.w - 16.0, h: network_h - 16.0 };
         draw_rectangle(panel.x - 4.0, panel.y - 4.0, panel.w + 8.0, panel.h + 8.0, Color::new(0.05, 0.05, 0.07, 0.95));
         draw_rectangle_lines(panel.x - 4.0, panel.y - 4.0, panel.w + 8.0, panel.h + 8.0, 2.0, Color::new(0.25, 0.25, 0.3, 1.0));
-        if state.show_live_network {
-            // Live activations for the focused agent, if any
-            if let Some(fi) = state.focused_agent {
-                if let Some(agent) = state.episode.agents.get(fi) {
-                    if fi < state.population.len() {
-                        // Build current inputs and evaluate activations
-                        use crate::sensing;
-                        let energy_in = (agent.energy / MAX_ENERGY).clamp(0.0, 1.0);
-                        // Minimal snapshot for inputs: use agent states from episode
-                        let snapshot: Vec<(Vec2, bool, bool, usize, bool)> = state.episode.agents.iter().map(|a| {
-                            let alive = a.energy > 0.0 && a.health > DEATH_HEALTH_THRESHOLD;
-                            let is_corpse = !alive && !a.consumed && a.corpse_energy > 0.1;
-                            (a.body.pos, alive, a.consumed, a.species_id, is_corpse)
-                        }).collect();
-                        let inputs_arr = sensing::build_inputs(agent.body.pos, agent.theta, &state.episode.food, energy_in, agent.satiety, agent.last_food_mem, agent.last_danger_mem, &snapshot, fi, agent.species_id, agent.heard_sectors);
-                        let inputs: Vec<f32> = inputs_arr.to_vec();
-                        let genome = &state.population[fi];
-                        let acts = genome.evaluate_with_activations_slice(&inputs);
-                        draw_text_clamped("Live network (focused agent)", panel.x, panel.y - 8.0, 18.0, LIGHTGRAY, panel.w - 8.0);
-                        draw_network_panel_activations(panel, genome, &acts);
-                    }
-                }
+        
+        // Determine which genome to display
+        let (genome_to_show, title) = if let Some(fi) = state.focused_agent {
+            // Show focused agent's genome
+            if fi < state.population.len() {
+                (Some(&state.population[fi]), format!("Agent #{} Network", fi))
             } else {
-                let msg = "Live network: click an agent in the world to focus it";
-                draw_text_clamped(msg, panel.x, panel.y - 8.0, 18.0, LIGHTGRAY, panel.w - 8.0);
-                draw_text_clamped("No agent focused", panel.x, panel.y + panel.h * 0.5, 16.0, GRAY, panel.w - 8.0);
+                (None, "Invalid agent index".to_string())
             }
-        } else if state.show_best_network_panel {
+        } else {
+            // Show best genome from last generation
             let title = if state.last_best.is_finite() && state.last_best > f32::NEG_INFINITY {
-                if ECO_CONTINUOUS { format!("Best network (last eval, fit {:.2})", state.last_best) } else { format!("Best network (last gen {}, fit {:.2})", state.last_best_generation, state.last_best) }
+                format!("Best network (gen {}, fit {:.2})", state.last_best_generation, state.last_best)
             } else { "Best network (pending)".to_string() };
-            draw_text_clamped(&title, panel.x, panel.y - 8.0, 18.0, LIGHTGRAY, panel.w - 8.0);
-            if let Some(genome) = state.last_best_genome.as_ref() {
-                draw_network_panel(panel, genome);
-            } else {
-                let msg = if ECO_CONTINUOUS { "Evolves with periodic evaluations. Once a new best is found, it will appear here." } else { "Evolves as episodes complete. Once a new best is found, its network will appear here." };
-                draw_text_clamped(msg, panel.x, panel.y + panel.h * 0.5, 16.0, GRAY, panel.w - 8.0);
-            }
+            (state.last_best_genome.as_ref(), title)
+        };
+        
+        draw_text_clamped(&title, panel.x, panel.y - 8.0, 18.0, LIGHTGRAY, panel.w - 8.0);
+        if let Some(genome) = genome_to_show {
+            draw_network_panel(panel, genome);
+        } else {
+            let msg = "Evolves as episodes complete. Once a new best is found, its network will appear here.";
+            draw_text_clamped(msg, panel.x, panel.y + panel.h * 0.5, 16.0, GRAY, panel.w - 8.0);
         }
     }
 }
