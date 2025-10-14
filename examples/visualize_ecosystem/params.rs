@@ -105,7 +105,7 @@ pub const OUTPUTS: usize = 2 + (COMMUNICATION_ENABLED as usize);
 // Decrease `SATIETY_DECAY_PER_STEP` to make hunger build up more slowly.
 // Further reduced for better learning: agents now have much more time to associate hunger with seeking food.
 pub const SATIETY_DECAY_PER_STEP: f32 = 0.0001; // passive hunger increase per step (was 0.0004, now 4x slower!)
-pub const SATIETY_GAIN_FROM_PLANT: f32 = 0.35; // immediate satiety gain when eating a plant (increased from 0.25)
+pub const SATIETY_GAIN_FROM_PLANT: f32 = 0.8; // immediate satiety gain when eating a plant (increased from 0.25)
 pub const SATIETY_GAIN_FROM_MEAT: f32 = 1.2;   // immediate satiety bump when consuming meat (increased from 0.8)
 // When digestion delivers an energy-equivalent, increase satiety proportionally.
 pub const SATIETY_GAIN_PER_ENERGY_DELIVERED: f32 = 0.002; // per 1 energy delivered via digestion (was 0.0015)
@@ -113,8 +113,9 @@ pub const SATIETY_GAIN_PER_ENERGY_DELIVERED: f32 = 0.002; // per 1 energy delive
 // of satiety and grant ENERGY_PER_SATIETY energy per 1.0 satiety consumed.
 // Reduce the amount of satiety consumed per step so the reserve drains slower,
 // and increase `ENERGY_PER_SATIETY` so the agent can still meet maintenance costs.
-pub const SATIETY_CONSUME_PER_STEP: f32 = 0.003; // satiety consumed per step for energy (was 0.005, now 40% slower)
-pub const ENERGY_PER_SATIETY: f32 = 80.0; // energy gained per 1.0 satiety consumed (was 50.0, compensates for slower consumption)
+// Current: 0.005 × 200.0 = 1.0 energy/step (4x base drain, allows movement budget)
+pub const SATIETY_CONSUME_PER_STEP: f32 = 0.005; // satiety consumed per step for energy conversion
+pub const ENERGY_PER_SATIETY: f32 = 110.0; // energy gained per 1.0 satiety consumed (high to support active agents)
 
 // ==============================
 // Input modality enable flags (compile-time)
@@ -134,9 +135,22 @@ pub const EXPL_WEIGHT: f32 = 10.0;                // reward for 100% coverage (t
 // ========================
 // Core movement & fitness (simplified)
 // ========================
-// Fitness: we collapse plant/meat shaping into two simple weights.
-pub const PLANT_FITNESS: f32 = 4.0;            // reward per plant eaten
-pub const MEAT_FITNESS: f32 = 8.0;             // reward per meat (kill or scavenged corpse) event
+// Fitness: balanced food chain with dietary specialization
+// Plants: abundant but low calorie (realistic herbivore niche)
+// Meat: rare but high calorie (realistic carnivore niche)
+pub const PLANT_FITNESS: f32 = 7.0;            // base reward per plant eaten (lower due to abundance)
+pub const MEAT_FITNESS: f32 = 10.0;            // base reward per meat event (higher due to scarcity)
+
+// Dietary specialization system: agents develop digestive efficiency based on eating history
+// Diet ratio = meat_eaten / (plant_eaten + meat_eaten)
+// - Herbivores (ratio < 0.3): efficient at plants, poor at meat digestion
+// - Carnivores (ratio > 0.7): efficient at meat, poor at plant digestion  
+// - Omnivores (0.3 <= ratio <= 0.7): balanced, can digest both moderately well
+pub const DIET_HERBIVORE_THRESHOLD: f32 = 0.3;   // below this meat ratio = herbivore
+pub const DIET_CARNIVORE_THRESHOLD: f32 = 0.7;   // above this meat ratio = carnivore
+pub const DIET_SPECIALIST_BONUS: f32 = 1.5;      // multiplier for "correct" food (herbivore eating plants, carnivore eating meat)
+pub const DIET_MISMATCH_PENALTY: f32 = 0.3;      // multiplier for "wrong" food (herbivore eating meat, carnivore eating plants)
+pub const DIET_OMNIVORE_EFFICIENCY: f32 = 1.0;   // omnivores get full value from both (balanced)
 pub const SURVIVAL_STEP_FITNESS: f32 = 0.08;  // reward per simulation step survived (increased to prioritize survival)
 // Updated: SURVIVAL_STEP_FITNESS now applied per-agent using alive_steps^SURVIVAL_TIME_EXP
 pub const SURVIVAL_TIME_EXP: f32 = 1.0;       // 1.0 = linear survival reward (was 0.75 with diminishing returns)
@@ -155,7 +169,7 @@ pub const COMMUNICATION_ENABLED: bool = false; // set to true to enable; false t
 pub const COMM_SIGNAL_THRESHOLD: f32 = 0.40;   // minimum call_intensity to register a resource signal
 pub const COMM_SIGNAL_WINDOW: usize = 40;      // steps a signal remains active
 pub const COMM_FOOD_RADIUS: f32 = 25.0;        // within this distance of caller to consider signal relevant to resource
-pub const COMM_FOOD_MIN: usize = 2;            // minimum food items in radius to mark signal as a valid resource broadcast
+pub const COMM_FOOD_MIN: usize = 3;            // minimum food items in radius to mark signal as a valid resource broadcast
 pub const COMM_SIGNAL_EFFECT_RADIUS: f32 = 60.0; // receivers must eat within this distance of original signal position
 pub const COMM_RECV_REWARD: f32 = 0.8;         // fitness added to eater when benefiting from a signal
 pub const COMM_CALLER_REWARD: f32 = 0.4;       // fitness added to original caller (smaller encourages some altruism)

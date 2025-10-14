@@ -66,10 +66,32 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
     agents.iter().enumerate().map(|(i, a)| {
         let eaten_plants = a.eaten.saturating_sub(a.kills) as f32;
         let eaten_meat = a.kills as f32;
+        
+        // Calculate dietary specialization
+        let total_food = (eaten_plants + eaten_meat).max(0.01); // avoid div by zero
+        let meat_ratio = eaten_meat / total_food;
+        
+        // Determine diet category and efficiency modifiers
+        let (plant_efficiency, meat_efficiency) = if meat_ratio < DIET_HERBIVORE_THRESHOLD {
+            // Herbivore: great at plants, poor at meat digestion
+            (DIET_SPECIALIST_BONUS, DIET_MISMATCH_PENALTY)
+        } else if meat_ratio > DIET_CARNIVORE_THRESHOLD {
+            // Carnivore: great at meat, poor at plant digestion
+            (DIET_MISMATCH_PENALTY, DIET_SPECIALIST_BONUS)
+        } else {
+            // Omnivore: balanced digestion for both
+            (DIET_OMNIVORE_EFFICIENCY, DIET_OMNIVORE_EFFICIENCY)
+        };
+        
+        // Apply dietary efficiency to intake rewards
+        let plant_reward = eaten_plants * PLANT_FITNESS * plant_efficiency;
+        let meat_reward = eaten_meat * MEAT_FITNESS * meat_efficiency;
+        
         let intake_events = a.eaten as usize; // total edible events (plants + meat)
         let missing = INTAKE_MIN_EVENTS.saturating_sub(intake_events) as f32;
         let intake_penalty = missing * INTAKE_MISS_PENALTY;
-        let intake = eaten_plants * PLANT_FITNESS + eaten_meat * MEAT_FITNESS - intake_penalty;
+        let intake = plant_reward + meat_reward - intake_penalty;
+        
         let frac = if total_cells > 0.0 { (visited[i].len() as f32) / total_cells } else { 0.0 };
         let exploration = frac * EXPL_WEIGHT;
         let survival = (a.alive_steps as f32).powf(SURVIVAL_TIME_EXP) * SURVIVAL_STEP_FITNESS;

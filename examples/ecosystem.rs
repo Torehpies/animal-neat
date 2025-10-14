@@ -15,7 +15,7 @@ use rand::Rng;
 
 const WORLD_W: f32 = 200.0;
 const WORLD_H: f32 = 200.0;
-const FOOD_COUNT: usize = 80;
+const FOOD_COUNT: usize = 200;
 const FOOD_RADIUS: f32 = 1.0;
 const AGENT_RADIUS: f32 = 1.2;
 const INITIAL_ENERGY: f32 = 100.0;
