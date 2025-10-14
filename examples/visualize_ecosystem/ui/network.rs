@@ -155,6 +155,7 @@ pub fn draw_network_panel(area: Rect, genome: &Genome) {
             return format!("V {}:{}", sector, cat);
         }
         if idx == r.energy { return "Energy".to_string(); }
+        if idx == r.satiety { return "Satiety".to_string(); }
         if r.memory.contains(&idx) {
             let j = idx - r.memory.start;
             let name = match j { 0 => "Mem F.x", 1 => "Mem F.y", 2 => "Mem D.x", 3 => "Mem D.y", _ => "Mem" };
