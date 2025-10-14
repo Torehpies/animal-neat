@@ -1,54 +1,30 @@
 use macroquad::prelude::*;
 use crate::ui_common::{draw_panel, PAD, GAP, PANEL_BORDER, SUBPANEL_BG};
 
-// Simple fixed-capacity ring buffer time series
-pub struct Series {
-    buf: Vec<f32>,
-    head: usize,
-    len: usize,
-}
-
+// Episode-length time series (grow for entire episode, then reset)
+#[derive(Default)]
+pub struct Series { pub data: Vec<f32> }
 impl Series {
-    pub fn with_capacity(cap: usize) -> Self { Self { buf: vec![0.0; cap.max(1)], head: 0, len: 0 } }
-    pub fn push(&mut self, v: f32) {
-        if self.buf.is_empty() { return; }
-        self.buf[self.head] = v;
-        self.head = (self.head + 1) % self.buf.len();
-        self.len = (self.len + 1).min(self.buf.len());
-    }
-    pub fn iter_recent(&self) -> impl Iterator<Item=f32> + '_ {
-        let n = self.len;
-        let cap = self.buf.len();
-        (0..n).map(move |i| self.buf[(self.head + cap + i - n) % cap])
-    }
+    pub fn push(&mut self, v: f32) { self.data.push(v); }
+    pub fn clear(&mut self) { self.data.clear(); }
     pub fn min_max(&self) -> (f32, f32) {
+        if self.data.is_empty() { return (0.0, 1.0); }
         let mut min = f32::INFINITY; let mut max = f32::NEG_INFINITY;
-        for v in self.iter_recent() { min = min.min(v); max = max.max(v); }
-        if min == f32::INFINITY { (0.0, 1.0) } else { (min, if max>min { max } else { min+1.0 }) }
+        for &v in &self.data { if v < min { min = v; } if v > max { max = v; } }
+        if max <= min { (min, min + 1.0) } else { (min, max) }
     }
 }
 
+#[derive(Default)]
 pub struct Trends {
     pub pop: Series,
     pub species: Series,
-    pub best: Series,
-    pub mean: Series,
+    pub best: Series,   // appended per generation/episode end
+    pub mean: Series,   // appended per generation/episode end
     pub births: Series,
     pub deaths: Series,
 }
-
-impl Trends {
-    pub fn new(cap: usize) -> Self {
-        Self {
-            pop: Series::with_capacity(cap),
-            species: Series::with_capacity(cap),
-            best: Series::with_capacity(cap),
-            mean: Series::with_capacity(cap),
-            births: Series::with_capacity(cap),
-            deaths: Series::with_capacity(cap),
-        }
-    }
-}
+impl Trends { pub fn new() -> Self { Self::default() } pub fn reset_episode(&mut self) { self.pop.clear(); self.species.clear(); self.births.clear(); self.deaths.clear(); } }
 
 fn draw_axes(area: Rect) {
     let g = Color::new(1.0, 1.0, 1.0, 0.08);
@@ -57,18 +33,37 @@ fn draw_axes(area: Rect) {
 }
 
 fn draw_line_series(area: Rect, series: &Series, col: Color) {
-    let n = series.len.max(2) as f32;
-    let (mn, mx) = series.min_max();
-    let range = (mx - mn).max(1e-5);
-    let mut prev: Option<(f32, f32)> = None;
-    let mut i = 0f32;
-    for v in series.iter_recent() {
-        let t = i / (n - 1.0);
-        let x = area.x + t * area.w;
-        let y = area.y + area.h * (1.0 - (v - mn) / range);
-        if let Some((px, py)) = prev { draw_line(px, py, x, y, 1.5, col); }
-        prev = Some((x, y));
-        i += 1.0;
+    let n = series.data.len(); if n < 2 { return; }
+    let (mn, mx) = series.min_max(); let range = (mx - mn).max(1e-5);
+    // Decimate to panel pixel width (one sample per x column using min/max envelope simplified to polyline)
+    let cols = area.w.max(1.0) as usize;
+    if n <= cols {
+        let mut prev: Option<(f32,f32)> = None;
+        for (i,&v) in series.data.iter().enumerate() {
+            let t = i as f32 / (n as f32 - 1.0);
+            let x = area.x + t * area.w;
+            let y = area.y + area.h * (1.0 - (v - mn)/range);
+            if let Some((px,py)) = prev { draw_line(px,py,x,y,1.3,col); }
+            prev = Some((x,y));
+        }
+    } else {
+        let bucket = n as f32 / cols as f32;
+        let mut px = None;
+        for ci in 0..cols {
+            let start = (ci as f32 * bucket).floor() as usize;
+            let end = (((ci+1) as f32 * bucket).ceil() as usize).min(n);
+            if start >= end { continue; }
+            let mut minv = f32::INFINITY; let mut maxv = f32::NEG_INFINITY;
+            for &v in &series.data[start..end] { if v < minv { minv = v; } if v > maxv { maxv = v; } }
+            let t = ci as f32 / (cols as f32 - 1.0);
+            let x = area.x + t * area.w;
+            let y1 = area.y + area.h * (1.0 - (minv - mn)/range);
+            let y2 = area.y + area.h * (1.0 - (maxv - mn)/range);
+            // vertical range for this column
+            draw_line(x, y1, x, y2, 1.0, col);
+            if let Some((px_prev, py_prev)) = px { draw_line(px_prev, py_prev, x, (y1+y2)*0.5, 1.0, col); }
+            px = Some((x, (y1+y2)*0.5));
+        }
     }
 }
 

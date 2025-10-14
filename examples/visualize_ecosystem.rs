@@ -136,7 +136,7 @@ impl AppState {
             show_controls: true,
             color_by_species: false,
             show_graphs_panel: true,
-            graphs: ui_graphs::Trends::new(1024),
+            graphs: ui_graphs::Trends::new(),
             sim_config,
         }
     }
@@ -336,9 +336,11 @@ async fn main() {
                     if ECO_CONTINUOUS {
                         state.eco_episode_counter += 1;
                         eco_cull_population_by_fitness(&mut state);
+                        state.graphs.reset_episode();
                         state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
                     } else {
                         state.evolve_one_generation();
+                        state.graphs.reset_episode();
                         state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
                     }
                     // Push fitness trends after evaluation window
@@ -353,9 +355,11 @@ async fn main() {
                         if ECO_CONTINUOUS {
                             state.eco_episode_counter += 1;
                             eco_cull_population_by_fitness(&mut state);
+                            state.graphs.reset_episode();
                             state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
                         } else {
                             state.evolve_one_generation();
+                            state.graphs.reset_episode();
                             state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
                         }
                         // Push fitness trends after evaluation window
@@ -385,9 +389,11 @@ async fn main() {
                             if ECO_CONTINUOUS {
                                 state.eco_episode_counter += 1;
                                 eco_cull_population_by_fitness(&mut state);
+                                state.graphs.reset_episode();
                                 state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
                             } else {
                                 state.evolve_one_generation();
+                                state.graphs.reset_episode();
                                 state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
                             }
                         }
@@ -489,12 +495,12 @@ fn eco_cull_population_by_fitness(state: &mut AppState) {
         species_best.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
         let k = EQUAL_ALLOC_TOP_K.max(1).min(species_best.len());
-        let mut chosen_species: Vec<usize> = species_best.into_iter().take(k).map(|(sid, _)| sid).collect();
+    let chosen_species: Vec<usize> = species_best.into_iter().take(k).map(|(sid, _)| sid).collect();
 
         // Compute base quota and distribute remainder to top species
     let pop_cap = params::get_population_size();
     let base = pop_cap / k;
-    let mut remainder = pop_cap % k;
+    let remainder = pop_cap % k;
 
         // Take from each chosen species up to its quota, or all available if fewer
         for (rank, sid) in chosen_species.iter().enumerate() {
@@ -661,7 +667,7 @@ fn spawn_offspring_if_needed<R: Rng>(
         for (sidx, s) in speciator.get_species().iter().enumerate() {
             for &m in &s.members { if m < population.len() { member_species[m] = sidx; } }
         }
-    let child_species = *member_species.get(population.len()-1).unwrap_or(&sid);
+    // let child_species = *member_species.get(population.len()-1).unwrap_or(&sid); // unused currently
 
         // Append newborn agent aligned with last genome
         let birth_pos = body.pos;  // Save position before moving body
