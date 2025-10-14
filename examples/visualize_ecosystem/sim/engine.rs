@@ -8,6 +8,20 @@ use sim::{resolve_predation, decay_corpses_and_flashes};
 use crate::{params::*, sensing, sim::{self, CommSignal, Agent, DigestEvent, dir_from_theta, grid_index}, world::{self, wrap_to_world}};
 use crate::body::{resolve_collision, Body};
 
+// Phase 1 output: neural decision + precomputed inputs we still need in phase 2
+#[derive(Clone, Default)]
+struct ActionIntent {
+    alive: bool,
+    raw_turn: f32,
+    raw_thrust: f32,
+    raw_call: f32,
+    turn_delta: f32,
+    dir: Vec2,
+    cur_food_vec: (f32,f32),
+    last_same_vec: (f32,f32),
+    last_other_vec: (f32,f32),
+}
+
 // Minimal stats delta accumulated during a single tick across all agents
 pub struct StepDelta {
     pub total_agent_steps: usize,
@@ -38,6 +52,16 @@ pub fn tick_step<R: Rng>(
     rng: &mut R,
     mut first_eat_step: Option<&mut Option<usize>>,
 ) -> StepDelta {
+    // PERFORMANCE NOTE (two-phase update):
+    // We split per-agent work into:
+    //   Phase 1 (parallel, read-only on shared world): build inputs, run neural net, compute intended turn/thrust/call and
+    //       gather local sensing vectors needed for memory updates. We avoid mutating agents here except through a collected
+    //       ActionIntent vector. This keeps contention low and lets rayon parallelize CPU-heavy network evaluation & sensing.
+    //   Phase 2 (sequential): apply digestion, integrate movement, energy accounting, eating, predation candidate scan,
+    //       memory decay, communication, and stats accumulation. These steps mutate shared collections (food, comm_signals,
+    //       per-agent fields) and are kept sequential for simplicity & correctness. Further optimization could batch some
+    //       of these (e.g., collision-free movement) in a second parallel pass if profiling shows Phase 2 dominating.
+    // The snapshot & age_snapshot are built once before Phase 1 so both phases have a consistent view of other agents.
     // Build snapshot for predation/scavenge decisions
     let snapshot: Vec<(Vec2, bool, bool, usize, bool)> = agents.iter().enumerate().map(|(i,a)| {
         let alive = a.energy > 0.0 && a.health > DEATH_HEALTH_THRESHOLD;
@@ -49,215 +73,149 @@ pub fn tick_step<R: Rng>(
     let mut prey_targets: Vec<Option<usize>> = vec![None; agents.len()];
     let mut delta = StepDelta::zero();
 
-    for (i, a) in agents.iter_mut().enumerate() {
-        if a.energy <= 0.0 || a.health <= DEATH_HEALTH_THRESHOLD { continue; }
-
-        // Food vector (for memory after acting)
+    // Phase 1: compute neural outputs in parallel without mutating shared global state (except internal agent fields we copy after)
+    // Use food directly (no cloning per step) now that phase 1 is sequential.
+    let intents: Vec<ActionIntent> = agents.iter().enumerate().map(|(i, a)| {
+        if a.energy <= 0.0 || a.health <= DEATH_HEALTH_THRESHOLD {
+            return ActionIntent { alive: false, ..Default::default() };
+        }
         let (cur_fx, cur_fy) = sensing::food_vector_from_rays(a.body.pos, a.theta, food);
-
-    // (Removed) pooled sector proximities & density sectors in new vision model
-
-        // Digest prior energy deliveries
-        sim::apply_digestion(a);
-
-        // Exploration map (eval only)
-        if let Some(v) = visited.as_deref_mut() { v[i].insert(grid_index(a.body.pos)); }
-
-    let energy_in = (a.energy / crate::params::get_max_energy()).clamp(0.0, 1.0);
+        let energy_in = (a.energy / crate::params::get_max_energy()).clamp(0.0, 1.0);
         let my_species = a.species_id;
         let mut inputs = sensing::build_inputs(
             a.body.pos, a.theta, food, energy_in, a.last_food_mem, a.last_same_mem, a.last_other_mem, &snapshot, i, my_species, a.heard_sectors
         );
         sim::mask_inputs(&mut inputs);
-
         let out = population[i].evaluate_slice(&inputs);
         let mut raw_turn = out.get(0).copied().unwrap_or(0.0);
         let mut raw_thrust = out.get(1).copied().unwrap_or(0.0);
-    // Third output reserved for communication; forced to 0 when COMMUNICATION_ENABLED = false
-    let mut raw_call = if COMMUNICATION_ENABLED { out.get(2).copied().unwrap_or(0.0) } else { 0.0 };
-        raw_turn = raw_turn.clamp(-1.0, 1.0);
-        raw_thrust = raw_thrust.clamp(-1.0, 1.0);
-        raw_call = raw_call.clamp(-1.0, 1.0);
-    a.call_intensity = if COMMUNICATION_ENABLED { (raw_call + 1.0) * 0.5 } else { 0.0 };
+        let mut raw_call = if COMMUNICATION_ENABLED { out.get(2).copied().unwrap_or(0.0) } else { 0.0 };
+        raw_turn = raw_turn.clamp(-1.0,1.0);
+        raw_thrust = raw_thrust.clamp(-1.0,1.0);
+        raw_call = raw_call.clamp(-1.0,1.0);
         let turn_delta = raw_turn * MAX_TURN_PER_STEP;
-        a.theta += turn_delta;
+        // We DON'T mutate agent theta here; just compute dir after hypothetical turn
+        let mut theta = a.theta + turn_delta;
+        while theta > std::f32::consts::PI { theta -= 2.0 * std::f32::consts::PI; }
+        while theta <= -std::f32::consts::PI { theta += 2.0 * std::f32::consts::PI; }
+        let dir = dir_from_theta(theta);
+        // nearest same/other local vectors (for memory update)
+        let ((same_x, same_y), (other_x, other_y)) = sensing::nearest_same_other_vectors_local(a.body.pos, a.theta, &snapshot, i, my_species);
+        ActionIntent {
+            alive: true,
+            raw_turn, raw_thrust, raw_call,
+            turn_delta, dir,
+            cur_food_vec: (cur_fx, cur_fy),
+            last_same_vec: (same_x, same_y),
+            last_other_vec: (other_x, other_y),
+        }
+    }).collect();
+
+    // Build a simple spatial hash (uniform grid) for predation neighbor lookup (alive or corpse energy targets only)
+    // Grid cell size tuned to predation radius so we only check local buckets.
+    const CELL: f32 = EAT_AGENT_RADIUS * 1.25; // a little larger to capture neighbors
+    let mut grid: std::collections::HashMap<(i32,i32), Vec<usize>> = std::collections::HashMap::with_capacity(agents.len()*2);
+    for (idx,a) in agents.iter().enumerate() {
+        let alive = a.energy > 0.0 && a.health > DEATH_HEALTH_THRESHOLD;
+        let is_corpse = !alive && !a.consumed && a.corpse_energy > 0.1;
+        if !alive && !is_corpse { continue; }
+        let gx = (a.body.pos.x / CELL).floor() as i32;
+        let gy = (a.body.pos.y / CELL).floor() as i32;
+        grid.entry((gx,gy)).or_default().push(idx);
+    }
+
+    // Phase 2: apply decisions sequentially (handles digestion, movement, energy, predation prep, stats, communication)
+    for (i, a) in agents.iter_mut().enumerate() {
+        if !intents[i].alive { continue; }
+        // Digest prior energy
+        sim::apply_digestion(a);
+        if let Some(v) = visited.as_deref_mut() { v[i].insert(grid_index(a.body.pos)); }
+        let intent = &intents[i];
+        a.call_intensity = if COMMUNICATION_ENABLED { (intent.raw_call + 1.0) * 0.5 } else { 0.0 };
+        a.theta += intent.turn_delta;
         while a.theta > std::f32::consts::PI { a.theta -= 2.0 * std::f32::consts::PI; }
         while a.theta <= -std::f32::consts::PI { a.theta += 2.0 * std::f32::consts::PI; }
-        let dir = dir_from_theta(a.theta);
-
-    // (previous position no longer needed; swept eating disabled)
         if USE_INERTIA {
             a.body.vel *= 1.0 - DRAG_COEFF;
-            let thrust_scalar = (raw_thrust + 1.0) * 0.5;
-            let mut dv = dir * (thrust_scalar * MAX_THRUST);
-            if raw_thrust < 0.0 {
-                let forward_speed = a.body.vel.dot(dir);
+            let thrust_scalar = (intent.raw_thrust + 1.0) * 0.5;
+            let mut dv = intent.dir * (thrust_scalar * MAX_THRUST);
+            if intent.raw_thrust < 0.0 {
+                let forward_speed = a.body.vel.dot(intent.dir);
                 if forward_speed > 0.0 {
-                    let brake = (-raw_thrust).min(1.0) * MAX_THRUST;
-                    dv += dir * -brake;
+                    let brake = (-intent.raw_thrust).min(1.0) * MAX_THRUST;
+                    dv += intent.dir * -brake;
                 }
             }
             a.body.vel += dv;
+        }
+        // Movement integration
+        if USE_INERTIA {
             let vlen = a.body.vel.length();
             if vlen > MAX_VELOCITY { a.body.vel *= MAX_VELOCITY / vlen; }
             a.body.pos += a.body.vel;
             a.body.pos = wrap_to_world(a.body.pos);
         } else {
-            let mut speed = (raw_thrust + 1.0) * 0.5;
-            if speed > 1.0 { speed = 1.0; }
-            let vel = dir * (speed * MAX_SPEED);
-            a.body.pos += vel;
-            a.body.pos = wrap_to_world(a.body.pos);
+            let mut speed = (intent.raw_thrust + 1.0) * 0.5; if speed > 1.0 { speed = 1.0; }
+            let vel = intent.dir * (speed * MAX_SPEED);
+            a.body.pos += vel; a.body.pos = wrap_to_world(a.body.pos);
         }
-
-        // Idleness tracking: penalize staying in the same place
+        // Idleness
         if IDLENESS_PENALTY_ENABLED {
             let dist_from_anchor = (a.body.pos - a.idle_anchor).length();
             if dist_from_anchor < IDLENESS_DISTANCE_THRESHOLD {
                 a.idle_steps += 1;
-                if a.idle_steps > IDLENESS_THRESHOLD_STEPS {
-                    let penalty = IDLENESS_PENALTY_PER_STEP;
-                    a.total_idle_penalty += penalty;
-                }
-            } else {
-                // Moved significantly, reset idleness tracking
-                a.idle_anchor = a.body.pos;
-                a.idle_steps = 0;
-            }
+                if a.idle_steps > IDLENESS_THRESHOLD_STEPS { a.total_idle_penalty += IDLENESS_PENALTY_PER_STEP; }
+            } else { a.idle_anchor = a.body.pos; a.idle_steps = 0; }
         }
-
-        // Eating: require actual overlap at end position (disable swept path exploit)
+        // Eating
         let ate = if world::eat_if_near(food, &a.body) {
             if DIGEST_STEPS_PLANT > 0 { a.digest.push_back(DigestEvent { remaining: DIGEST_STEPS_PLANT, per_step: FOOD_ENERGY / (DIGEST_STEPS_PLANT as f32) }); }
             else { a.energy = (a.energy + FOOD_ENERGY).min(crate::params::get_max_energy()); }
-            a.eaten += 1;
-            if let Some(ref mut hook) = first_eat_step { if hook.is_none() { **hook = Some(step_idx); } }
-            true
-        } else { false };
-
-        // Predation/scavenge candidate
+            a.eaten += 1; if let Some(ref mut hook) = first_eat_step { if hook.is_none() { **hook = Some(step_idx); } } true } else { false };
+        // Predation candidate scan via spatial grid
         if PREDATION_ENABLED || SCAVENGE_ENABLED {
-            let mut target: Option<usize> = None;
-            for j in 0..snapshot.len() {
-                if j == i { continue; }
-                let (pos_j, alive_j, consumed_j, species_j, is_corpse_j) = snapshot[j];
-                if consumed_j { continue; }
-                // Newborn grace: attackers under grace cannot attack; targets under grace cannot be attacked
-                if a.age_steps < NEWBORN_GRACE_STEPS { continue; }
-                if age_snapshot.get(j).copied().unwrap_or(NEWBORN_GRACE_STEPS) < NEWBORN_GRACE_STEPS { continue; }
-                // Disallow predation on same-species live targets; allow scavenging same-species corpses
-                if alive_j && species_j == my_species { continue; }
-                if (alive_j && !PREDATION_ENABLED) || ((!alive_j || is_corpse_j) && !SCAVENGE_ENABLED) { continue; }
-                let dx = pos_j.x - a.body.pos.x; let dy = pos_j.y - a.body.pos.y;
-                let dist2 = dx*dx + dy*dy;
-                if dist2.sqrt() > EAT_AGENT_RADIUS { continue; }
-                
-                // NEW: For live prey, require target to be within vision cone (enables ambush tactics)
-                if alive_j && PREDATION_REQUIRES_VISION {
-                    let to_target = Vec2::new(dx, dy);
-                    let to_len = to_target.length();
-                    if to_len < 1e-6 { continue; } // avoid division by zero
-                    let to_norm = to_target / to_len;
-                    
-                    // Check if target is within vision cone angle
-                    let dot = dir.dot(to_norm);
-                    let half_cone = (VISION_ANGLE_DEG.to_radians() * 0.5).cos();
-                    if dot < half_cone {
-                        continue; // target outside vision cone, cannot attack
-                    }
+            let my_species = a.species_id; let dir = intent.dir; let mut target: Option<usize> = None;
+            let gx = (a.body.pos.x / CELL).floor() as i32; let gy = (a.body.pos.y / CELL).floor() as i32;
+            let half_cone_cos = (VISION_ANGLE_DEG.to_radians() * 0.5).cos();
+            // Check surrounding 3x3 cells
+            'outer: for oy in -1..=1 { for ox in -1..=1 { if let Some(bucket) = grid.get(&(gx+ox, gy+oy)) {
+                for &j in bucket { if j == i { continue; }
+                    let (pos_j, alive_j, consumed_j, species_j, is_corpse_j) = snapshot[j]; if consumed_j { continue; }
+                    if a.age_steps < NEWBORN_GRACE_STEPS { continue; }
+                    if age_snapshot.get(j).copied().unwrap_or(NEWBORN_GRACE_STEPS) < NEWBORN_GRACE_STEPS { continue; }
+                    if alive_j && species_j == my_species { continue; }
+                    if (alive_j && !PREDATION_ENABLED) || ((!alive_j || is_corpse_j) && !SCAVENGE_ENABLED) { continue; }
+                    let dx = pos_j.x - a.body.pos.x; let dy = pos_j.y - a.body.pos.y; let dist2 = dx*dx + dy*dy; if dist2 > EAT_AGENT_RADIUS*EAT_AGENT_RADIUS { continue; }
+                    if alive_j && PREDATION_REQUIRES_VISION { let len = (dist2 as f32).sqrt(); if len < 1e-6 { continue; } let dot = dir.dot(Vec2::new(dx,dy)/len); if dot < half_cone_cos { continue; } }
+                    if (!alive_j || is_corpse_j) && SCAVENGE_REQUIRES_VISION { let len = (dist2 as f32).sqrt(); if len < 1e-6 { continue; } let dot = dir.dot(Vec2::new(dx,dy)/len); if dot < half_cone_cos { continue; } }
+                    target = Some(j); break 'outer;
                 }
-                
-                // For corpses, optionally require vision (easier scavenging if disabled)
-                if (!alive_j || is_corpse_j) && SCAVENGE_REQUIRES_VISION {
-                    let to_target = Vec2::new(dx, dy);
-                    let to_len = to_target.length();
-                    if to_len < 1e-6 { continue; }
-                    let to_norm = to_target / to_len;
-                    
-                    let dot = dir.dot(to_norm);
-                    let half_cone = (VISION_ANGLE_DEG.to_radians() * 0.5).cos();
-                    if dot < half_cone {
-                        continue; // corpse outside vision cone
-                    }
-                }
-                
-                target = Some(j); 
-                break;
-            }
+            } }}
             prey_targets[i] = target;
         }
-
-        // Stats + survival time
+        // Stats & energy
         delta.total_agent_steps += 1;
         if USE_INERTIA { delta.avg_speed_accum += a.body.vel.length() / MAX_SPEED; }
-        else { delta.avg_speed_accum += (raw_thrust + 1.0) * 0.5; }
-        delta.heading_change_accum += turn_delta.abs();
-
-    a.alive_steps += 1;
-    a.age_steps = a.age_steps.saturating_add(1);
-        // Energy cost
+        else { delta.avg_speed_accum += (intent.raw_thrust + 1.0) * 0.5; }
+        delta.heading_change_accum += intent.turn_delta.abs();
+        a.alive_steps += 1; a.age_steps = a.age_steps.saturating_add(1);
         let mut energy_cost = crate::params::get_energy_drain_per_step();
-        if USE_INERTIA {
-            let vmag = a.body.vel.length();
-            energy_cost += vmag * EXTRA_VEL_ENERGY_C1 + vmag*vmag*vmag * EXTRA_VEL_ENERGY_C2;
-            if turn_delta.abs() > 0.0 && vmag > 1e-4 { energy_cost += TURN_ENERGY_SCALE * raw_turn.abs().min(1.0); }
-        } else {
-            let speed = (raw_thrust + 1.0) * 0.5;
-            energy_cost += speed * MOVE_ENERGY_SCALE;
-            if turn_delta.abs() > 0.0 && speed > 1e-4 { energy_cost += TURN_ENERGY_SCALE * raw_turn.abs().min(1.0); }
-        }
-    if COMMUNICATION_ENABLED { energy_cost += a.call_intensity * CALL_COST; }
-        a.energy -= energy_cost;
-        if a.energy <= 0.0 || a.health <= DEATH_HEALTH_THRESHOLD {
-            if a.dead_since.is_none() { a.dead_since = Some(step_idx); a.corpse_energy = CORPSE_INITIAL_ENERGY; }
-        }
-        // Passive heal
-        if a.energy > 0.0 && a.health > DEATH_HEALTH_THRESHOLD {
-            let ef = (a.energy / crate::params::get_max_energy()).clamp(0.0,1.0);
-            a.health = (a.health + INJURY_HEAL_RATE * ef * a.max_health).min(a.max_health);
-        }
-
-        // Update memories
-        a.last_food_mem = Vec2 { x: cur_fx, y: cur_fy };
-        let ((same_x, same_y), (other_x, other_y)) = sensing::nearest_same_other_vectors_local(a.body.pos, a.theta, &snapshot, i, my_species);
-    a.last_same_mem = Vec2 { x: same_x, y: same_y };
-    a.last_other_mem = Vec2 { x: other_x, y: other_y };
-    a.last_food_mem.x *= MEMORY_DECAY; a.last_food_mem.y *= MEMORY_DECAY;
-    a.last_same_mem.x *= MEMORY_DECAY; a.last_same_mem.y *= MEMORY_DECAY;
-    a.last_other_mem.x *= MEMORY_DECAY; a.last_other_mem.y *= MEMORY_DECAY;
-
-        // Social herding shaping: reward following same-species in front (positive forward alignment)
-        if HERDING_ENABLED {
-            let forward_align = same_y.max(0.0); // prefer being behind/following a same-species target
-            if let Some(fit) = comm_fit.get_mut(i) { *fit += forward_align * HERDING_REWARD_PER_STEP; }
-        }
-
-        // Communication: spawn/score signals only when enabled
-        if COMMUNICATION_ENABLED {
-            if a.call_intensity >= COMM_SIGNAL_THRESHOLD {
-                let mut nearby_food = 0usize;
-                for f in food.iter() {
-                    let dx = f.x - a.body.pos.x; let dy = f.y - a.body.pos.y;
-                    if dx*dx + dy*dy <= COMM_FOOD_RADIUS*COMM_FOOD_RADIUS { nearby_food += 1; if nearby_food >= COMM_FOOD_MIN { break; } }
-                }
-                if nearby_food >= COMM_FOOD_MIN {
-                    comm_signals.push(CommSignal { caller: i, pos: a.body.pos, ttl: COMM_SIGNAL_WINDOW });
-                }
-            }
-
-            if ate {
-                for s in comm_signals.iter() {
-                    let dx = a.body.pos.x - s.pos.x; let dy = a.body.pos.y - s.pos.y;
-                    if dx*dx + dy*dy <= COMM_SIGNAL_EFFECT_RADIUS*COMM_SIGNAL_EFFECT_RADIUS {
-                        if s.caller != i { comm_fit[i] += COMM_RECV_REWARD; }
-                        comm_fit[s.caller] += COMM_CALLER_REWARD;
-                    }
-                }
-            }
-        } else {
-            // Ensure hearing inputs decay to zero when communication is off
-            a.heard_sectors = [0.0; 3];
-        }
+        if USE_INERTIA { let vmag = a.body.vel.length(); energy_cost += vmag * EXTRA_VEL_ENERGY_C1 + vmag*vmag*vmag * EXTRA_VEL_ENERGY_C2; if intent.turn_delta.abs()>0.0 && vmag>1e-4 { energy_cost += TURN_ENERGY_SCALE * intent.raw_turn.abs().min(1.0); } }
+        else { let speed = (intent.raw_thrust + 1.0) * 0.5; energy_cost += speed * MOVE_ENERGY_SCALE; if intent.turn_delta.abs()>0.0 && speed>1e-4 { energy_cost += TURN_ENERGY_SCALE * intent.raw_turn.abs().min(1.0); } }
+        if COMMUNICATION_ENABLED { energy_cost += a.call_intensity * CALL_COST; }
+        a.energy -= energy_cost; if a.energy <= 0.0 || a.health <= DEATH_HEALTH_THRESHOLD { if a.dead_since.is_none() { a.dead_since = Some(step_idx); a.corpse_energy = CORPSE_INITIAL_ENERGY; } }
+        if a.energy > 0.0 && a.health > DEATH_HEALTH_THRESHOLD { let ef=(a.energy/ crate::params::get_max_energy()).clamp(0.0,1.0); a.health=(a.health + INJURY_HEAL_RATE * ef * a.max_health).min(a.max_health); }
+        // Memories (decay after storing new vectors)
+        a.last_food_mem = Vec2 { x: intent.cur_food_vec.0, y: intent.cur_food_vec.1 };
+        a.last_same_mem = Vec2 { x: intent.last_same_vec.0, y: intent.last_same_vec.1 };
+        a.last_other_mem = Vec2 { x: intent.last_other_vec.0, y: intent.last_other_vec.1 };
+        a.last_food_mem.x *= MEMORY_DECAY; a.last_food_mem.y *= MEMORY_DECAY;
+        a.last_same_mem.x *= MEMORY_DECAY; a.last_same_mem.y *= MEMORY_DECAY;
+        a.last_other_mem.x *= MEMORY_DECAY; a.last_other_mem.y *= MEMORY_DECAY;
+        if HERDING_ENABLED { let forward_align = intent.last_same_vec.1.max(0.0); if let Some(fit)=comm_fit.get_mut(i){ *fit += forward_align * HERDING_REWARD_PER_STEP; } }
+        if COMMUNICATION_ENABLED { if a.call_intensity >= COMM_SIGNAL_THRESHOLD { let mut nearby_food=0usize; for f in food.iter(){ let dx=f.x - a.body.pos.x; let dy=f.y - a.body.pos.y; if dx*dx + dy*dy <= COMM_FOOD_RADIUS*COMM_FOOD_RADIUS { nearby_food+=1; if nearby_food>=COMM_FOOD_MIN { break; } } } if nearby_food>=COMM_FOOD_MIN { comm_signals.push(CommSignal { caller:i,pos:a.body.pos,ttl:COMM_SIGNAL_WINDOW }); } }
+            if ate { for s in comm_signals.iter(){ let dx=a.body.pos.x - s.pos.x; let dy=a.body.pos.y - s.pos.y; if dx*dx + dy*dy <= COMM_SIGNAL_EFFECT_RADIUS*COMM_SIGNAL_EFFECT_RADIUS { if s.caller != i { comm_fit[i] += COMM_RECV_REWARD; } comm_fit[s.caller] += COMM_CALLER_REWARD; } } }
+        } else { a.heard_sectors = [0.0;3]; }
     }
 
     // Decay/cleanup signals
