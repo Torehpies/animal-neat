@@ -94,6 +94,7 @@ struct AppState {
     // Batched speciation state (eco continuous)
     pending_births_since_respec: usize,
     steps_since_respec: usize,
+    ultra_mode: bool,
 }
 
 impl AppState {
@@ -146,6 +147,7 @@ impl AppState {
             show_fps: true,
             pending_births_since_respec: 0,
             steps_since_respec: 0,
+            ultra_mode: false,
         }
     }
 
@@ -287,6 +289,7 @@ async fn main() {
     if is_key_pressed(KeyCode::K) { state.color_by_species = !state.color_by_species; }
     if is_key_pressed(KeyCode::Z) { state.show_graphs_panel = !state.show_graphs_panel; }
     if is_key_pressed(KeyCode::O) { state.show_fps = !state.show_fps; }
+    if is_key_pressed(KeyCode::X) { state.ultra_mode = !state.ultra_mode; }
         
         // ESC: if focused on an agent, clear focus; otherwise go back to menu
         if is_key_pressed(KeyCode::Escape) {
@@ -302,7 +305,51 @@ async fn main() {
 
         if running {
             let mut rng = ::rand::rng();
-            if fast_mode {
+            if state.ultra_mode {
+                // Ultra mode: headless-ish fast stepping, minimal sampling & no rendering until toggle off
+                let steps_per_frame = 2000usize; // very high throughput
+                for _ in 0..steps_per_frame {
+                    if state.episode.is_finished() { break; }
+                    state.episode.step(&state.population, &mut rng);
+                    // Sparse sampling every 20 steps
+                    if state.episode.steps % 20 == 0 {
+                        let alive_ct = state.episode.agents.iter().filter(|a| a.energy > 0.0).count() as f32;
+                        let species_ct = state.speciator.get_species().len() as f32;
+                        let deaths_ct = state.episode.agents.iter().filter(|a| a.energy <= 0.0 && !a.consumed).count() as f32;
+                        state.graphs.pop.push(alive_ct);
+                        state.graphs.species.push(species_ct);
+                        state.graphs.births.push(state.episode.births_this_episode as f32);
+                        state.graphs.deaths.push(deaths_ct);
+                    }
+                    let births = spawn_offspring_if_needed(
+                        &mut state.population,
+                        &mut state.episode,
+                        &mut state.innov,
+                        &state.cfg,
+                        &mut rng,
+                    );
+                    state.pending_births_since_respec += births;
+                    state.steps_since_respec += 1;
+                    if state.pending_births_since_respec > 0 && (state.steps_since_respec >= RESPEC_INTERVAL_STEPS || state.pending_births_since_respec >= RESPEC_MAX_PENDING) {
+                        state.speciator.speciate(&state.population);
+                        state.member_species = {
+                            let mut map = vec![0usize; state.population.len()];
+                            for (sidx, s) in state.speciator.get_species().iter().enumerate() {
+                                for &m in &s.members { if m < state.population.len() { map[m] = sidx; } }
+                            }
+                            map
+                        };
+                        state.pending_births_since_respec = 0;
+                        state.steps_since_respec = 0;
+                    }
+                }
+                if state.episode.is_finished() {
+                    state.eco_episode_counter += 1;
+                    eco_cull_population_by_fitness(&mut state);
+                    state.graphs.reset_episode();
+                    state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
+                }
+            } else if fast_mode {
                 // Run many simulation steps per frame until the episode finishes, then evolve
                 for _ in 0..fast_steps_per_frame {
                     if state.episode.is_finished() {
@@ -462,23 +509,30 @@ async fn main() {
     }
     // (mouse_world already defined above)
 
-    ui_world_view::draw_world(
-        world_area,
-        &state.episode,
-        state.show_cones,
-        &state.member_species,
-        state.show_unified_overlay,
-        mouse_world,
-        state.show_energy_overlay,
-        state.show_collision_radii,
-        state.focused_agent,
-        state.show_grid,
-        true,  // vision grid
-        false, // hearing disabled
-        true,  // memory vectors
-        state.color_by_species,
-    );
-    ui_hud::draw_hud(hud_area, &state, running, fast_mode, &state.member_species);
+    if !state.ultra_mode {
+        ui_world_view::draw_world(
+            world_area,
+            &state.episode,
+            state.show_cones,
+            &state.member_species,
+            state.show_unified_overlay,
+            mouse_world,
+            state.show_energy_overlay,
+            state.show_collision_radii,
+            state.focused_agent,
+            state.show_grid,
+            true,  // vision grid
+            false, // hearing disabled
+            true,  // memory vectors
+            state.color_by_species,
+        );
+        ui_hud::draw_hud(hud_area, &state, running, fast_mode, &state.member_species);
+    } else {
+        // Minimal overlay text
+        let txt = format!("ULTRA mode: steps {} | pop {} | births {}", state.episode.steps, state.population.len(), state.episode.births_this_episode);
+        draw_text(&txt, 20.0, 26.0, 24.0, WHITE);
+        draw_text("[X] Exit Ultra", 20.0, 54.0, 18.0, GRAY);
+    }
 
         next_frame().await;
     } // end 'sim_loop

@@ -114,7 +114,7 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
         if y <= max_y {
             y = section_title("Controls", x, y, max_w);
             let line_left = [
-                "[P] Pause/Resume   [F] Fast Mode   [R] Reset Episode   [Esc] Clear Focus",
+                "[P] Pause/Resume   [F] Fast Mode   [X] Ultra Mode   [R] Reset Episode   [Esc] Clear Focus",
                 "[Click] Focus Agent   [N] Best Panel   [M] Live Net   [H] Toggle Controls   [K] Color Mode   [O] FPS",
             ];
             let line_right = [

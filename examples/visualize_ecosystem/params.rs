@@ -320,7 +320,7 @@ pub const ECO_CULL_MIN_PER_SPECIES: usize = 10;
 // then fill any remaining population slots by global fitness order (across all remaining
 // individuals regardless of species). When disabled, we fall back to the per-species minimum
 // (ECO_CULL_MIN_PER_SPECIES) plus global fill policy.
-pub const EQUAL_ALLOC_ENABLED: bool = false;
+pub const EQUAL_ALLOC_ENABLED: bool = true;
 pub const EQUAL_ALLOC_TOP_K: usize = 6; // effective K is min(this, number of species)
 // =============================
 // Snapshotting
