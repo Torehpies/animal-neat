@@ -8,6 +8,7 @@ use crate::{body::Body, params::{AGENT_RADIUS, *}, sim::{CommSignal, Agent, Agen
 pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
     let mut rng = ::rand::rng();
     let mut food = world::build_world(&mut rng);
+    let mut food_lifetime = world::init_food_lifetimes(&food, &mut rng);
     // Lightweight speciation for evaluation to provide species differentiation signal
     let mut temp_speciator = Speciator::new(1.0);
     temp_speciator.speciate(population);
@@ -60,6 +61,7 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         let _stats = tick_step(
             population,
             &mut food,
+            &mut food_lifetime,
             &mut agents,
             &species_map,
             Some(&mut visited),

@@ -5,6 +5,7 @@ use super::params::{
     FOOD_RADIUS,
     BIOME_X_SPLITS, BIOME_RESPAWN_MULT, BIOME_SPREAD_MULT,
     SEASONAL_ENABLED, SEASONAL_PERIOD_STEPS, SEASONAL_AMPLITUDE, BIOME_SEASON_PHASE,
+    PLANT_LIFETIME_MIN_STEPS, PLANT_LIFETIME_MAX_STEPS,
 };
 use ::rand::Rng;
 use macroquad::prelude::Vec2;
@@ -79,32 +80,70 @@ pub fn try_spawn_food_near<R: Rng>(food: &mut Vec<Vec2>, rng: &mut R, center: Ve
     if can_place_food(food, p) { food.push(p); }
 }
 
-pub fn food_growth_step<R: Rng>(food: &mut Vec<Vec2>, rng: &mut R) {
+fn seasonal_factor_for_biome(t: usize, biome: usize) -> f32 {
+    if !SEASONAL_ENABLED || SEASONAL_PERIOD_STEPS == 0 || SEASONAL_AMPLITUDE == 0.0 { return 1.0; }
+    let phase = BIOME_SEASON_PHASE[biome];
+    let x = (t as f32) * std::f32::consts::TAU / (SEASONAL_PERIOD_STEPS as f32) + phase;
+    (1.0 + SEASONAL_AMPLITUDE * x.sin()).max(0.0)
+}
+
+fn sample_lifetime_for_pos<R: Rng>(rng: &mut R, pos: Vec2) -> usize {
+    let base = rng.random_range(PLANT_LIFETIME_MIN_STEPS as i32..=PLANT_LIFETIME_MAX_STEPS as i32) as f32;
+    let t = crate_current_step();
+    let biome = biome_index_for_x(pos.x);
+    let sf = seasonal_factor_for_biome(t, biome);
+    let life = (base * sf).clamp(PLANT_LIFETIME_MIN_STEPS as f32, PLANT_LIFETIME_MAX_STEPS as f32 * 2.0);
+    life as usize
+}
+
+pub fn init_food_lifetimes<R: Rng>(food: &Vec<Vec2>, rng: &mut R) -> Vec<usize> {
+    food.iter().map(|&p| sample_lifetime_for_pos(rng, p)).collect()
+}
+
+pub fn food_growth_and_aging_step<R: Rng>(food: &mut Vec<Vec2>, food_life: &mut Vec<usize>, rng: &mut R) {
+    debug_assert_eq!(food.len(), food_life.len());
+    // Age and remove expired
+    let mut i = 0usize;
+    while i < food.len() {
+        if food_life[i] == 0 { // shouldn't happen normally; ensure nonzero
+            food_life[i] = 1;
+        }
+        food_life[i] -= 1;
+        if food_life[i] == 0 {
+            food.swap_remove(i);
+            food_life.swap_remove(i);
+        } else {
+            i += 1;
+        }
+    }
     // Seasonal factor function: f(biome) = 1 + A * sin(2π t/T + phase)
-    let (t, season_amp) = if SEASONAL_ENABLED { (crate_current_step(), SEASONAL_AMPLITUDE) } else { (0usize, 0.0) };
-    let season_factor = |biome: usize| -> f32 {
-        if season_amp <= 0.0 || SEASONAL_PERIOD_STEPS == 0 { return 1.0; }
-        let phase = BIOME_SEASON_PHASE[biome];
-        let x = (t as f32) * std::f32::consts::TAU / (SEASONAL_PERIOD_STEPS as f32) + phase;
-        (1.0 + season_amp * x.sin()).max(0.0)
-    };
+    let t = crate_current_step();
+    let season_factor = |biome: usize| -> f32 { seasonal_factor_for_biome(t, biome) };
 
     // Random respawn attempt (biome-scaled)
     if food.len() < max_food() {
         let p = rand_pos(rng);
         let biome = biome_index_for_x(p.x);
         let prob = food_respawn_prob() * BIOME_RESPAWN_MULT[biome] * season_factor(biome);
-        if rng.random_range(0.0..1.0) < prob { if can_place_food(food, p) { food.push(p); } }
+        if rng.random_range(0.0..1.0) < prob { if can_place_food(food, p) { food.push(p); food_life.push(sample_lifetime_for_pos(rng, p)); } }
     }
     // Spread from existing foods (biome-scaled)
     let base_len = food.len();
-    for i in 0..base_len {
+    for idx in 0..base_len {
         if food.len() >= max_food() { break; }
-        let parent = food[i];
+        let parent = food[idx];
         let biome = biome_index_for_x(parent.x);
         let prob = FOOD_SPREAD_CHANCE * BIOME_SPREAD_MULT[biome] * season_factor(biome);
         if rng.random_range(0.0..1.0) < prob {
-            try_spawn_food_near(food, rng, parent);
+            // Spawn near and assign lifetime
+            if food.len() < max_food() {
+                let before = food.len();
+                try_spawn_food_near(food, rng, parent);
+                if food.len() > before {
+                    let p = food[food.len()-1];
+                    food_life.push(sample_lifetime_for_pos(rng, p));
+                }
+            }
         }
     }
 }
@@ -113,7 +152,7 @@ fn plant_body_at(pos: Vec2) -> Plant {
     Plant { body: Body { pos, vel: Vec2::new(0.0, 0.0), radius: FOOD_RADIUS } }
 }
 
-pub fn eat_if_near(food: &mut Vec<Vec2>, agent_body: &Body) -> bool {
+pub fn eat_if_near(food: &mut Vec<Vec2>, food_life: &mut Vec<usize>, agent_body: &Body) -> bool {
     if food.is_empty() { return false; }
     if let Some((idx, _)) = food.iter().enumerate()
         .map(|(i, f)| (i, plant_body_at(*f)))
@@ -125,12 +164,14 @@ pub fn eat_if_near(food: &mut Vec<Vec2>, agent_body: &Body) -> bool {
         })
         .min_by(|a, b| a.1.total_cmp(&b.1)) {
         food.swap_remove(idx);
+        food_life.swap_remove(idx);
         true
     } else { false }
 }
 
 // Continuous collision: did the path from p0 to p1 pass within eat radius of any food?
-pub fn eat_along_path(food: &mut Vec<Vec2>, p0: Vec2, p1: Vec2, agent_radius: f32) -> bool {
+#[allow(dead_code)]
+pub fn eat_along_path(food: &mut Vec<Vec2>, food_life: &mut Vec<usize>, p0: Vec2, p1: Vec2, agent_radius: f32) -> bool {
     if food.is_empty() { return false; }
     let (vx, vy) = (p1.x - p0.x, p1.y - p0.y);
     let v_len2 = vx*vx + vy*vy;
@@ -150,7 +191,7 @@ pub fn eat_along_path(food: &mut Vec<Vec2>, p0: Vec2, p1: Vec2, agent_radius: f3
             if t < best_t { best_t = t; best_i = Some(i); }
         }
     }
-    if let Some(i) = best_i { food.swap_remove(i); true } else { false }
+    if let Some(i) = best_i { food.swap_remove(i); food_life.swap_remove(i); true } else { false }
 }
 
 // Hook to provide current global step for seasons; the visualizer sets this via a thread-local.

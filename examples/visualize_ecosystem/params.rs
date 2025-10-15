@@ -95,6 +95,10 @@ pub const FOOD_MIN_SEP: f32 = 2.5;
 pub const FOOD_RESPAWN_PROB: f32 = 0.006;
 pub const FOOD_SPREAD_CHANCE: f32 = 0.01;
 pub const FOOD_SPREAD_RADIUS: f32 = 15.0;
+// Plant lifetime: each plant despawns after a random lifetime (in steps) drawn from this range.
+// Longer lifetimes in favorable season/biomes (scaled by the same seasonal factor used for growth).
+pub const PLANT_LIFETIME_MIN_STEPS: usize = 1200; // ~20s at 60 FPS
+pub const PLANT_LIFETIME_MAX_STEPS: usize = 3600; // ~60s at 60 FPS
 
 // =====================
 // Vision cone parameters

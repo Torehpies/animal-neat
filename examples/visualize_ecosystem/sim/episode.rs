@@ -8,6 +8,7 @@ use crate::{params::*, sim::{Agent, CommSignal, StepDelta, tick_step, AgentId}, 
 
 pub struct Episode {
     pub food: Vec<Vec2>,
+    pub food_lifetime: Vec<usize>,
     pub agents: Vec<Agent>,
     pub steps: usize,
     pub first_eat_step: Option<usize>,
@@ -95,8 +96,11 @@ impl Episode {
                 energy_accum: 0.0,
             });
         }
+        let food = world::build_world(rng);
+        let food_lifetime = world::init_food_lifetimes(&food, rng);
         Self {
-            food: world::build_world(rng),
+            food,
+            food_lifetime,
             agents,
             steps: 0,
             first_eat_step: None,
@@ -116,6 +120,7 @@ impl Episode {
         let stats: StepDelta = tick_step(
             population,
             &mut self.food,
+            &mut self.food_lifetime,
             &mut self.agents,
             &species_ids,
             None,

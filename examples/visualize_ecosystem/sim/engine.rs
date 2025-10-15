@@ -43,6 +43,7 @@ impl StepDelta {
 pub fn tick_step<R: Rng>(
     population: &[Genome],
     food: &mut Vec<Vec2>,
+    food_lifetime: &mut Vec<usize>,
     agents: &mut [Agent],
     species_ids: &[usize],
     mut visited: Option<&mut [HashSet<u32>]>,
@@ -188,7 +189,7 @@ pub fn tick_step<R: Rng>(
             } else { a.idle_anchor = a.body.pos; a.idle_steps = 0; }
         }
         // Eating
-        let ate = if world::eat_if_near(food, &a.body) {
+    let ate = if world::eat_if_near(food, food_lifetime, &a.body) {
             if DIGEST_STEPS_PLANT > 0 { a.digest.push_back(DigestEvent { remaining: DIGEST_STEPS_PLANT, per_step: FOOD_ENERGY / (DIGEST_STEPS_PLANT as f32) }); }
             else { a.energy = (a.energy + FOOD_ENERGY).min(crate::params::get_max_energy()); }
             a.eaten += 1; if let Some(ref mut hook) = first_eat_step { if hook.is_none() { **hook = Some(step_idx); } } true } else { false };
@@ -276,7 +277,7 @@ pub fn tick_step<R: Rng>(
     decay_corpses_and_flashes(agents);
     if COMMUNICATION_ENABLED { sensing::update_hearing(agents); }
     world::set_current_step(step_idx);
-    world::food_growth_step(food, rng);
+    world::food_growth_and_aging_step(food, food_lifetime, rng);
 
     delta
 }
