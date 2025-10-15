@@ -185,6 +185,13 @@ pub async fn run_sim_menu(state: &mut crate::AppState) -> SimMenuResult {
                                     idle_anchor: a_snap.idle_anchor.to_vec2(),
                                     idle_steps: a_snap.idle_steps,
                                     total_idle_penalty: a_snap.total_idle_penalty,
+                                    total_idle_steps: 0,
+                                    input_buf: Vec::new(),
+                                    energy_accum: 0.0,
+                                    herding_units: 0.0,
+                                    approach_food_units: 0.0,
+                                    chase_other_units: 0.0,
+                                    chase_same_units: 0.0,
                                 });
                             }
                             
