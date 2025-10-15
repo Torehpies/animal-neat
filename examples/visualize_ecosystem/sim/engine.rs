@@ -145,7 +145,7 @@ pub fn tick_step<R: Rng>(
         grid.entry((gx,gy)).or_default().push(idx);
     }
 
-    // Phase 2: apply decisions sequentially (handles digestion, movement, energy, predation prep, stats, communication)
+    // Phase 2: apply decisions sequentially (handles digestion, movement, energy, predation prep, stats, communication, herding)
     for (i, a) in agents.iter_mut().enumerate() {
         if !intents[i].alive { continue; }
         // Digest prior energy
@@ -228,6 +228,27 @@ pub fn tick_step<R: Rng>(
             } }}
             prey_targets[i] = target;
         }
+        // Herding: reward proximity to same-species peers (capped per step)
+        if HERDING_ENABLED && crate::params::get_fit_herding_weight() != 0.0 {
+            let gx = (a.body.pos.x / CELL).floor() as i32; let gy = (a.body.pos.y / CELL).floor() as i32;
+            let mut neighbors = 0usize;
+            for oy in -1..=1 { for ox in -1..=1 {
+                if let Some(bucket) = grid.get(&(gx+ox, gy+oy)) {
+                    for &j in bucket {
+                        if j == i { continue; }
+                        let (_pos_j, alive_j, _consumed_j, species_j, _is_corpse_j) = snapshot[j];
+                        if !alive_j || species_j != a.species_id { continue; }
+                        let dx = snapshot[j].0.x - a.body.pos.x; let dy = snapshot[j].0.y - a.body.pos.y;
+                        if dx*dx + dy*dy <= HERDING_RADIUS*HERDING_RADIUS {
+                            neighbors += 1;
+                            if neighbors >= HERDING_MAX_NEIGHBORS { break; }
+                        }
+                    }
+                }
+            }}
+            if neighbors > 0 { a.herding_units += neighbors.min(HERDING_MAX_NEIGHBORS) as f32; }
+        }
+
         // Stats & energy
         delta.total_agent_steps += 1;
         if USE_INERTIA { delta.avg_speed_accum += a.body.vel.length() / MAX_SPEED; }

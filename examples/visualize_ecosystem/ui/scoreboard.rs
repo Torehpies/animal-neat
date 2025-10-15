@@ -1,5 +1,5 @@
 use macroquad::prelude::*;
-use crate::ui_common::{draw_panel, section_title, draw_text_clamped, PANEL_BG, PANEL_BORDER, SUBPANEL_BG, PAD, GAP};
+use crate::ui_common::{draw_panel, section_title, draw_text_clamped, PANEL_BG, PANEL_BORDER, PAD, GAP};
 use crate::{AppState, ScoreEntry};
 
 pub fn draw_scoreboard(_fullscreen: Rect, state: &AppState, rows: &[ScoreEntry], modal: bool) -> bool {
@@ -47,6 +47,7 @@ pub fn draw_scoreboard(_fullscreen: Rect, state: &AppState, rows: &[ScoreEntry],
         ("Atk", 56.0),
         ("K", 48.0),
         ("AvgE", 64.0),
+        ("Herd", 70.0),
     ];
     // Fit columns within available width by uniform scaling
     let base_sum: f32 = cols.iter().map(|(_, w)| *w).sum();
@@ -96,7 +97,8 @@ pub fn draw_scoreboard(_fullscreen: Rect, state: &AppState, rows: &[ScoreEntry],
             draw_text_clamped(&format!("-{:.2}", row.idle_penalty_value), cx, yrow, fs, color, cw[8] - 8.0); cx += cw[8];
             draw_text_clamped(&format!("{}", row.attack_hits), cx, yrow, fs, color, cw[9] - 8.0); cx += cw[9];
             draw_text_clamped(&format!("{}", row.kills_caused), cx, yrow, fs, color, cw[10] - 8.0); cx += cw[10];
-            draw_text_clamped(&format!("{:.2}", row.avg_energy_norm), cx, yrow, fs, color, cw[11] - 8.0);
+            draw_text_clamped(&format!("{:.2}", row.avg_energy_norm), cx, yrow, fs, color, cw[11] - 8.0); cx += cw[11];
+            draw_text_clamped(&format!("{:.2}", row.herd_value), cx, yrow, fs, color, cw[12] - 8.0);
         }
     }
 

@@ -47,6 +47,8 @@ pub struct Agent {
     pub input_buf: Vec<f32>,
     // Accumulated energy while alive (for eco-mode live fitness computation to avoid extra evaluation pass)
     pub energy_accum: f32,
+    // Accumulated herding units (time spent near same-species peers)
+    pub herding_units: f32,
 }
 
 #[derive(Clone, Copy, Debug)]

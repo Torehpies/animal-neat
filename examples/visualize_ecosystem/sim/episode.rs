@@ -59,6 +59,7 @@ impl Episode {
                 total_idle_penalty: 0.0,
                 input_buf: vec![0.0; crate::params::INPUTS],
                 energy_accum: 0.0,
+                herding_units: 0.0,
             });
         }
         let food = world::build_world(rng);

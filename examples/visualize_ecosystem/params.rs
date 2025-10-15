@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // Centralized simulation parameters
 //
 // This file groups knobs by domain: world, plants, perception, movement,
@@ -14,15 +15,16 @@ thread_local! {
     static RUNTIME_POPULATION_SIZE: Cell<usize> = Cell::new(50);
     // Fitness weights (runtime configurable)
     // score = w_lifetime*lifetime + w_energy*avg_energy + w_offspring*offspring + w_comm*comm - w_idle*idle_penalty
-    static RUNTIME_FIT_LIFETIME_WEIGHT: Cell<f32> = Cell::new(0.2);
-    static RUNTIME_FIT_ENERGY_WEIGHT: Cell<f32> = Cell::new(1.5);
-    static RUNTIME_FIT_OFFSPRING_WEIGHT: Cell<f32> = Cell::new(3.5);
+    static RUNTIME_FIT_LIFETIME_WEIGHT: Cell<f32> = Cell::new(0.5);
+    static RUNTIME_FIT_ENERGY_WEIGHT: Cell<f32> = Cell::new(4.5);
+    static RUNTIME_FIT_OFFSPRING_WEIGHT: Cell<f32> = Cell::new(4.5);
     static RUNTIME_FIT_COMM_WEIGHT: Cell<f32> = Cell::new(0.0);
-    static RUNTIME_FIT_IDLE_PENALTY_WEIGHT: Cell<f32> = Cell::new(1.0);
+    static RUNTIME_FIT_IDLE_PENALTY_WEIGHT: Cell<f32> = Cell::new(0.5);
     static RUNTIME_FIT_PLANT_WEIGHT: Cell<f32> = Cell::new(1.0);
     static RUNTIME_FIT_MEAT_WEIGHT: Cell<f32> = Cell::new(3.0);
     static RUNTIME_FIT_ATTACKS_WEIGHT: Cell<f32> = Cell::new(1.0);
     static RUNTIME_FIT_KILLS_WEIGHT: Cell<f32> = Cell::new(3.0);
+    static RUNTIME_FIT_HERDING_WEIGHT: Cell<f32> = Cell::new(3.0);
 }
 // Getters for runtime energy config (fallback to these constants if not set)
 pub fn get_initial_energy() -> f32 { RUNTIME_INITIAL_ENERGY.with(|c| c.get()) }
@@ -39,6 +41,10 @@ pub fn get_fit_plant_weight() -> f32 { RUNTIME_FIT_PLANT_WEIGHT.with(|c| c.get()
 pub fn get_fit_meat_weight() -> f32 { RUNTIME_FIT_MEAT_WEIGHT.with(|c| c.get()) }
 pub fn get_fit_attacks_weight() -> f32 { RUNTIME_FIT_ATTACKS_WEIGHT.with(|c| c.get()) }
 pub fn get_fit_kills_weight() -> f32 { RUNTIME_FIT_KILLS_WEIGHT.with(|c| c.get()) }
+pub fn get_fit_herding_weight() -> f32 { RUNTIME_FIT_HERDING_WEIGHT.with(|c| c.get()) }
+
+
+
 
 // Setter for runtime energy config
 pub fn set_runtime_energy_config(initial: f32, max: f32, drain: f32) {
@@ -53,13 +59,26 @@ pub fn set_runtime_population_size(size: usize) {
 }
 
 // Setter for runtime fitness weights
-pub fn set_fitness_weights(lifetime: f32, energy: f32, offspring: f32, comm: f32, idle_penalty: f32, plant: f32, meat: f32, attacks: f32, kills: f32) {
+#[allow(dead_code)]
+pub fn set_fitness_weights(
+    lifetime: f32,
+    energy: f32,
+    offspring: f32,
+    comm: f32,
+    idle_penalty: f32,
+    plant: f32,
+    meat: f32,
+    attacks: f32,
+    kills: f32,
+    herding: f32,
+) {
     RUNTIME_FIT_LIFETIME_WEIGHT.with(|c| c.set(lifetime));
     RUNTIME_FIT_ENERGY_WEIGHT.with(|c| c.set(energy));
     RUNTIME_FIT_OFFSPRING_WEIGHT.with(|c| c.set(offspring));
     RUNTIME_FIT_COMM_WEIGHT.with(|c| c.set(comm));
     RUNTIME_FIT_IDLE_PENALTY_WEIGHT.with(|c| c.set(idle_penalty));
     RUNTIME_FIT_PLANT_WEIGHT.with(|c| c.set(plant));
+    RUNTIME_FIT_HERDING_WEIGHT.with(|c| c.set(herding));
     RUNTIME_FIT_MEAT_WEIGHT.with(|c| c.set(meat));
     RUNTIME_FIT_ATTACKS_WEIGHT.with(|c| c.set(attacks));
     RUNTIME_FIT_KILLS_WEIGHT.with(|c| c.set(kills));
@@ -180,7 +199,6 @@ pub const OUTPUTS: usize = 2 + (COMMUNICATION_ENABLED as usize);
 pub const ENABLE_VISION_INPUTS: bool = true;   // pooled sector proximities (plant/same/other/wall)
 pub const ENABLE_HEARING_INPUTS: bool = false;  // heard call energy sectors
 pub const ENABLE_MEMORY_INPUTS: bool = true;   // last food (x,y), same (x,y), other (x,y) memory vectors (6 floats)
-// Fine-grained vision toggle: when false, wall channels are ignored and left at their default "no signal" value (1.0)
 pub const ENABLE_VISION_WALLS: bool = false;
 // Density inputs removed in revised vision model
 
@@ -191,9 +209,9 @@ pub const EXPL_CELL_SIZE: f32 = 50.0;            // grid resolution for explorat
 pub const EXPL_WEIGHT: f32 = 30.0;                // reward for 100% coverage (typically unreachable)
 
 // ========================
-// Fitness shaping (unified & simplified)
-// ========================
-// Fitness contributions are now unitless counts/normalized values combined by runtime weights.
+// Fitness shaping (unified & simplified) + w_herd*herd_units
+// ======================== + w_herd*herd_units
+// Fitness contributions are now unitless counts/normalized values combined by runtime weights. + w_herd*herd_units
 // In eval.rs: score = w_life*lifetime_norm + w_energy*avg_energy_norm + w_offspring*offspring + w_comm*comm_units - w_idle*idle_units + w_plant*plants + w_meat*meat + w_att*attacks + w_kill*kills
 // - lifetime_norm ∈ [0,1]
 // - avg_energy_norm ∈ [0,1]
@@ -214,7 +232,12 @@ pub const COMM_SIGNAL_THRESHOLD: f32 = 0.40;   // minimum call_intensity to regi
 pub const COMM_SIGNAL_WINDOW: usize = 40;      // steps a signal remains active
 pub const COMM_FOOD_RADIUS: f32 = 25.0;        // within this distance of caller to consider signal relevant to resource
 pub const COMM_FOOD_MIN: usize = 2;            // minimum food items in radius to mark signal as a valid resource broadcast
-pub const COMM_SIGNAL_EFFECT_RADIUS: f32 = 60.0; // receivers must eat within this distance of original signal position
+pub const COMM_SIGNAL_EFFECT_RADIUS: f32 = 60.0; // receivers must eat within this distance of original signal posit
+
+// Herding shaping (optional): reward time spent near same-species peers
+pub const HERDING_ENABLED: bool = true;            // master toggle for herding accumulation
+pub const HERDING_RADIUS: f32 = 6.0 * AGENT_RADIUS; // neighbors within this radius count towards herding
+pub const HERDING_MAX_NEIGHBORS: usize = 4;        // cap per-step neighbor count to avoid runaway rewardsion
 pub const COMM_RECV_REWARD: f32 = 0.8;         // fitness added to eater when benefiting from a signal
 pub const COMM_CALLER_REWARD: f32 = 0.4;       // fitness added to original caller (smaller encourages some altruism)
 // Rationale: focus on emergent behavior; keep only outcome-based signals (resource intake, exploration, longevity).

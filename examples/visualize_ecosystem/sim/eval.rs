@@ -46,6 +46,7 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         total_idle_penalty: 0.0,
         input_buf: vec![0.0; crate::params::INPUTS],
         energy_accum: 0.0,
+        herding_units: 0.0,
     }).collect();
     // Track exploration (unique grid cells)
     let mut visited: Vec<HashSet<u32>> = vec![HashSet::new(); agents.len()];
@@ -89,6 +90,7 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
     let w_meat = crate::params::get_fit_meat_weight();
     let w_att = crate::params::get_fit_attacks_weight();
     let w_kill = crate::params::get_fit_kills_weight();
+    let w_herd = crate::params::get_fit_herding_weight();
     agents.iter().enumerate().map(|(i, a)| {
         let lifetime_score = (a.alive_steps as f32) / (MAX_STEPS as f32);
         let avg_energy_norm = if a.alive_steps > 0 { (energy_accum[i] / a.alive_steps as f32) / crate::params::get_max_energy() } else { 0.0 };
@@ -97,6 +99,7 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         let idle_penalty = a.total_idle_penalty;
         let plants = a.eaten.saturating_sub(a.kills) as f32;
         let meat = a.kills as f32;
+        let herd_units = a.herding_units;
         w_life * lifetime_score
             + w_energy * avg_energy_norm
             + w_off * offspring_score
@@ -106,6 +109,7 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             + w_meat * meat
             + w_att * (a.attack_hits as f32)
             + w_kill * (a.kills_caused as f32)
+            + w_herd * herd_units
     }).collect()
 }
 
