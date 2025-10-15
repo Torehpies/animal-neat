@@ -87,6 +87,8 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
     let w_idle = crate::params::get_fit_idle_penalty_weight();
     let w_plant = crate::params::get_fit_plant_weight();
     let w_meat = crate::params::get_fit_meat_weight();
+    let w_att = crate::params::get_fit_attacks_weight();
+    let w_kill = crate::params::get_fit_kills_weight();
     agents.iter().enumerate().map(|(i, a)| {
         let lifetime_score = (a.alive_steps as f32) / (MAX_STEPS as f32);
         let avg_energy_norm = if a.alive_steps > 0 { (energy_accum[i] / a.alive_steps as f32) / crate::params::get_max_energy() } else { 0.0 };
@@ -102,6 +104,8 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             - w_idle * idle_penalty
             + w_plant * plants
             + w_meat * meat
+            + w_att * (a.attack_hits as f32)
+            + w_kill * (a.kills_caused as f32)
     }).collect()
 }
 

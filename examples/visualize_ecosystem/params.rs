@@ -14,15 +14,16 @@ thread_local! {
     static RUNTIME_POPULATION_SIZE: Cell<usize> = Cell::new(50);
     // Fitness weights (runtime configurable)
     // score = w_lifetime*lifetime + w_energy*avg_energy + w_offspring*offspring + w_comm*comm - w_idle*idle_penalty
-    static RUNTIME_FIT_LIFETIME_WEIGHT: Cell<f32> = Cell::new(0.3);
+    static RUNTIME_FIT_LIFETIME_WEIGHT: Cell<f32> = Cell::new(0.2);
     static RUNTIME_FIT_ENERGY_WEIGHT: Cell<f32> = Cell::new(1.5);
     static RUNTIME_FIT_OFFSPRING_WEIGHT: Cell<f32> = Cell::new(1.5);
     static RUNTIME_FIT_COMM_WEIGHT: Cell<f32> = Cell::new(0.0);
-    static RUNTIME_FIT_IDLE_PENALTY_WEIGHT: Cell<f32> = Cell::new(2.5);
+    static RUNTIME_FIT_IDLE_PENALTY_WEIGHT: Cell<f32> = Cell::new(1.0);
     static RUNTIME_FIT_PLANT_WEIGHT: Cell<f32> = Cell::new(1.0);
-    static RUNTIME_FIT_MEAT_WEIGHT: Cell<f32> = Cell::new(2.0);
+    static RUNTIME_FIT_MEAT_WEIGHT: Cell<f32> = Cell::new(3.0);
+    static RUNTIME_FIT_ATTACKS_WEIGHT: Cell<f32> = Cell::new(1.0);
+    static RUNTIME_FIT_KILLS_WEIGHT: Cell<f32> = Cell::new(3.0);
 }
-
 // Getters for runtime energy config (fallback to these constants if not set)
 pub fn get_initial_energy() -> f32 { RUNTIME_INITIAL_ENERGY.with(|c| c.get()) }
 pub fn get_max_energy() -> f32 { RUNTIME_MAX_ENERGY.with(|c| c.get()) }
@@ -36,6 +37,8 @@ pub fn get_fit_comm_weight() -> f32 { RUNTIME_FIT_COMM_WEIGHT.with(|c| c.get()) 
 pub fn get_fit_idle_penalty_weight() -> f32 { RUNTIME_FIT_IDLE_PENALTY_WEIGHT.with(|c| c.get()) }
 pub fn get_fit_plant_weight() -> f32 { RUNTIME_FIT_PLANT_WEIGHT.with(|c| c.get()) }
 pub fn get_fit_meat_weight() -> f32 { RUNTIME_FIT_MEAT_WEIGHT.with(|c| c.get()) }
+pub fn get_fit_attacks_weight() -> f32 { RUNTIME_FIT_ATTACKS_WEIGHT.with(|c| c.get()) }
+pub fn get_fit_kills_weight() -> f32 { RUNTIME_FIT_KILLS_WEIGHT.with(|c| c.get()) }
 
 // Setter for runtime energy config
 pub fn set_runtime_energy_config(initial: f32, max: f32, drain: f32) {
@@ -50,7 +53,7 @@ pub fn set_runtime_population_size(size: usize) {
 }
 
 // Setter for runtime fitness weights
-pub fn set_fitness_weights(lifetime: f32, energy: f32, offspring: f32, comm: f32, idle_penalty: f32, plant: f32, meat: f32) {
+pub fn set_fitness_weights(lifetime: f32, energy: f32, offspring: f32, comm: f32, idle_penalty: f32, plant: f32, meat: f32, attacks: f32, kills: f32) {
     RUNTIME_FIT_LIFETIME_WEIGHT.with(|c| c.set(lifetime));
     RUNTIME_FIT_ENERGY_WEIGHT.with(|c| c.set(energy));
     RUNTIME_FIT_OFFSPRING_WEIGHT.with(|c| c.set(offspring));
@@ -58,6 +61,8 @@ pub fn set_fitness_weights(lifetime: f32, energy: f32, offspring: f32, comm: f32
     RUNTIME_FIT_IDLE_PENALTY_WEIGHT.with(|c| c.set(idle_penalty));
     RUNTIME_FIT_PLANT_WEIGHT.with(|c| c.set(plant));
     RUNTIME_FIT_MEAT_WEIGHT.with(|c| c.set(meat));
+    RUNTIME_FIT_ATTACKS_WEIGHT.with(|c| c.set(attacks));
+    RUNTIME_FIT_KILLS_WEIGHT.with(|c| c.set(kills));
 }
 
 // =====================
@@ -187,7 +192,7 @@ pub const EXPL_WEIGHT: f32 = 30.0;                // reward for 100% coverage (t
 // Fitness shaping (unified & simplified)
 // ========================
 // Fitness contributions are now unitless counts/normalized values combined by runtime weights.
-// In eval.rs: score = w_life*lifetime_norm + w_energy*avg_energy_norm + w_offspring*offspring + w_comm*comm_units - w_idle*idle_units + w_plant*plants + w_meat*meat
+// In eval.rs: score = w_life*lifetime_norm + w_energy*avg_energy_norm + w_offspring*offspring + w_comm*comm_units - w_idle*idle_units + w_plant*plants + w_meat*meat + w_att*attacks + w_kill*kills
 // - lifetime_norm ∈ [0,1]
 // - avg_energy_norm ∈ [0,1]
 // - offspring: count per episode
@@ -195,6 +200,8 @@ pub const EXPL_WEIGHT: f32 = 30.0;                // reward for 100% coverage (t
 // - idle_units: number of steps beyond idleness threshold (accumulated per agent)
 // - plants: number of plants eaten (eaten - kills)
 // - meat: number of meat items eaten (kills)
+// - attacks: number of successful damage applications to live targets
+// - kills: number of times this agent's damage caused a death
 // Adjust only the weights via set_fitness_weights(...) or the thread-local defaults above.
 // Communication economics
 pub const CALL_COST: f32 = 0.003;             // linear energy cost per step scaled by call_intensity (0..1)

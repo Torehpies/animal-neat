@@ -538,13 +538,17 @@ fn compute_episode_score(a: &crate::sim::Agent, comm_fit: f32) -> (f32, i32, i32
     let w_idle = crate::params::get_fit_idle_penalty_weight();
     let w_plant = crate::params::get_fit_plant_weight();
     let w_meat = crate::params::get_fit_meat_weight();
+    let w_att = crate::params::get_fit_attacks_weight();
+    let w_kill = crate::params::get_fit_kills_weight();
     let score = w_life * lifetime_score
         + w_energy * avg_energy_norm
         + w_off * offspring_score
         + w_comm * comm_fit
         - w_idle * idle_penalty
         + w_plant * plants
-        + w_meat * meat;
+        + w_meat * meat
+        + w_att * (a.attack_hits as f32)
+        + w_kill * (a.kills_caused as f32);
     // Keep plant/meat counts for display only
     let eaten_plants = a.eaten.saturating_sub(a.kills) as i32;
     let eaten_meat = a.kills as i32;
@@ -606,6 +610,8 @@ fn eco_cull_population_by_fitness(state: &mut AppState) {
         let w_idle = crate::params::get_fit_idle_penalty_weight();
         let w_plant = crate::params::get_fit_plant_weight();
         let w_meat = crate::params::get_fit_meat_weight();
+        let w_att = crate::params::get_fit_attacks_weight();
+        let w_kill = crate::params::get_fit_kills_weight();
         state.episode.agents.iter().enumerate().map(|(i, a)| {
             let lifetime_score = (a.alive_steps as f32) / (MAX_STEPS as f32);
             let avg_energy_norm = if a.alive_steps > 0 { (a.energy_accum / a.alive_steps as f32) / crate::params::get_max_energy() } else { 0.0 };
@@ -614,7 +620,15 @@ fn eco_cull_population_by_fitness(state: &mut AppState) {
             let idle_penalty = a.total_idle_penalty;
             let plants = a.eaten.saturating_sub(a.kills) as f32;
             let meat = a.kills as f32;
-            w_life * lifetime_score + w_energy * avg_energy_norm + w_off * offspring_score + w_comm * comm_score - w_idle * idle_penalty + w_plant * plants + w_meat * meat
+            w_life * lifetime_score
+                + w_energy * avg_energy_norm
+                + w_off * offspring_score
+                + w_comm * comm_score
+                - w_idle * idle_penalty
+                + w_plant * plants
+                + w_meat * meat
+                + w_att * (a.attack_hits as f32)
+                + w_kill * (a.kills_caused as f32)
         }).collect()
     };
 
