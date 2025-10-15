@@ -118,6 +118,13 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
                 "[Click] Focus Agent   [N] Best Panel   [M] Live Net   [H] Toggle Controls   [K] Color Mode   [O] FPS",
             ];
             let line_right = [
+                if state.scoreboard_pending {
+                    "[T] Close Scoreboard & Continue"
+                } else if state.show_scoreboard_panel {
+                    "[T] Pause at episode end (scoreboard ON)"
+                } else {
+                    "[T] Pause at episode end (scoreboard OFF)"
+                },
                 "[V] Vision Rays   [U] Unified Overlay",
                 "[E] Energy Bar   [C] Collision Radii   [G] Exploration Grid   [Z] Graphs Panel",
             ];

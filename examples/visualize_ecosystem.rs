@@ -45,6 +45,8 @@ mod ui_menu;
 mod ui_graphs;
 #[path = "visualize_ecosystem/elements/body.rs"]
 mod body;
+#[path = "visualize_ecosystem/ui/scoreboard.rs"]
+mod ui_scoreboard;
 #[path = "visualize_ecosystem/sim/mod.rs"]
 mod sim;
 use sim::{Episode, Agent, AgentId};
@@ -92,6 +94,24 @@ struct AppState {
     // Diagnostics
     show_fps: bool,
     ultra_mode: bool,
+    // Scoreboard modal
+    show_scoreboard_panel: bool,  // user toggle (T): enable/disable pause + scoreboard at episode end, default off
+    scoreboard_pending: bool,     // scoreboard is currently open (episode ended and we're paused)
+    scoreboard_rows: Vec<ScoreEntry>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ScoreEntry {
+    idx: usize,
+    species: usize,
+    score: f32,
+    eaten_plants: i32,
+    eaten_meat: i32,
+    offspring: usize,
+    alive_steps: u32,
+    attack_hits: usize,
+    kills_caused: usize,
+    avg_energy_norm: f32,
 }
 
 impl AppState {
@@ -143,6 +163,9 @@ impl AppState {
             sim_config,
             show_fps: true,
             ultra_mode: false,
+            show_scoreboard_panel: false, // default: autoplay between episodes (no pause)
+            scoreboard_pending: false,    // no scoreboard open
+            scoreboard_rows: Vec::new(),
         }
     }
 
@@ -285,6 +308,22 @@ async fn main() {
     if is_key_pressed(KeyCode::Z) { state.show_graphs_panel = !state.show_graphs_panel; }
     if is_key_pressed(KeyCode::O) { state.show_fps = !state.show_fps; }
     if is_key_pressed(KeyCode::X) { state.ultra_mode = !state.ultra_mode; }
+    // Scoreboard toggle (T):
+    // - If scoreboard is currently open (episode ended and paused), pressing T closes it and continues autoplay,
+    //   and also disables pausing for future episodes (toggle off).
+    // - Otherwise, pressing T toggles the preference: when ON, the app pauses at episode end and shows the scoreboard;
+    //   when OFF, episodes autoplay between generations and the scoreboard is not shown.
+    if is_key_pressed(KeyCode::T) {
+        if state.scoreboard_pending {
+            // Close scoreboard and continue, disable pause-between-episodes
+            let mut rng = ::rand::rng();
+            state.show_scoreboard_panel = false;
+            finalize_end_of_episode(&mut state, &mut rng);
+            running = true; // resume autoplay
+        } else {
+            state.show_scoreboard_panel = !state.show_scoreboard_panel;
+        }
+    }
         
         // ESC: if focused on an agent, clear focus; otherwise go back to menu
         if is_key_pressed(KeyCode::Escape) {
@@ -298,13 +337,24 @@ async fn main() {
         // Removed per-row overlay toggles (1..4). Unified overlay is controlled via 'U'.
         // Removed: [S] save snapshot and [B] easy birth debug toggle
 
+        // If scoreboard is open (episode ended and paused), block simulation/evolution
+        if state.scoreboard_pending { running = false; }
+
         if running {
             let mut rng = ::rand::rng();
             if state.ultra_mode {
                 // Ultra mode: headless-ish fast stepping, minimal sampling & no rendering until toggle off
                 let steps_per_frame = 2000usize; // very high throughput
                 for _ in 0..steps_per_frame {
-                    if state.episode.is_finished() { break; }
+                    if state.episode.is_finished() {
+                        // At episode end: either open scoreboard (if toggle ON) or immediately continue (autoplay)
+                        if state.show_scoreboard_panel {
+                            if !state.scoreboard_pending { prepare_scoreboard(&mut state); }
+                        } else {
+                            finalize_end_of_episode(&mut state, &mut rng);
+                        }
+                        break;
+                    }
                     state.episode.step(&state.population, &mut rng);
                     // Sparse sampling every 20 steps
                     if state.episode.steps % 20 == 0 {
@@ -324,27 +374,17 @@ async fn main() {
                         &mut rng,
                     );
                 }
-                if state.episode.is_finished() {
-                    state.eco_episode_counter += 1;
-                    eco_cull_population_by_fitness(&mut state);
-                    state.graphs.reset_episode();
-                    state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
-                }
+                // handled inside loop above
             } else if fast_mode {
                 // Run many simulation steps per frame until the episode finishes, then evolve
                 for _ in 0..fast_steps_per_frame {
                     if state.episode.is_finished() {
-                        if ECO_CONTINUOUS {
-                            // In eco mode: cull by fitness back to POPULATION_SIZE, then reseed next episode
-                            state.eco_episode_counter += 1;
-                            eco_cull_population_by_fitness(&mut state);
-                            state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
-                            break;
+                        if state.show_scoreboard_panel {
+                            if !state.scoreboard_pending { prepare_scoreboard(&mut state); }
                         } else {
-                            state.evolve_one_generation();
-                            state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
-                            break;
+                            finalize_end_of_episode(&mut state, &mut rng);
                         }
+                        break;
                     }
                     state.episode.step(&state.population, &mut rng);
                     // Update graphs trends per step
@@ -365,40 +405,13 @@ async fn main() {
                             );
                         }
                 }
-                // If it finished exactly on the last step, evolve now
-                if state.episode.is_finished() {
-                    if ECO_CONTINUOUS {
-                        state.eco_episode_counter += 1;
-                        eco_cull_population_by_fitness(&mut state);
-                        state.graphs.reset_episode();
-                        state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
-                    } else {
-                        state.evolve_one_generation();
-                        state.graphs.reset_episode();
-                        state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
-                    }
-                    // Push fitness trends after evaluation window
-                    if state.last_best.is_finite() { state.graphs.best.push(state.last_best); state.graphs.mean.push(state.last_avg); }
-                }
+                // If scoreboard is off, evolution/next-episode is handled inline above (autoplay)
             } else {
                 // Normal mode: advance one simulation step per second
                 normal_step_timer += get_frame_time();
                 if normal_step_timer >= normal_step_interval {
                     normal_step_timer -= normal_step_interval;
-                    if state.episode.is_finished() {
-                        if ECO_CONTINUOUS {
-                            state.eco_episode_counter += 1;
-                            eco_cull_population_by_fitness(&mut state);
-                            state.graphs.reset_episode();
-                            state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
-                        } else {
-                            state.evolve_one_generation();
-                            state.graphs.reset_episode();
-                            state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
-                        }
-                        // Push fitness trends after evaluation window
-                        if state.last_best.is_finite() { state.graphs.best.push(state.last_best); state.graphs.mean.push(state.last_avg); }
-                    } else {
+                    if !state.episode.is_finished() {
                         state.episode.step(&state.population, &mut rng);
                         // Update graphs per step
                         let alive_ct = state.episode.agents.iter().filter(|a| a.energy > 0.0).count() as f32;
@@ -418,16 +431,18 @@ async fn main() {
                             );
                         }
                         if state.episode.is_finished() {
-                            if ECO_CONTINUOUS {
-                                state.eco_episode_counter += 1;
-                                eco_cull_population_by_fitness(&mut state);
-                                state.graphs.reset_episode();
-                                state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
+                            if state.show_scoreboard_panel {
+                                if !state.scoreboard_pending { prepare_scoreboard(&mut state); }
                             } else {
-                                state.evolve_one_generation();
-                                state.graphs.reset_episode();
-                                state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
+                                finalize_end_of_episode(&mut state, &mut rng);
                             }
+                        }
+                    } else {
+                        // Episode already finished when we got here (very short episodes): handle boundary
+                        if state.show_scoreboard_panel {
+                            if !state.scoreboard_pending { prepare_scoreboard(&mut state); }
+                        } else {
+                            finalize_end_of_episode(&mut state, &mut rng);
                         }
                     }
                 }
@@ -478,6 +493,16 @@ async fn main() {
             state.color_by_species,
         );
         ui_hud::draw_hud(hud_area, &state, running, fast_mode, &state.member_species);
+        // Scoreboard panel: shown after episodes only when toggle is ON
+        if state.scoreboard_pending && state.show_scoreboard_panel {
+            let fullscreen = Rect { x: 0.0, y: 0.0, w, h };
+            let clicked = ui_scoreboard::draw_scoreboard(fullscreen, &state, &state.scoreboard_rows, false);
+            if clicked { // Treat button click as continue too
+                let mut rng = ::rand::rng();
+                finalize_end_of_episode(&mut state, &mut rng);
+                running = true;
+            }
+        }
     } else {
         // Minimal overlay text
         let txt = format!("ULTRA mode: steps {} | pop {} | births {}", state.episode.steps, state.population.len(), state.episode.births_this_episode);
@@ -488,6 +513,67 @@ async fn main() {
         next_frame().await;
     } // end 'sim_loop
     } // end 'main_loop
+}
+
+// Compute episode scores similar to eco_cull, without side effects
+fn compute_episode_score(a: &crate::sim::Agent) -> (f32, i32, i32, f32) {
+    use crate::params::*;
+    let eaten_plants = a.eaten.saturating_sub(a.kills) as f32;
+    let eaten_meat = a.kills as f32;
+    let intake_events = a.eaten as usize;
+    let missing = INTAKE_MIN_EVENTS.saturating_sub(intake_events) as f32;
+    let intake_penalty = missing * INTAKE_MISS_PENALTY;
+    let intake = eaten_plants * PLANT_FITNESS + eaten_meat * MEAT_FITNESS - intake_penalty;
+    let exploration = (a.alive_steps as f32 / MAX_STEPS as f32) * EXPL_WEIGHT;
+    let survival = (a.alive_steps as f32).powf(SURVIVAL_TIME_EXP) * SURVIVAL_STEP_FITNESS;
+    let predation_reward = (a.attack_hits as f32) * ATTACK_HIT_FITNESS + (a.kills_caused as f32) * KILL_CAUSED_FITNESS;
+    let avg_energy_norm = if a.alive_steps > 0 { (a.energy_accum / a.alive_steps as f32) / crate::params::get_max_energy() } else { 0.0 };
+    let energy_term = avg_energy_norm * ENERGY_AVG_WEIGHT;
+    let reproduction = (a.offspring_count as f32) * REPRO_BIRTH_FITNESS_PARENT;
+    let idle_penalty = a.total_idle_penalty;
+    let score = intake + exploration + survival + predation_reward + energy_term + reproduction - idle_penalty;
+    (score, eaten_plants as i32, eaten_meat as i32, avg_energy_norm)
+}
+
+fn prepare_scoreboard(state: &mut AppState) {
+    // Build rows and sort by score desc
+    let mut rows: Vec<ScoreEntry> = Vec::with_capacity(state.episode.agents.len());
+    for (i, a) in state.episode.agents.iter().enumerate() {
+        let (score, plants, meat, avg_energy_norm) = compute_episode_score(a);
+        rows.push(ScoreEntry {
+            idx: i,
+            species: a.species_id,
+            score,
+            eaten_plants: plants,
+            eaten_meat: meat,
+            offspring: a.offspring_count,
+            alive_steps: a.alive_steps,
+            attack_hits: a.attack_hits,
+            kills_caused: a.kills_caused,
+            avg_energy_norm,
+        });
+    }
+    rows.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    state.scoreboard_rows = rows;
+    state.scoreboard_pending = true; // scoreboard is open now; rendering is gated on show_scoreboard_panel
+}
+
+fn finalize_end_of_episode(state: &mut AppState, rng: &mut impl ::rand::Rng) {
+    use crate::params::ECO_CONTINUOUS;
+    if ECO_CONTINUOUS {
+        state.eco_episode_counter += 1;
+        eco_cull_population_by_fitness(state);
+        state.graphs.reset_episode();
+        state.episode = Episode::new(rng, state.population.len(), &state.member_species);
+    } else {
+        state.evolve_one_generation();
+        state.graphs.reset_episode();
+        state.episode = Episode::new(rng, state.population.len(), &state.member_species);
+        if state.last_best.is_finite() { state.graphs.best.push(state.last_best); state.graphs.mean.push(state.last_avg); }
+    }
+    state.scoreboard_pending = false;
+    // Keep panel toggle as the user last set it (don't force-close), but clear the data
+    state.scoreboard_rows.clear();
 }
 
 fn eco_cull_population_by_fitness(state: &mut AppState) {
