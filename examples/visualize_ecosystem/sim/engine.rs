@@ -185,7 +185,8 @@ pub fn tick_step<R: Rng>(
             let dist_from_anchor = (a.body.pos - a.idle_anchor).length();
             if dist_from_anchor < IDLENESS_DISTANCE_THRESHOLD {
                 a.idle_steps += 1;
-                if a.idle_steps > IDLENESS_THRESHOLD_STEPS { a.total_idle_penalty += IDLENESS_PENALTY_PER_STEP; }
+                // Count idle penalty in unit steps beyond threshold; fitness weight scales impact
+                if a.idle_steps > IDLENESS_THRESHOLD_STEPS { a.total_idle_penalty += 1.0; }
             } else { a.idle_anchor = a.body.pos; a.idle_steps = 0; }
         }
         // Eating
@@ -234,9 +235,23 @@ pub fn tick_step<R: Rng>(
         a.last_food_mem.x *= MEMORY_DECAY; a.last_food_mem.y *= MEMORY_DECAY;
         a.last_same_mem.x *= MEMORY_DECAY; a.last_same_mem.y *= MEMORY_DECAY;
         a.last_other_mem.x *= MEMORY_DECAY; a.last_other_mem.y *= MEMORY_DECAY;
-        if HERDING_ENABLED { let forward_align = intent.last_same_vec.1.max(0.0); if let Some(fit)=comm_fit.get_mut(i){ *fit += forward_align * HERDING_REWARD_PER_STEP; } }
-        if COMMUNICATION_ENABLED { if a.call_intensity >= COMM_SIGNAL_THRESHOLD { let mut nearby_food=0usize; for f in food.iter(){ let dx=f.x - a.body.pos.x; let dy=f.y - a.body.pos.y; if dx*dx + dy*dy <= COMM_FOOD_RADIUS*COMM_FOOD_RADIUS { nearby_food+=1; if nearby_food>=COMM_FOOD_MIN { break; } } } if nearby_food>=COMM_FOOD_MIN { comm_signals.push(CommSignal { caller:i,pos:a.body.pos,ttl:COMM_SIGNAL_WINDOW }); } }
-            if ate { for s in comm_signals.iter(){ let dx=a.body.pos.x - s.pos.x; let dy=a.body.pos.y - s.pos.y; if dx*dx + dy*dy <= COMM_SIGNAL_EFFECT_RADIUS*COMM_SIGNAL_EFFECT_RADIUS { if s.caller != i { comm_fit[i] += COMM_RECV_REWARD; } comm_fit[s.caller] += COMM_CALLER_REWARD; } } }
+        // Herding fitness shaping removed for simplification
+        if COMMUNICATION_ENABLED {
+            if a.call_intensity >= COMM_SIGNAL_THRESHOLD {
+                let mut nearby_food=0usize;
+                for f in food.iter(){ let dx=f.x - a.body.pos.x; let dy=f.y - a.body.pos.y; if dx*dx + dy*dy <= COMM_FOOD_RADIUS*COMM_FOOD_RADIUS { nearby_food+=1; if nearby_food>=COMM_FOOD_MIN { break; } } }
+                if nearby_food>=COMM_FOOD_MIN { comm_signals.push(CommSignal { caller:i,pos:a.body.pos,ttl:COMM_SIGNAL_WINDOW }); }
+            }
+            if ate {
+                // Credit unit rewards for communication-assisted eating; scaled by fitness weight later
+                for s in comm_signals.iter(){
+                    let dx=a.body.pos.x - s.pos.x; let dy=a.body.pos.y - s.pos.y;
+                    if dx*dx + dy*dy <= COMM_SIGNAL_EFFECT_RADIUS*COMM_SIGNAL_EFFECT_RADIUS {
+                        if s.caller != i { if let Some(f)=comm_fit.get_mut(i){ *f += 1.0; } }
+                        if let Some(f)=comm_fit.get_mut(s.caller){ *f += 1.0; }
+                    }
+                }
+            }
         } else { a.heard_sectors = [0.0;3]; }
     }
 

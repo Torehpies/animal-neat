@@ -803,9 +803,9 @@ fn spawn_offspring_if_needed<R: Rng>(
                 pb.body.vel -= dir * BIRTH_SEPARATION_IMPULSE;
             }
         }
-        // Award reproduction fitness bonus to parents (done after mutable borrows above are dropped)
-        if let Some(fit) = episode.comm_fitness_accum.get_mut(i) { *fit += REPRO_BIRTH_FITNESS_PARENT; }
-        if let Some(fit) = episode.comm_fitness_accum.get_mut(j) { *fit += REPRO_BIRTH_FITNESS_PARENT; }
+    // Award unit reproduction credit to parents; scaled by fitness weights later
+    if let Some(fit) = episode.comm_fitness_accum.get_mut(i) { *fit += 1.0; }
+    if let Some(fit) = episode.comm_fitness_accum.get_mut(j) { *fit += 1.0; }
         realized += 1;
     }
     realized

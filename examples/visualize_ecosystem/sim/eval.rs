@@ -78,13 +78,19 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         steps += 1;
     }
 
-    // Simplified fitness: Lifetime (normalized), Energy (avg normalized), Offspring count
+    // Configurable fitness: lifetime, avg energy, offspring, comm reward, and idle penalty
+    let w_life = crate::params::get_fit_lifetime_weight();
+    let w_energy = crate::params::get_fit_energy_weight();
+    let w_off = crate::params::get_fit_offspring_weight();
+    let w_comm = crate::params::get_fit_comm_weight();
+    let w_idle = crate::params::get_fit_idle_penalty_weight();
     agents.iter().enumerate().map(|(i, a)| {
         let lifetime_score = (a.alive_steps as f32) / (MAX_STEPS as f32);
-        // Average energy while alive (normalized 0..1)
         let avg_energy_norm = if a.alive_steps > 0 { (energy_accum[i] / a.alive_steps as f32) / crate::params::get_max_energy() } else { 0.0 };
         let offspring_score = a.offspring_count as f32;
-        lifetime_score + avg_energy_norm + offspring_score
+        let comm_score = comm_fit.get(i).copied().unwrap_or(0.0);
+        let idle_penalty = a.total_idle_penalty;
+        w_life * lifetime_score + w_energy * avg_energy_norm + w_off * offspring_score + w_comm * comm_score - w_idle * idle_penalty
     }).collect()
 }
 

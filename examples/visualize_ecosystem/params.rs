@@ -12,6 +12,13 @@ thread_local! {
     static RUNTIME_MAX_ENERGY: Cell<f32> = Cell::new(5000.0);
     static RUNTIME_ENERGY_DRAIN: Cell<f32> = Cell::new(0.05);
     static RUNTIME_POPULATION_SIZE: Cell<usize> = Cell::new(50);
+    // Fitness weights (runtime configurable)
+    // score = w_lifetime*lifetime + w_energy*avg_energy + w_offspring*offspring + w_comm*comm - w_idle*idle_penalty
+    static RUNTIME_FIT_LIFETIME_WEIGHT: Cell<f32> = Cell::new(0.3);
+    static RUNTIME_FIT_ENERGY_WEIGHT: Cell<f32> = Cell::new(1.5);
+    static RUNTIME_FIT_OFFSPRING_WEIGHT: Cell<f32> = Cell::new(1.5);
+    static RUNTIME_FIT_COMM_WEIGHT: Cell<f32> = Cell::new(0.0);
+    static RUNTIME_FIT_IDLE_PENALTY_WEIGHT: Cell<f32> = Cell::new(2.5);
 }
 
 // Getters for runtime energy config (fallback to these constants if not set)
@@ -19,6 +26,12 @@ pub fn get_initial_energy() -> f32 { RUNTIME_INITIAL_ENERGY.with(|c| c.get()) }
 pub fn get_max_energy() -> f32 { RUNTIME_MAX_ENERGY.with(|c| c.get()) }
 pub fn get_energy_drain_per_step() -> f32 { RUNTIME_ENERGY_DRAIN.with(|c| c.get()) }
 pub fn get_population_size() -> usize { RUNTIME_POPULATION_SIZE.with(|c| c.get()) }
+// Fitness weight getters
+pub fn get_fit_lifetime_weight() -> f32 { RUNTIME_FIT_LIFETIME_WEIGHT.with(|c| c.get()) }
+pub fn get_fit_energy_weight() -> f32 { RUNTIME_FIT_ENERGY_WEIGHT.with(|c| c.get()) }
+pub fn get_fit_offspring_weight() -> f32 { RUNTIME_FIT_OFFSPRING_WEIGHT.with(|c| c.get()) }
+pub fn get_fit_comm_weight() -> f32 { RUNTIME_FIT_COMM_WEIGHT.with(|c| c.get()) }
+pub fn get_fit_idle_penalty_weight() -> f32 { RUNTIME_FIT_IDLE_PENALTY_WEIGHT.with(|c| c.get()) }
 
 // Setter for runtime energy config
 pub fn set_runtime_energy_config(initial: f32, max: f32, drain: f32) {
@@ -30,6 +43,15 @@ pub fn set_runtime_energy_config(initial: f32, max: f32, drain: f32) {
 // Setter for runtime population size
 pub fn set_runtime_population_size(size: usize) {
     RUNTIME_POPULATION_SIZE.with(|c| c.set(size));
+}
+
+// Setter for runtime fitness weights
+pub fn set_fitness_weights(lifetime: f32, energy: f32, offspring: f32, comm: f32, idle_penalty: f32) {
+    RUNTIME_FIT_LIFETIME_WEIGHT.with(|c| c.set(lifetime));
+    RUNTIME_FIT_ENERGY_WEIGHT.with(|c| c.set(energy));
+    RUNTIME_FIT_OFFSPRING_WEIGHT.with(|c| c.set(offspring));
+    RUNTIME_FIT_COMM_WEIGHT.with(|c| c.set(comm));
+    RUNTIME_FIT_IDLE_PENALTY_WEIGHT.with(|c| c.set(idle_penalty));
 }
 
 // =====================
@@ -156,36 +178,16 @@ pub const EXPL_CELL_SIZE: f32 = 50.0;            // grid resolution for explorat
 pub const EXPL_WEIGHT: f32 = 30.0;                // reward for 100% coverage (typically unreachable)
 
 // ========================
-// Core movement & fitness (simplified)
+// Fitness shaping (unified & simplified)
 // ========================
-// Fitness: we collapse plant/meat shaping into two simple weights.
-pub const PLANT_FITNESS: f32 = 6.0;            // reward per plant eaten
-pub const MEAT_FITNESS: f32 = 10.0;             // reward per meat (kill or scavenged corpse) event
-pub const SURVIVAL_STEP_FITNESS: f32 = 0.00;  // reward per simulation step survived (alive or not? counted via total steps for now)
-// Updated: SURVIVAL_STEP_FITNESS now applied per-agent using alive_steps^SURVIVAL_TIME_EXP
-pub const SURVIVAL_TIME_EXP: f32 = 0.75;       // 0.5 => sqrt diminishing returns; 1.0 would be linear
-// Predation shaping: reward successful attack hits and kills caused
-pub const ATTACK_HIT_FITNESS: f32 = 2.5;       // reward per successful damage application to a live target
-pub const KILL_CAUSED_FITNESS: f32 = 12.0;      // reward when an agent's hit reduces target health to <= 0
-// Energy shaping: reward agents that maintain higher average energy while alive
-// avg_energy is normalized by MAX_ENERGY before weighting
-pub const ENERGY_AVG_WEIGHT: f32 = 10.0;
-// Reproduction shaping: reward per successful birth (applied to each parent)
-// This is applied during ECO culling by adding offspring_count * REPRO_BIRTH_FITNESS_PARENT
-// to the parent's score. Keep modest to avoid runaway reproduction loops.
-pub const REPRO_BIRTH_FITNESS_PARENT: f32 = 3.0;
-
-// Social/Herding shaping: small per-step reward when staying behind/near same-species
-// We use the same-species memory vector in local coordinates (x=right, y=forward) and
-// reward positive forward alignment (same_y > 0). This nudges agents to follow others
-// in front of them without forcing tight clustering. Keep this small.
-pub const HERDING_ENABLED: bool = true;
-pub const HERDING_REWARD_PER_STEP: f32 = 0.005; // applied as HERDING_REWARD_PER_STEP * max(0, same_y)
-// Intake penalty: penalize agents with very low or zero intake to discourage camping/aimless wandering
-// If an agent eats fewer than INTAKE_MIN_EVENTS times, apply a linear penalty per missing event.
-// Example: INTAKE_MIN_EVENTS=2, INTAKE_MISS_PENALTY=5.0 => 0 eats: -10, 1 eat: -5, 2+ eats: 0
-pub const INTAKE_MIN_EVENTS: usize = 10;
-pub const INTAKE_MISS_PENALTY: f32 = 5.0;
+// Fitness contributions are now unitless counts/normalized values combined by runtime weights.
+// In eval.rs: score = w_life*lifetime_norm + w_energy*avg_energy_norm + w_offspring*offspring + w_comm*comm_units - w_idle*idle_units
+// - lifetime_norm ∈ [0,1]
+// - avg_energy_norm ∈ [0,1]
+// - offspring: count per episode
+// - comm_units: number of communication-assisted eating events credited to eater and caller
+// - idle_units: number of steps beyond idleness threshold (accumulated per agent)
+// Adjust only the weights via set_fitness_weights(...) or the thread-local defaults above.
 // Communication economics
 pub const CALL_COST: f32 = 0.003;             // linear energy cost per step scaled by call_intensity (0..1)
 // Master switch to enable/disable communication features (calls, signals, hearing effects)
