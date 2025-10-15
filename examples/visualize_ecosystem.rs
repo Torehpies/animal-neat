@@ -761,7 +761,7 @@ fn spawn_offspring_if_needed<R: Rng>(
                     // Both will pay half cost; ensure after payment they stay >= 0 energy
                     let half = cost * 0.5;
                     if ai.energy >= half && aj.energy >= half {
-                        // Child spawn mid-point with small jitter
+                        // Child spawn near parents: midpoint with small jitter
                         let mid = Vec2 { x: (ai.body.pos.x + aj.body.pos.x) * 0.5, y: (ai.body.pos.y + aj.body.pos.y) * 0.5 };
                         let jitter = Vec2 { x: (rng.random::<f32>() - 0.5) * 3.0 * AGENT_RADIUS, y: (rng.random::<f32>() - 0.5) * 3.0 * AGENT_RADIUS };
                         let mut pos = mid + jitter;
