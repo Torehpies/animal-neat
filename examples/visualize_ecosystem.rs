@@ -457,53 +457,15 @@ async fn main() {
                 let prev_running_state = running;
                 running = false;
                 
-                // Enter menu loop - render the frozen simulation behind the overlay each frame
-                loop {
-                    // Clear and render the simulation (frozen state)
-                    clear_background(Color::new(0.05, 0.05, 0.08, 1.0));
-                    
-                    // Render world and HUD as normal (paused)
-                    let (mx_menu, my_menu) = mouse_position();
-                    let fitted_menu = ui_common::fit_world_rect(world_area);
-                    let mouse_world_menu = if mx_menu >= fitted_menu.x && mx_menu <= fitted_menu.x + fitted_menu.w 
-                        && my_menu >= fitted_menu.y && my_menu <= fitted_menu.y + fitted_menu.h {
-                        Some(ui_common::screen_to_world(fitted_menu, mx_menu, my_menu))
-                    } else { None };
-                    
-                    ui_world_view::draw_world(
-                        world_area,
-                        &state.episode,
-                        state.show_cones,
-                        &state.member_species,
-                        state.show_unified_overlay,
-                        mouse_world_menu,
-                        state.show_energy_overlay,
-                        state.show_collision_radii,
-                        state.focused_agent,
-                        state.show_grid,
-                        true,
-                        false,
-                        true,
-                        state.color_by_species,
-                    );
-                    ui_hud::draw_hud(hud_area, &state, false, fast_mode, &state.member_species);
-                    
-                    // Now draw the menu overlay on top
-                    match ui_sim_menu::draw_sim_menu(&mut click_cooldown) {
-                        Some(ui_sim_menu::SimMenuResult::Resume) => {
-                            running = prev_running_state;
-                            break;
-                        }
-                        Some(ui_sim_menu::SimMenuResult::BackToMain) => {
-                            // return to main menu by exiting the simulation loop
-                            break 'sim_loop;
-                        }
-                        None => {
-                            // Still in menu, continue loop
-                        }
+                // Call the async menu - it handles its own rendering loop
+                match ui_sim_menu::run_sim_menu(&mut state).await {
+                    ui_sim_menu::SimMenuResult::Resume => {
+                        running = prev_running_state;
                     }
-                    
-                    next_frame().await;
+                    ui_sim_menu::SimMenuResult::BackToMain => {
+                        // return to main menu by exiting the simulation loop
+                        break 'sim_loop;
+                    }
                 }
             }
         }
