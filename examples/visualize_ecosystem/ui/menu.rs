@@ -255,7 +255,7 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
             state.input_buffer = format!("{:.3}", state.config.energy_drain_per_step);
         }
     }
-    y += line_h + 30.0;
+    // spacing before keyboard input help; no need to update y further here
     
     // Handle keyboard input for editing
     if let Some(field) = state.editing_field {

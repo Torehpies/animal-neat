@@ -21,7 +21,7 @@ use std::ops::Range;
 /// Ranges defining the indices of each modality within the neural network input vector.
 /// Keep this single source of truth in sync with params::INPUTS and modality counts.
 pub struct InputRanges {
-    pub vision: Range<usize>,    // 3 sectors × 5 categories = 15
+    pub vision: Range<usize>,    // VISION_RAYS × 5 categories
     pub energy: usize,           // single scalar
     pub memory: Range<usize>,    // 6 (food_x, food_y, same_x, same_y, other_x, other_y)
     pub hearing: Range<usize>,   // HEARING_SECTORS
@@ -31,15 +31,16 @@ pub struct InputRanges {
 /// Compute and return the current input layout ranges (derived from params).
 pub fn input_ranges() -> InputRanges {
     use super::params::*;
-    let vision = 0..15; // 3 × 5
-    let energy = 15;
-    let memory = 16..22; // 6 values
-    let hearing = 22..(22 + HEARING_SECTORS);
+    let vision_len = VISION_RAYS * 5;
+    let vision = 0..vision_len; // per-ray × category
+    let energy = vision.end;
+    let memory = (energy + 1)..(energy + 1 + 6);
+    let hearing = memory.end..(memory.end + HEARING_SECTORS);
     let position = hearing.end..(hearing.end + 2);
     InputRanges { vision, energy, memory, hearing, position }
 }
 
-use super::params::{VISION_RAYS, VISION_ANGLE_DEG, VISION_RANGE, FOOD_RADIUS, DANGER_VECTOR_MAX_RANGE, INPUTS, WORLD_W, WORLD_H, PREDATION_ENABLED, SCAVENGE_ENABLED, HEARING_SECTORS, SOUND_RANGE, SOUND_ATTENUATION_EXP, HEARING_EMA_ALPHA};
+use super::params::{VISION_RAYS, VISION_ANGLE_DEG, VISION_RANGE, FOOD_RADIUS, AGENT_RADIUS, DANGER_VECTOR_MAX_RANGE, INPUTS, WORLD_W, WORLD_H, HEARING_SECTORS, SOUND_RANGE, SOUND_ATTENUATION_EXP, HEARING_EMA_ALPHA};
 use crate::sim::{Agent};
 use macroquad::prelude::Vec2;
 
@@ -77,22 +78,6 @@ pub fn nearest_food_along_ray(p: Vec2, dir: Vec2, food: &[Vec2]) -> Option<f32> 
     best
 }
 
-pub fn nearest_meat_along_ray(p: Vec2, dir: Vec2, snapshot: &[(Vec2, bool, bool, usize, bool)], self_idx: usize) -> Option<f32> {
-    let mut best: Option<f32> = None;
-    for (j, (pos, alive, consumed, _species, is_corpse)) in snapshot.iter().enumerate() {
-        if j == self_idx { continue; }
-        let edible = (*alive && PREDATION_ENABLED) || (*is_corpse && !*consumed && SCAVENGE_ENABLED);
-        if !edible { continue; }
-        let op = Vec2 { x: pos.x - p.x, y: pos.y - p.y };
-        let t = op.x * dir.x + op.y * dir.y;
-        if t <= 0.0 || t > VISION_RANGE { continue; }
-        // distance from ray to point must be within agent-meat interaction scale ~ FOOD_RADIUS for consistency
-        let closest = Vec2 { x: p.x + dir.x * t, y: p.y + dir.y * t };
-        let dx = pos.x - closest.x; let dy = pos.y - closest.y; let dist = (dx*dx + dy*dy).sqrt();
-        if dist <= FOOD_RADIUS { match best { Some(b) if t >= b => {}, _ => best = Some(t) } }
-    }
-    best
-}
 
 // Removed unused nearest_food_vector_local (legacy shaping vector) to reduce warnings.
 
@@ -183,84 +168,104 @@ pub fn food_vector_from_rays(pos: Vec2, theta: f32, food: &[Vec2]) -> (f32, f32)
     aggregate_vector_from_rays(theta, &hits)
 }
 
-pub fn meat_vector_from_rays(pos: Vec2, theta: f32, snapshot: &[(Vec2, bool, bool, usize, bool)], self_idx: usize) -> (f32, f32) {
-    let dir = dir_from_theta(theta);
-    let rays = ray_directions(dir);
-    let mut hits: Vec<(Vec2, f32)> = Vec::with_capacity(rays.len());
-    for r in rays {
-        let len = (r.x * r.x + r.y * r.y).sqrt().max(1e-6);
-        let rdir = Vec2 { x: r.x / len, y: r.y / len };
-        if let Some(t) = nearest_meat_along_ray(pos, rdir, snapshot, self_idx) {
-            let w = (1.0 - (t / VISION_RANGE)).clamp(0.0, 1.0);
-            if w > 0.0 { hits.push((rdir, w)); }
-        }
-    }
-    aggregate_vector_from_rays(theta, &hits)
-}
 
 // density sectors removed
 
 // Removed unused nearest_food_distance (legacy diagnostic) to reduce warnings.
 
-pub fn build_inputs(pos: Vec2, theta: f32, food: &[Vec2], energy: f32, last_food_mem: Vec2, last_same_mem: Vec2, last_other_mem: Vec2, snapshot: &[(Vec2, bool, bool, usize, bool)], self_idx: usize, my_species: usize, heard: [f32;3]) -> [f32; INPUTS] {
-    // Vision distances per sector/category
-    let mut inputs = [0.0f32; INPUTS];
-    for i in 0..15 { inputs[i] = 1.0; } // default: nothing seen
-    let half_cone = VISION_ANGLE_DEG.to_radians() * 0.5;
-    let forward_band = half_cone / 6.0;
-    let c = theta.cos(); let s = theta.sin();
-    let fwd = Vec2 { x: c, y: s }; let right_vec = Vec2 { x: -s, y: c };
-    let sector_index = |ang: f32| -> Option<usize> {
-        if ang < -half_cone || ang > half_cone { return None; }
-        if ang < -forward_band { Some(0) } else if ang <= forward_band { Some(1) } else { Some(2) }
-    };
-    let mut write_dist = |sector: usize, cat: usize, dist: f32| {
-        let norm = (dist / VISION_RANGE).clamp(0.0,1.0);
-        let idx = sector * 5 + cat; // 5 categories per sector
-        if norm < inputs[idx] { inputs[idx] = norm; }
-    };
-    // Plants
-    for fpos in food.iter() {
-        let dx = fpos.x - pos.x; let dy = fpos.y - pos.y;
-        let dist2 = dx*dx + dy*dy; if dist2 > VISION_RANGE * VISION_RANGE { continue; }
-        let dist = dist2.sqrt(); if dist <= 1e-6 { continue; }
-        let fwd_comp = dx * fwd.x + dy * fwd.y; if fwd_comp <= 0.0 { continue; }
-        let right_comp = dx * right_vec.x + dy * right_vec.y; let ang = right_comp.atan2(fwd_comp);
-        if let Some(si) = sector_index(ang) { write_dist(si, 0, dist); }
-    }
-    // Agents / carcasses
-    for (j, (apos, alive, consumed, species_id, is_corpse)) in snapshot.iter().enumerate() {
-        if j == self_idx || *consumed { continue; }
-        let dx = apos.x - pos.x; let dy = apos.y - pos.y; let dist2 = dx*dx + dy*dy; if dist2 > VISION_RANGE * VISION_RANGE { continue; }
-        let dist = dist2.sqrt(); if dist <= 1e-6 { continue; }
-        let fwd_comp = dx * fwd.x + dy * fwd.y; if fwd_comp <= 0.0 { continue; }
-        let right_comp = dx * right_vec.x + dy * right_vec.y; let ang = right_comp.atan2(fwd_comp);
-        if let Some(si) = sector_index(ang) {
-            if *alive {
-                if *species_id == my_species { write_dist(si, 2, dist); } else { write_dist(si, 3, dist); }
-            } else if *is_corpse { write_dist(si, 1, dist); }
+pub fn build_inputs_inplace(
+    out: &mut [f32],
+    pos: Vec2,
+    theta: f32,
+    food: &[Vec2],
+    energy: f32,
+    last_food_mem: Vec2,
+    last_same_mem: Vec2,
+    last_other_mem: Vec2,
+    snapshot: &[(Vec2, bool, bool, usize, bool)],
+    self_idx: usize,
+    my_species: usize,
+    heard: [f32;3],
+    food_indices: Option<&[usize]>,
+    agent_indices: Option<&[usize]>,
+) {
+    debug_assert_eq!(out.len(), INPUTS);
+    // Compute ranges dynamically to avoid hard-coded indices
+    let ranges = input_ranges();
+    // Initialize all inputs to default zeros, then fill sections
+    for v in out.iter_mut() { *v = 0.0; }
+    // Vision per-ray × category, default = 1.0 (nothing seen)
+    for i in ranges.vision.clone() { out[i] = 1.0; }
+    let dir_center = dir_from_theta(theta);
+    let rays = ray_directions(dir_center);
+    // Optional candidate filters
+    let food_iter: Box<dyn Iterator<Item=&Vec2>> = if let Some(idxs) = food_indices {
+        Box::new(idxs.iter().filter_map(move |i| food.get(*i)))
+    } else { Box::new(food.iter()) };
+    let food_list: Vec<Vec2> = food_iter.cloned().collect();
+    let agent_iter: Box<dyn Iterator<Item=(usize,&(Vec2,bool,bool,usize,bool))>> = if let Some(idxs) = agent_indices {
+        Box::new(idxs.iter().filter_map(move |j| snapshot.get(*j).map(|v| (*j,v))))
+    } else { Box::new(snapshot.iter().enumerate()) };
+    let agent_list: Vec<(usize, (Vec2,bool,bool,usize,bool))> = agent_iter.map(|(j,t)| (j, (*t).clone())).collect();
+
+    for (ri, r) in rays.iter().enumerate() {
+        // Normalize direction
+        let len = (r.x * r.x + r.y * r.y).sqrt().max(1e-6);
+        let rdir = Vec2 { x: r.x / len, y: r.y / len };
+        // Accumulators for nearest t per category
+        let mut best = [None; 5]; // 0=plant,1=carcass,2=same,3=other,4=wall
+        // Plants along this ray
+        for fpos in &food_list {
+            let op = Vec2 { x: fpos.x - pos.x, y: fpos.y - pos.y };
+            let t = op.x * rdir.x + op.y * rdir.y;
+            if t <= 0.0 || t > VISION_RANGE { continue; }
+            let closest = Vec2 { x: pos.x + rdir.x * t, y: pos.y + rdir.y * t };
+            let dx = fpos.x - closest.x; let dy = fpos.y - closest.y; let dist = (dx*dx + dy*dy).sqrt();
+            if dist <= FOOD_RADIUS { match best[0] { Some(b) if t >= b => {}, _ => best[0] = Some(t) } }
+        }
+        // Agents/carcasses along this ray (pure perception, not gated by predation/scavenge flags)
+        for (j, (apos, alive, consumed, species_id, is_corpse)) in &agent_list {
+            if *j == self_idx || *consumed { continue; }
+            let op = Vec2 { x: apos.x - pos.x, y: apos.y - pos.y };
+            let t = op.x * rdir.x + op.y * rdir.y;
+            if t <= 0.0 || t > VISION_RANGE { continue; }
+            let closest = Vec2 { x: pos.x + rdir.x * t, y: pos.y + rdir.y * t };
+            let dx = apos.x - closest.x; let dy = apos.y - closest.y; let dist = (dx*dx + dy*dy).sqrt();
+            if dist <= AGENT_RADIUS {
+                if *alive {
+                    if *species_id == my_species { match best[2] { Some(b) if t >= b => {}, _ => best[2] = Some(t) } }
+                    else { match best[3] { Some(b) if t >= b => {}, _ => best[3] = Some(t) } }
+                } else if *is_corpse { match best[1] { Some(b) if t >= b => {}, _ => best[1] = Some(t) } }
+            }
+        }
+        // Wall along this ray (optional)
+        if super::params::ENABLE_VISION_WALLS {
+            let tw = ray_wall_distance(pos, rdir);
+            if tw.is_finite() && tw > 0.0 && tw <= VISION_RANGE { best[4] = Some(best[4].map_or(tw, |b| b.min(tw))); }
+        }
+        // Write normalized distances into output slice
+        let base = ranges.vision.start + ri * 5;
+        for cat in 0..5 {
+            if let Some(t) = best[cat] { out[base + cat] = (t / VISION_RANGE).clamp(0.0, 1.0); }
         }
     }
-    // Walls (sample three rays)
-    let sector_dirs = [ -half_cone * 0.66, 0.0, half_cone * 0.66 ];
-    for (si, off) in sector_dirs.iter().enumerate() {
-        let ang_world = theta + *off; let dirw = Vec2 { x: ang_world.cos(), y: ang_world.sin() };
-        let t = ray_wall_distance(pos, dirw);
-        if t.is_finite() && t>0.0 && t<=VISION_RANGE { write_dist(si, 4, t); }
-    }
     // Energy scalar
-    inputs[15] = energy.clamp(0.0,1.0);
+    out[ranges.energy] = energy.clamp(0.0, 1.0);
     // Memory (6 floats)
-    inputs[16] = last_food_mem.x; inputs[17] = last_food_mem.y;
-    inputs[18] = last_same_mem.x; inputs[19] = last_same_mem.y;
-    inputs[20] = last_other_mem.x; inputs[21] = last_other_mem.y;
+    out[ranges.memory.start + 0] = last_food_mem.x; out[ranges.memory.start + 1] = last_food_mem.y;
+    out[ranges.memory.start + 2] = last_same_mem.x; out[ranges.memory.start + 3] = last_same_mem.y;
+    out[ranges.memory.start + 4] = last_other_mem.x; out[ranges.memory.start + 5] = last_other_mem.y;
     // Hearing
-    for si in 0..HEARING_SECTORS { inputs[22 + si] = heard[si].clamp(0.0,1.0); }
+    for si in 0..HEARING_SECTORS { out[ranges.hearing.start + si] = heard[si].clamp(0.0,1.0); }
     // Position
-    let pos_idx = 22 + HEARING_SECTORS;
-    inputs[pos_idx] = (pos.x / WORLD_W).clamp(0.0,1.0);
-    inputs[pos_idx+1] = (pos.y / WORLD_H).clamp(0.0,1.0);
-    inputs
+    out[ranges.position.start] = (pos.x / WORLD_W).clamp(0.0,1.0);
+    out[ranges.position.start + 1] = (pos.y / WORLD_H).clamp(0.0,1.0);
+}
+
+pub fn build_inputs(pos: Vec2, theta: f32, food: &[Vec2], energy: f32, last_food_mem: Vec2, last_same_mem: Vec2, last_other_mem: Vec2, snapshot: &[(Vec2, bool, bool, usize, bool)], self_idx: usize, my_species: usize, heard: [f32;3]) -> [f32; INPUTS] {
+    let mut arr = [0.0f32; INPUTS];
+    build_inputs_inplace(&mut arr, pos, theta, food, energy, last_food_mem, last_same_mem, last_other_mem, snapshot, self_idx, my_species, heard, None, None);
+    arr
 }
 
 /// Update hearing sectors for all agents based on others' call_intensity

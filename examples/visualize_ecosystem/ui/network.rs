@@ -129,12 +129,12 @@ pub fn draw_network_panel(area: Rect, genome: &Genome) {
             draw_line(x1, y1, x2, y2, w, col);
         }
     }
-    // Draw nodes on top
+    // Draw nodes on top (smaller circles to reduce overlap)
     let draw_nodes = |ids: &Vec<u32>, color: Color| {
         for id in ids {
             if let Some(&(x, y)) = pos.get(id) {
-                draw_circle(x, y, 3.0, color);
-                draw_circle_lines(x, y, 3.0, 1.5, BLACK);
+                draw_circle(x, y, 2.2, color);
+                draw_circle_lines(x, y, 2.2, 1.0, BLACK);
             }
         }
     };
@@ -150,9 +150,9 @@ pub fn draw_network_panel(area: Rect, genome: &Genome) {
         let r = sensing::input_ranges();
         if r.vision.contains(&idx) {
             let i = idx - r.vision.start;
-            let sector = ["L", "F", "R"][i / 5];
+            let ray = i / 5;
             let cat = match i % 5 { 0 => "P", 1 => "C", 2 => "S", 3 => "O", _ => "W" };
-            return format!("V {}:{}", sector, cat);
+            return format!("V R{}:{}", ray, cat);
         }
         if idx == r.energy { return "Energy".to_string(); }
         if r.memory.contains(&idx) {
@@ -212,8 +212,8 @@ pub fn draw_network_panel(area: Rect, genome: &Genome) {
     // Position the legend beside the input nodes column for better alignment
     let mut lx = left_x + 12.0;
     let legend = |lx: &mut f32, label: &str, col: Color| {
-        draw_circle(*lx + 8.0, legend_y, 6.0, col);
-        draw_circle_lines(*lx + 8.0, legend_y, 6.0, 1.0, BLACK);
+        draw_circle(*lx + 8.0, legend_y, 4.0, col);
+        draw_circle_lines(*lx + 8.0, legend_y, 4.0, 0.8, BLACK);
         draw_text(label, *lx + 18.0, legend_y + 4.0, 14.0, LIGHTGRAY);
         *lx += 90.0;
     };
@@ -306,77 +306,65 @@ pub fn draw_network_panel_activations(area: Rect, genome: &Genome, activations: 
             Color::new(0.4 - 0.3*t, 0.4 - 0.2*t, 0.4 + 0.6*t, 1.0)
         }
     };
+    // Threshold for considering a node "activated" (absolute value)
+    let active_thresh: f32 = 0.45;
+    // Radius mapping: size grows with |activation|
+    // Return radius in [min_r, max_r] based on |v|
+    let radius_for = |v: f32, min_r: f32, max_r: f32| -> f32 {
+        let t = v.abs().clamp(0.0, 1.0);
+        min_r + (max_r - min_r) * t
+    };
 
     // Draw nodes with activation fill; outline by type
-    // Inputs: place numeric label to the right of the node to avoid overlap, larger font with shadow
-    let draw_input_nodes = |ids: &Vec<u32>, outline: Color| {
+    // Inputs: no numeric labels; use thicker/colored outline when |activation| >= threshold
+    let draw_input_nodes = |ids: &Vec<u32>, _outline: Color| {
         for id in ids {
             if hidden_inputs.contains(id) { continue; }
             if let Some(&(x, y)) = pos.get(id) {
                 let v = *activations.get(id).unwrap_or(&0.0);
                 let col = act_color(v);
-                // Numeric label to the left of the node ("before" the circle)
-                let txt = format!("{:.2}", v);
-                let fs_px: f32 = 12.0; let fs: u16 = 12;
-                let tw = measure_text(&txt, None, fs, 1.0).width;
-                let tx = x - 9.0 - tw; // just to the left of the circle
-                let ty = y + fs_px * 0.35; // vertically centered-ish
-                // Shadow first, then foreground
-                draw_text(&txt, tx + 1.0, ty + 1.0, fs_px, BLACK);
-                draw_text(&txt, tx, ty, fs_px, LIGHTGRAY);
-                // Draw node on top of the label
-                draw_circle(x, y, 6.0, col);
-                draw_circle_lines(x, y, 6.0, 1.5, outline);
+                let r = radius_for(v, 2.4, 4.8);
+                // subtle halo when active
+                let is_active = v.abs() >= active_thresh;
+                if is_active { draw_circle(x, y, r + 1.0, Color::new(1.0, 1.0, 1.0, 0.08)); }
+                draw_circle(x, y, r, col);
             }
         }
     };
-    // Hidden/other nodes: keep centered but make slightly larger with shadow for readability
-    let draw_other_nodes = |ids: &Vec<u32>, outline: Color| {
+    // Hidden/other nodes: no numeric labels; highlight when active
+    let draw_other_nodes = |ids: &Vec<u32>, _outline: Color| {
         for id in ids {
             if hidden_outputs.contains(id) { continue; }
             if let Some(&(x, y)) = pos.get(id) {
                 let v = *activations.get(id).unwrap_or(&0.0);
                 let col = act_color(v);
-                draw_circle(x, y, 6.0, col);
-                draw_circle_lines(x, y, 6.0, 1.5, outline);
-                let txt = format!("{:.2}", v);
-                let fs_px: f32 = 12.0; let fs: u16 = 12;
-                let tw = measure_text(&txt, None, fs, 1.0).width;
-                let tx = x - tw * 0.5;
-                let ty = y - 8.0;
-                // Shadow
-                draw_text(&txt, tx + 1.0, ty + 1.0, fs_px, BLACK);
-                // Foreground
-                draw_text(&txt, tx, ty, fs_px, LIGHTGRAY);
+                let r = radius_for(v, 2.4, 4.8);
+                let is_active = v.abs() >= active_thresh;
+                if is_active { draw_circle(x, y, r + 1.0, Color::new(1.0, 1.0, 1.0, 0.08)); }
+                draw_circle(x, y, r, col);
             }
         }
     };
     draw_input_nodes(&inputs, BLACK);
     draw_other_nodes(&hiddens, BLACK);
-    // For outputs, use orange outline
+    // For outputs, use orange outline; thicken and brighten when active
     for id in outputs.iter() {
         if hidden_outputs.contains(id) { continue; }
         if let Some(&(x,y)) = pos.get(id) {
             let v = *activations.get(id).unwrap_or(&0.0);
             let col = act_color(v);
-            draw_circle(x, y, 7.0, col);
-            draw_circle_lines(x, y, 7.0, 2.0, Color::new(1.0, 0.6, 0.2, 1.0));
-            let txt = format!("{:.2}", v);
-            let fs_px: f32 = 12.0; let fs: u16 = 12;
-            let tw = measure_text(&txt, None, fs, 1.0).width;
-            let tx = x - tw*0.5;
-            let ty = y - 9.0;
-            // Shadow
-            draw_text(&txt, tx + 1.0, ty + 1.0, fs_px, BLACK);
-            // Foreground
-            draw_text(&txt, tx, ty, fs_px, LIGHTGRAY);
+            let r = radius_for(v, 2.8, 5.2);
+            let is_active = v.abs() >= active_thresh;
+            if is_active { draw_circle(x, y, r + 1.2, Color::new(1.0, 0.9, 0.4, 0.10)); }
+            draw_circle(x, y, r, col);
         }
     }
 
-    // Legend for activations
+    // Legend for activations (color only, no numbers)
     let legend_y = area.y + 14.0;
-    // Negative sample
-    let neg = act_color(-1.0); draw_circle(area.x + 10.0, legend_y, 6.0, neg); draw_text("-1", area.x + 20.0, legend_y + 4.0, 12.0, LIGHTGRAY);
-    let zero = act_color(0.0); draw_circle(area.x + 60.0, legend_y, 6.0, zero); draw_text("0", area.x + 70.0, legend_y + 4.0, 12.0, LIGHTGRAY);
-    let pos = act_color(1.0); draw_circle(area.x + 100.0, legend_y, 6.0, pos); draw_text("+1", area.x + 110.0, legend_y + 4.0, 12.0, LIGHTGRAY);
+    let neg = act_color(-1.0); draw_circle(area.x + 10.0, legend_y, 4.0, neg); draw_text("neg", area.x + 20.0, legend_y + 4.0, 12.0, LIGHTGRAY);
+    let zero = act_color(0.0); draw_circle(area.x + 60.0, legend_y, 4.0, zero); draw_text("zero", area.x + 70.0, legend_y + 4.0, 12.0, LIGHTGRAY);
+    let pos = act_color(1.0); draw_circle(area.x + 110.0, legend_y, 4.0, pos); draw_text("pos", area.x + 120.0, legend_y + 4.0, 12.0, LIGHTGRAY);
+    // Note: node size ∝ |activation|
+    draw_text("size ∝ |act|", area.x + 160.0, legend_y + 4.0, 12.0, GRAY);
 }

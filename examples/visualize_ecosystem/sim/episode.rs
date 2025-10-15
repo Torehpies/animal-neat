@@ -1,6 +1,5 @@
 
 use macroquad::prelude::Vec2;
-use rand_distr::Distribution;
 use ::rand::Rng;
 use std::collections::VecDeque;
 use neat::genome::Genome;
@@ -8,6 +7,7 @@ use crate::{params::*, sim::{Agent, CommSignal, StepDelta, tick_step, AgentId}, 
 
 pub struct Episode {
     pub food: Vec<Vec2>,
+    pub food_lifetime: Vec<usize>,
     pub agents: Vec<Agent>,
     pub steps: usize,
     pub first_eat_step: Option<usize>,
@@ -22,45 +22,10 @@ pub struct Episode {
 
 impl Episode {
     pub fn new<R: Rng>(rng: &mut R, agent_count: usize, species_map: &[usize]) -> Self {
-        // Build species -> members index map
-        let mut by_species: std::collections::HashMap<usize, Vec<usize>> = std::collections::HashMap::new();
-        for (i, sid) in species_map.iter().enumerate().take(agent_count) {
-            by_species.entry(*sid).or_default().push(i);
-        }
-        // Sample one or multiple random centers per species if clustering is enabled
-        let mut species_centers: std::collections::HashMap<usize, Vec<Vec2>> = std::collections::HashMap::new();
-        for (&sid, members) in by_species.iter() {
-            if SPECIES_SPAWN_CLUSTERING_ENABLED {
-                let mut centers = Vec::new();
-                let n_centers = ((members.len() + SPECIES_CLUSTER_TARGET_SIZE - 1) / SPECIES_CLUSTER_TARGET_SIZE)
-                    .clamp(1, SPECIES_SPAWN_MAX_CENTERS_PER_SPECIES);
-                for _ in 0..n_centers { centers.push(world::rand_pos(rng)); }
-                species_centers.insert(sid, centers);
-            } else {
-                species_centers.insert(sid, vec![world::rand_pos(rng)]);
-            }
-        }
-
         let mut agents = Vec::with_capacity(agent_count);
         for i in 0..agent_count {
-            let sid = *species_map.get(i).unwrap_or(&0);
-            let centers = species_centers.get(&sid).cloned().unwrap_or_else(|| vec![world::rand_pos(rng)]);
-            // Deterministically assign member to a center by index partitioning for stability
-            let center = if centers.len() == 1 { centers[0] } else {
-                let members = by_species.get(&sid).map(|v| v.as_slice()).unwrap_or(&[]);
-                if members.is_empty() { centers[0] } else {
-                    let pos_in_species = members.iter().position(|&idx| idx == i).unwrap_or(0);
-                    let chunk = (members.len() + centers.len() - 1) / centers.len();
-                    let cidx = (pos_in_species / chunk).min(centers.len()-1);
-                    centers[cidx]
-                }
-            };
-            // Gaussian jitter around center
-            let normal: rand_distr::StandardNormal = rand_distr::StandardNormal;
-            let jx: f32 = Distribution::<f32>::sample(&normal, rng) * SPECIES_SPAWN_CLUSTER_STD;
-            let jy: f32 = Distribution::<f32>::sample(&normal, rng) * SPECIES_SPAWN_CLUSTER_STD;
-            let mut pos = Vec2 { x: center.x + jx, y: center.y + jy };
-            pos = world::wrap_to_world(pos);
+            // Uniform random spawn across the world for all agents (no species clustering)
+            let pos = world::rand_pos(rng);
             agents.push(Agent {
                 id: AgentId(i),
                 body: Body { pos, vel: Vec2::new(0.0, 0.0), radius: AGENT_RADIUS },
@@ -90,11 +55,21 @@ impl Episode {
                 kills_caused: 0,
                 idle_anchor: world::rand_pos(rng),
                 idle_steps: 0,
+                total_idle_steps: 0,
                 total_idle_penalty: 0.0,
+                input_buf: vec![0.0; crate::params::INPUTS],
+                energy_accum: 0.0,
+                herding_units: 0.0,
+                approach_food_units: 0.0,
+                chase_other_units: 0.0,
+                chase_same_units: 0.0,
             });
         }
+        let food = world::build_world(rng);
+        let food_lifetime = world::init_food_lifetimes(&food, rng);
         Self {
-            food: world::build_world(rng),
+            food,
+            food_lifetime,
             agents,
             steps: 0,
             first_eat_step: None,
@@ -114,6 +89,7 @@ impl Episode {
         let stats: StepDelta = tick_step(
             population,
             &mut self.food,
+            &mut self.food_lifetime,
             &mut self.agents,
             &species_ids,
             None,

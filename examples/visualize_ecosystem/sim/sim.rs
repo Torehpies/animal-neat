@@ -27,9 +27,7 @@ pub fn resolve_predation(
         if let Some(j) = prey_targets[i] {
             if claimed[j] || agents[j].consumed { continue; }
             let target_alive = agents[j].energy > 0.0 && agents[j].health > DEATH_HEALTH_THRESHOLD;
-            // Newborn grace: attackers and targets in grace window ignore predation/scavenge resolution
-            if agents[i].age_steps < NEWBORN_GRACE_STEPS { continue; }
-            if agents[j].age_steps < NEWBORN_GRACE_STEPS { continue; }
+            // Newborn grace removed: newborns are treated like any other agent
             if (target_alive && !PREDATION_ENABLED) || (!target_alive && !SCAVENGE_ENABLED) { continue; }
             if target_alive {
                 // Apply damage first. Respect brief invulnerability.
@@ -56,6 +54,10 @@ pub fn resolve_predation(
                     else { agents[i].energy = (agents[i].energy + gain).min(crate::params::get_max_energy()); }
                     // Healing bonus from meat
                     agents[i].health = (agents[i].health + MEAT_HEAL_BONUS).min(agents[i].max_health);
+                    // Apply a small touch damage to scavenger to add risk to corpse consumption
+                    if SCAVENGE_TOUCH_DAMAGE > 0.0 {
+                        agents[i].health = (agents[i].health - SCAVENGE_TOUCH_DAMAGE).max(DEATH_HEALTH_THRESHOLD);
+                    }
                     agents[i].eaten += 1;
                     agents[i].kills += 1; // counts scavenged meat as kill-equivalent for diet tint
                     agents[j].corpse_energy = 0.0;
