@@ -35,8 +35,6 @@ pub async fn pick_snapshot() -> Option<String> {
         mb.cmp(&ma)
     });
 
-    // Advance one frame to clear any input state that carried over from the caller
-    next_frame().await;
 
     let page_size: usize = 10;
     let mut page: usize = 0;

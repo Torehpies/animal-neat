@@ -697,12 +697,16 @@ async fn main() {
                         save_input.clear();
                         click_cooldown = 0.25;
                     } else if hovering_load {
-                        // Open the load picker overlay (async).
-                        // Hide the in-sim menu and wait for the mouse release so the picker doesn't
-                        // immediately receive the same click event and select a file.
+                        // Open the load picker overlay (async) after a short cooldown so the
+                        // initial click that opened the menu isn't also delivered to the picker.
                         click_cooldown = 0.25;
-                        // wait until left mouse button is released before opening picker
-                        while is_mouse_button_down(MouseButton::Left) { next_frame().await; }
+                        // short time-based debounce (seconds)
+                        let mut wait = 0.15f32;
+                        while wait > 0.0 {
+                            let dt = get_frame_time();
+                            wait -= dt;
+                            next_frame().await;
+                        }
                         // run the picker UI (await)
                         if let Some(path) = ui_load_picker::pick_snapshot().await {
                             // Attempt to load similar to quick-load logic
