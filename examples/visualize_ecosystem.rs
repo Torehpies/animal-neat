@@ -2,8 +2,6 @@
 //!
 //! High-level flow:
 //! - AppState holds the evolving NEAT population plus visualization flags.
-//! - Each generation, we evaluate genomes over EPISODES_PER_GEN episodes.
-//! - Fitness combines intake (plants/meat), exploration, survival, and optional comm rewards.
 //! - In live mode, an Episode advances step-by-step and the UI renders agents, overlays, and HUD.
 //!
 //! Inputs: see params.rs for the fixed layout; use `sensing::input_ranges()` for indices.
@@ -51,11 +49,13 @@ mod sim;
 mod snapshot;
 #[path = "visualize_ecosystem/ui/load_picker.rs"]
 mod ui_load_picker;
+#[path = "visualize_ecosystem/ui/save_picker.rs"]
+mod ui_save_picker;
 use sim::{Episode, Agent, AgentId};
 use ::rand::Rng;
 use params::*;
 use sim::eval_population_single_episode;
-use ui_menu::{SimConfig, MenuState, draw_menu};
+use ui_menu::SimConfig;
 
 
 // Episode methods are defined in sim::episode
@@ -307,8 +307,6 @@ async fn main() {
         let mut fast_mode = false;   // start at normal speed
         // In-simulation modal menu state
         let mut sim_menu_open: bool = false;
-        let mut save_dialog_open: bool = false;
-        let mut save_input: String = String::new();
         let mut prev_running_state: bool = running;
         // Click cooldown (seconds) to avoid double/triple activations from fast clicks
         let mut click_cooldown: f32 = 0.0;
@@ -464,8 +462,6 @@ async fn main() {
                 } else {
                     // restore running state when closing menu (unless explicitly resumed)
                     running = prev_running_state;
-                    save_dialog_open = false;
-                    save_input.clear();
                 }
             }
         }
@@ -688,26 +684,34 @@ async fn main() {
                         // Close menu and resume
                         sim_menu_open = false;
                         running = true;
-                        save_dialog_open = false;
-                        save_input.clear();
                         click_cooldown = 0.25;
                     } else if hovering_save {
-                        // Open save name dialog
-                        save_dialog_open = true;
-                        save_input.clear();
-                        click_cooldown = 0.25;
-                    } else if hovering_load {
-                        // Open the load picker overlay (async) after a short cooldown so the
-                        // initial click that opened the menu isn't also delivered to the picker.
-                        click_cooldown = 0.25;
-                        // short time-based debounce (seconds)
-                        let mut wait = 0.15f32;
-                        while wait > 0.0 {
+                        // Close menu, wait a short cooldown, then open save picker
+                        sim_menu_open = false;
+                        click_cooldown = 0.20;
+                        while click_cooldown > 0.0 {
                             let dt = get_frame_time();
-                            wait -= dt;
+                            click_cooldown -= dt;
                             next_frame().await;
                         }
-                        // run the picker UI (await)
+                        if let Some(path) = ui_save_picker::pick_save(None).await {
+                            match snapshot::save_sim_snapshot(&path, state.generation, &state.population, &state.innov, &state.episode, &state.member_species) {
+                                Ok(_) => println!("Saved sim snapshot to {}", path),
+                                Err(e) => eprintln!("Failed to save sim snapshot {}: {}", path, e),
+                            }
+                        }
+                        // re-open menu for continued interaction
+                        sim_menu_open = true;
+                        click_cooldown = 0.25;
+                    } else if hovering_load {
+                        // Close menu, wait a short cooldown, then open load picker
+                        sim_menu_open = false;
+                        click_cooldown = 0.20;
+                        while click_cooldown > 0.0 {
+                            let dt = get_frame_time();
+                            click_cooldown -= dt;
+                            next_frame().await;
+                        }
                         if let Some(path) = ui_load_picker::pick_snapshot().await {
                             // Attempt to load similar to quick-load logic
                             if let Ok(snap) = snapshot::load_sim_snapshot(&path) {
@@ -784,55 +788,8 @@ async fn main() {
                         sim_menu_open = true;
                     } else if hovering_back {
                         // Return to main menu
-                        save_input.clear();
                         // return to main menu by breaking to the outer 'main_loop
                         break 'main_loop;
-                    }
-                }
-            }
-
-            // Save dialog: simple text input overlay above modal
-            if save_dialog_open {
-                let dlg_w = 520.0;
-                let dlg_h = 120.0;
-                let dx = screen_width() * 0.5 - dlg_w * 0.5;
-                let dy = panel_y - dlg_h - 12.0;
-                draw_rectangle(dx, dy, dlg_w, dlg_h, Color::new(0.05, 0.05, 0.06, 0.96));
-                draw_rectangle_lines(dx, dy, dlg_w, dlg_h, 2.0, WHITE);
-                let title = "Save Simulation";
-                draw_text(title, dx + 12.0, dy + 28.0, 24.0, WHITE);
-                let hint = "Enter filename (without extension) and press Enter to save or Esc to cancel";
-                draw_text(hint, dx + 12.0, dy + 52.0, 14.0, Color::new(0.8, 0.8, 0.8, 1.0));
-
-                // Draw input box
-                let ib_x = dx + 12.0;
-                let ib_y = dy + 72.0;
-                let ib_w = dlg_w - 24.0;
-                let ib_h = 32.0;
-                draw_rectangle(ib_x, ib_y, ib_w, ib_h, Color::new(0.12, 0.12, 0.14, 1.0));
-                draw_rectangle_lines(ib_x, ib_y, ib_w, ib_h, 2.0, WHITE);
-                let display = if save_input.is_empty() { "filename_".to_string() } else { format!("{}_", save_input) };
-                draw_text(&display, ib_x + 8.0, ib_y + 22.0, 20.0, YELLOW);
-
-                // Keyboard handling for the save dialog
-                if is_key_pressed(KeyCode::Backspace) { save_input.pop(); }
-                if is_key_pressed(KeyCode::Escape) { save_dialog_open = false; save_input.clear(); }
-                if is_key_pressed(KeyCode::Enter) {
-                    if !save_input.trim().is_empty() {
-                        let filename = format!("snapshots/{}.json", save_input.trim());
-                        match snapshot::save_sim_snapshot(&filename, state.generation, &state.population, &state.innov, &state.episode, &state.member_species) {
-                            Ok(_) => println!("Saved sim snapshot to {}", filename),
-                            Err(e) => eprintln!("Failed to save sim snapshot {}: {}", filename, e),
-                        }
-                        save_dialog_open = false;
-                        save_input.clear();
-                        // keep the in-sim menu open after save
-                        sim_menu_open = true;
-                    }
-                }
-                while let Some(ch) = get_char_pressed() {
-                    if ch.is_ascii() && (ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' || ch == '.') {
-                        save_input.push(ch);
                     }
                 }
             }
