@@ -47,6 +47,8 @@ mod ui_main_menu;
 mod body;
 #[path = "visualize_ecosystem/sim/mod.rs"]
 mod sim;
+#[path = "visualize_ecosystem/snapshot.rs"]
+mod snapshot;
 use sim::{Episode, Agent, AgentId};
 use ::rand::Rng;
 use params::*;
@@ -86,6 +88,8 @@ struct AppState {
     // Runtime config
     #[allow(dead_code)]
     pub sim_config: SimConfig,
+    // Per-session save prefix (unique per new simulation)
+    pub save_prefix: String,
 }
 
 impl AppState {
@@ -109,6 +113,9 @@ impl AppState {
             map
         };
     let episode = Episode::new(&mut rng, pop_size, &member_species);
+        // Create a unique save prefix per simulation using system time
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+        let save_prefix = format!("snapshots/sim_{}_{:09}", now.as_secs(), now.subsec_nanos());
         Self {
             population,
             innov,
@@ -133,6 +140,7 @@ impl AppState {
             show_controls: true,
             color_by_species: false,
             sim_config,
+            save_prefix,
         }
     }
 
@@ -192,11 +200,11 @@ impl AppState {
         self.focused_agent = None;
         // Optional periodic snapshotting after evolution completes this generation
         if SNAPSHOT_INTERVAL > 0 && self.generation % SNAPSHOT_INTERVAL == 0 {
-            let filename = format!("snapshots/auto_pop_snapshot_gen{:0>6}.json", self.generation);
-            if let Err(e) = io::save_population_snapshot(&filename, self.generation, &self.population, &self.innov) {
+            let filename = format!("{}__gen{:0>6}.json", self.save_prefix, self.generation);
+            if let Err(e) = snapshot::save_sim_snapshot(&filename, self.generation, &self.population, &self.innov, &self.episode, &self.member_species) {
                 eprintln!("Auto-snapshot failed: {e}");
             } else {
-                println!("Auto-saved population snapshot to {filename}");
+                println!("Auto-saved sim snapshot to {filename}");
             }
         }
     }
@@ -227,10 +235,12 @@ fn window_conf() -> Conf {
 async fn main() {
     // Top-level loop so we can return to the main menu (label used by ESC handler)
     'main_loop: loop {
-        // Main menu runner (in separate module) – returns when user chooses to create a sim or exits
-        let sim_config = match ui_main_menu::run_main_menu().await {
-            Some(cfg) => cfg,
-            None => return, // user selected Exit
+        // Main menu runner (in separate module) – returns when user chooses to create a sim, load one, or exits
+        let menu_res = ui_main_menu::run_main_menu().await;
+        let (sim_config, loaded_snapshot_path) = match menu_res {
+            ui_main_menu::MenuResult::New(cfg) => (cfg, None),
+            ui_main_menu::MenuResult::Exit => return,
+            ui_main_menu::MenuResult::Load(path) => (ui_menu::SimConfig::default(), Some(path)),
         };
         
         // Apply configuration to global params (via world module)
@@ -239,6 +249,58 @@ async fn main() {
         params::set_runtime_population_size(sim_config.population_size);
         
         let mut state = AppState::new(sim_config);
+        // If the main menu requested to load a snapshot, apply it now
+        if let Some(path) = loaded_snapshot_path {
+            if let Ok(snap) = snapshot::load_sim_snapshot(&path) {
+                state.population = snap.population;
+                state.generation = snap.generation;
+                state.innov = snap.innovation;
+                state.episode.food = snap.food.iter().map(|v| v.to_vec2()).collect();
+                state.episode.agents.clear();
+                for (i, a_snap) in snap.agents.iter().enumerate() {
+                    let body = crate::body::Body { pos: a_snap.body_pos.to_vec2(), vel: a_snap.body_vel.to_vec2(), radius: AGENT_RADIUS };
+                    state.episode.agents.push(Agent {
+                        id: AgentId(i),
+                        body,
+                        theta: a_snap.theta,
+                        energy: a_snap.energy,
+                        health: a_snap.health,
+                        max_health: a_snap.max_health,
+                        invuln_steps: a_snap.invuln_steps,
+                        alive_steps: a_snap.alive_steps,
+                        eaten: a_snap.eaten,
+                        consumed: a_snap.consumed,
+                        kills: a_snap.kills,
+                        predation_flash_steps: a_snap.predation_flash_steps,
+                        dead_since: a_snap.dead_since,
+                        corpse_energy: a_snap.corpse_energy,
+                        digest: std::collections::VecDeque::new(),
+                        last_food_mem: a_snap.last_food_mem.to_vec2(),
+                        last_danger_mem: a_snap.last_danger_mem.to_vec2(),
+                        last_same_mem: a_snap.last_same_mem.to_vec2(),
+                        last_other_mem: a_snap.last_other_mem.to_vec2(),
+                        species_id: a_snap.species_id,
+                        age_steps: a_snap.age_steps,
+                        call_intensity: a_snap.call_intensity,
+                        heard_sectors: a_snap.heard_sectors,
+                        repro_cooldown: a_snap.repro_cooldown,
+                        offspring_count: a_snap.offspring_count,
+                        attack_hits: a_snap.attack_hits,
+                        kills_caused: a_snap.kills_caused,
+                        idle_anchor: a_snap.idle_anchor.to_vec2(),
+                        idle_steps: a_snap.idle_steps,
+                        total_idle_penalty: a_snap.total_idle_penalty,
+                    });
+                }
+                state.episode.steps = snap.episode_steps;
+                state.speciator.get_species_mut().clear();
+                state.speciator.speciate(&state.population);
+                state.member_species = snap.member_species;
+                println!("Loaded sim snapshot from {}", path);
+            } else {
+                eprintln!("Failed to load snapshot from {}", path);
+            }
+        }
         let mut running = true;      // continuous evolution by default
         let mut fast_mode = false;   // start at normal speed
         let mut normal_step_timer = 0.0f32;          // accumulates frame time for normal stepping
@@ -269,6 +331,115 @@ async fn main() {
         if is_key_pressed(KeyCode::M) { state.show_live_network = !state.show_live_network; }
         if is_key_pressed(KeyCode::H) { state.show_controls = !state.show_controls; }
         if is_key_pressed(KeyCode::K) { state.color_by_species = !state.color_by_species; }
+        // Save snapshot (S) and Load most-recent snapshot (O)
+        if is_key_pressed(KeyCode::S) {
+            // Quick-save (overwrite) per-session file
+            let filename = format!("{}__quicksave.json", state.save_prefix);
+            if let Err(e) = snapshot::save_sim_snapshot(&filename, state.generation, &state.population, &state.innov, &state.episode, &state.member_species) {
+                eprintln!("Failed to quick-save sim snapshot: {}", e);
+            } else {
+                println!("Quick-saved sim snapshot to {}", filename);
+            }
+        }
+        if is_key_pressed(KeyCode::O) {
+            // Find the most-recent *.json file in snapshots/ and attempt to load it
+            let mut latest: Option<(std::path::PathBuf, std::time::SystemTime)> = None;
+            if let Ok(entries) = std::fs::read_dir("snapshots") {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.extension().and_then(|s| s.to_str()) == Some("json") {
+                        if let Ok(meta) = entry.metadata() {
+                            if let Ok(mtime) = meta.modified() {
+                                if latest.is_none() || mtime > latest.as_ref().unwrap().1 {
+                                    latest = Some((p, mtime));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some((path, _)) = latest {
+                // Try loading as full sim snapshot first
+                match snapshot::load_sim_snapshot(path.to_str().unwrap()) {
+                    Ok(snap) => {
+                        state.population = snap.population;
+                        state.generation = snap.generation;
+                        state.innov = snap.innovation;
+                        // restore world/episode state
+                        state.episode.food = snap.food.iter().map(|v| v.to_vec2()).collect();
+                        // rebuild agents from snapshots (leave transient fields defaulted)
+                        state.episode.agents.clear();
+                        for (i, a_snap) in snap.agents.iter().enumerate() {
+                            let body = crate::body::Body { pos: a_snap.body_pos.to_vec2(), vel: a_snap.body_vel.to_vec2(), radius: AGENT_RADIUS };
+                            state.episode.agents.push(Agent {
+                                id: AgentId(i),
+                                body,
+                                theta: a_snap.theta,
+                                energy: a_snap.energy,
+                                health: a_snap.health,
+                                max_health: a_snap.max_health,
+                                invuln_steps: a_snap.invuln_steps,
+                                alive_steps: a_snap.alive_steps,
+                                eaten: a_snap.eaten,
+                                consumed: a_snap.consumed,
+                                kills: a_snap.kills,
+                                predation_flash_steps: a_snap.predation_flash_steps,
+                                dead_since: a_snap.dead_since,
+                                corpse_energy: a_snap.corpse_energy,
+                                digest: std::collections::VecDeque::new(),
+                                last_food_mem: a_snap.last_food_mem.to_vec2(),
+                                last_danger_mem: a_snap.last_danger_mem.to_vec2(),
+                                last_same_mem: a_snap.last_same_mem.to_vec2(),
+                                last_other_mem: a_snap.last_other_mem.to_vec2(),
+                                species_id: a_snap.species_id,
+                                age_steps: a_snap.age_steps,
+                                call_intensity: a_snap.call_intensity,
+                                heard_sectors: a_snap.heard_sectors,
+                                repro_cooldown: a_snap.repro_cooldown,
+                                offspring_count: a_snap.offspring_count,
+                                attack_hits: a_snap.attack_hits,
+                                kills_caused: a_snap.kills_caused,
+                                idle_anchor: a_snap.idle_anchor.to_vec2(),
+                                idle_steps: a_snap.idle_steps,
+                                total_idle_penalty: a_snap.total_idle_penalty,
+                            });
+                        }
+                        state.episode.steps = snap.episode_steps;
+                        // rebuild speciator and member_species mapping
+                        state.speciator.get_species_mut().clear();
+                        state.speciator.speciate(&state.population);
+                        state.member_species = snap.member_species;
+                        println!("Loaded sim snapshot from {}", path.display());
+                    }
+                    Err(_) => {
+                        // fallback: try legacy population-only snapshot
+                        match io::load_population_snapshot(path.to_str().unwrap()) {
+                            Ok(snap) => {
+                                state.population = snap.population;
+                                state.generation = snap.generation;
+                                state.innov = snap.innovation;
+                                // Rebuild speciator and member_species mapping
+                                state.speciator.get_species_mut().clear();
+                                state.speciator.speciate(&state.population);
+                                state.member_species = {
+                                    let mut map = vec![0usize; state.population.len()];
+                                    for (sidx, s) in state.speciator.get_species().iter().enumerate() {
+                                        for &m in &s.members { if m < state.population.len() { map[m] = sidx; } }
+                                    }
+                                    map
+                                };
+                                let mut rng = ::rand::rng();
+                                state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
+                                println!("Loaded population snapshot from {}", path.display());
+                            }
+                            Err(e) => eprintln!("Failed to load snapshot {}: {}", path.display(), e),
+                        }
+                    }
+                }
+            } else {
+                eprintln!("No snapshot files found in snapshots/");
+            }
+        }
         
         // ESC: if focused on an agent, clear focus; otherwise go back to menu
         if is_key_pressed(KeyCode::Escape) {
@@ -464,12 +635,12 @@ fn eco_cull_population_by_fitness(state: &mut AppState) {
         species_best.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
         let k = EQUAL_ALLOC_TOP_K.max(1).min(species_best.len());
-        let mut chosen_species: Vec<usize> = species_best.into_iter().take(k).map(|(sid, _)| sid).collect();
+    let chosen_species: Vec<usize> = species_best.into_iter().take(k).map(|(sid, _)| sid).collect();
 
         // Compute base quota and distribute remainder to top species
     let pop_cap = params::get_population_size();
     let base = pop_cap / k;
-    let mut remainder = pop_cap % k;
+    let remainder = pop_cap % k;
 
         // Take from each chosen species up to its quota, or all available if fewer
         for (rank, sid) in chosen_species.iter().enumerate() {
@@ -636,8 +807,6 @@ fn spawn_offspring_if_needed<R: Rng>(
         for (sidx, s) in speciator.get_species().iter().enumerate() {
             for &m in &s.members { if m < population.len() { member_species[m] = sidx; } }
         }
-    let child_species = *member_species.get(population.len()-1).unwrap_or(&sid);
-
         // Append newborn agent aligned with last genome
         let birth_pos = body.pos;  // Save position before moving body
         episode.agents.push(Agent {
