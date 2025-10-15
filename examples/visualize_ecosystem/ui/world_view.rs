@@ -180,7 +180,6 @@ pub fn draw_world(
             let dir = dir_from_theta(a.theta);
             for r in sensing::ray_directions(dir) {
                 let food_t = sensing::nearest_food_along_ray(a.body.pos, r, &episode.food);
-                let meat_t = sensing::nearest_meat_along_ray(a.body.pos, r, &snapshot, idx);
                 match food_t {
                     Some(t) => {
                         let sense_pt = Vec2 { x: a.body.pos.x + r.x * t, y: a.body.pos.y + r.y * t };
@@ -201,14 +200,7 @@ pub fn draw_world(
                         draw_line(px, py, x2, y2, 1.0, Color::new(0.2, 1.0, 0.2, 0.35));
                     }
                 }
-                // Overlay meat hit (orange) if present on this ray
-                if let Some(tm) = meat_t {
-                    let mpt = Vec2 { x: a.body.pos.x + r.x * tm, y: a.body.pos.y + r.y * tm };
-                    let (mx, my) = world_to_screen(fitted, mpt);
-                    let orange = Color::new(1.0, 0.6, 0.1, 0.95);
-                    draw_line(px, py, mx, my, 2.0, orange);
-                    draw_circle(mx, my, 3.0, orange);
-                }
+                // Overlay of other categories removed for simplicity in cone view; use inputs grid below for full breakdown.
             }
         }
         // Visual cue: edible nearby (live prey or unconsumed corpse) within EAT_AGENT_RADIUS
@@ -301,62 +293,45 @@ pub fn draw_world(
                     draw_text("H", label_x, label_y, 16.0, Color::new(0.95,0.3,1.0,0.9));
                 }
                 if show_vis_inputs {
-                    // Draw a 3x5 grid (sectors columns, categories rows) encoding (1 - distance)
-                    // Category order: Plant, Carcass, Same, Other, Wall
-                    let grid_w = 16.0; let grid_h = 10.0; let pad = 2.0;
-                    let base_x = ax - (grid_w + pad) * 3.0 * 0.5;
+                    // Draw a rays×categories grid encoding (1 - distance)
+                    // Category order per ray: Plant, Carcass, Same, Other, Wall
+                    let grid_w = 10.0; let grid_h = 8.0; let pad = 2.0;
+                    let total_cols = VISION_RAYS as i32; let total_rows = 5i32;
+                    let base_x = ax - (grid_w + pad) * total_cols as f32 * 0.5;
                     let base_y = ay - agent_r - 80.0; // stack above energy bar
                     let labels = ["P","C","S","O","W"]; // left side labels
-                    // Compute inputs on the fly (reuse existing function)
-                    let vision_inputs = {
-                        let temp = sensing::build_inputs(
-                            a.body.pos,
-                            a.theta,
-                            &episode.food,
-                            (a.energy / crate::params::get_max_energy()).clamp(0.0,1.0),
-                            a.last_food_mem,
-                            a.last_same_mem,
-                            a.last_other_mem,
-                            &snapshot,
-                            idx,
-                            a.species_id,
-                            a.heard_sectors,
-                        );
-                        // slice first 15 vision values
-                        let mut arr = [0.0f32;15];
-                        for i in 0..15 { arr[i] = temp[i]; }
-                        arr
-                    };
-                    for row in 0..5 {
-                        for col in 0..3 {
-                            let idx = col * 5 + row;
-                            let dist_norm = vision_inputs[idx];
-                            let prox = (1.0 - dist_norm).clamp(0.0,1.0);
+                    let inputs = sensing::build_inputs(
+                        a.body.pos,
+                        a.theta,
+                        &episode.food,
+                        (a.energy / crate::params::get_max_energy()).clamp(0.0,1.0),
+                        a.last_food_mem,
+                        a.last_same_mem,
+                        a.last_other_mem,
+                        &snapshot,
+                        idx,
+                        a.species_id,
+                        a.heard_sectors,
+                    );
+                    let ranges = sensing::input_ranges();
+                    for row in 0..total_rows {
+                        for col in 0..total_cols {
+                            let base = ranges.vision.start + (col as usize) * 5;
+                            let dist_norm = inputs[base + (row as usize)];
+                            let prox = (1.0 - dist_norm).clamp(0.0, 1.0);
                             let x0 = base_x + col as f32 * (grid_w + pad);
                             let y0 = base_y + row as f32 * (grid_h + pad);
-                            // background
                             draw_rectangle(x0, y0, grid_w, grid_h, Color::new(0.05,0.06,0.08,0.85));
-                            // fill color by category
                             let colr = match row { 0 => Color::new(0.2,1.0,0.2,0.95), // plant
                                                    1 => Color::new(0.9,0.65,0.2,0.95), // carcass
                                                    2 => Color::new(0.1,0.85,1.0,0.95), // same
                                                    3 => Color::new(1.0,0.3,0.95,0.95), // other
                                                    _ => Color::new(0.75,0.75,0.75,0.95) }; // wall
                             if prox > 0.0 { draw_rectangle(x0, y0, grid_w * prox, grid_h, colr); }
-                            // (numeric per-cell labels removed for clarity)
                         }
-                        // row label
                         let lx = base_x - 18.0;
                         let ly = base_y + row as f32 * (grid_h + pad) + grid_h - 2.0;
-                        draw_text(labels[row], lx, ly, 14.0, GRAY);
-                    }
-                    // Sector headers L F R
-                    for col in 0..3 {
-                        let tx = base_x + col as f32 * (grid_w + pad) + 2.0;
-                        let ty = base_y - 4.0;
-                        let label = match col { 0 => "L", 1 => "F", _ => "R" };
-                        draw_text(label, tx, ty, 14.0, LIGHTGRAY);
-                        // (removed numeric index range for clarity)
+                        draw_text(labels[row as usize], lx, ly, 14.0, GRAY);
                     }
                 }
                 // Memory vectors (food=yellow, danger=orange)

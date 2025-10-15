@@ -120,17 +120,18 @@ pub const DANGER_VECTOR_MAX_RANGE: f32 = 100.0; // used for danger memory attenu
 // Memory decay factor applied each step AFTER new memories are written (closer to 1.0 = slower decay)
 pub const MEMORY_DECAY: f32 = 0.90;
 
-// Inputs layout (revised vision; density removed):
-//  1. Vision distances (nearest per sector/category): sectors (L,F,R)=3 × categories (Plant, Carcass, Same, Other, Wall)=5 => 15
-//     Value encoding: normalized distance d/VISION_RANGE (0 near .. 1 far/no target). If no target in sector, value = 1.
+// Inputs layout (simplified per-ray vision; density removed):
+//  1. Vision distances (per-ray × category): rays=VISION_RAYS × categories (Plant, Carcass, SameAlive, OtherAlive, Wall)=5 => VISION_RAYS*5
+//     Value encoding: normalized distance d/VISION_RANGE (0 near .. 1 far/no target). If no target on that ray for a category, value = 1.
+//     Note: No pooling/sector simplification; each ray contributes its own five channels.
 //  2. Energy scalar = 1
 //  3. Memory vectors (food_x, food_y, same_x, same_y, other_x, other_y) = 6
 //  4. Hearing sectors (L,F,R) smoothed call intensity = HEARING_SECTORS (3)
 //  5. Normalized absolute position (x/WORLD_W, y/WORLD_H) = 2
-// Total INPUTS = 15 + 1 + 6 + HEARING_SECTORS + 2
+// Total INPUTS = VISION_RAYS*5 + 1 + 6 + HEARING_SECTORS + 2
 // Temporarily disable hearing inputs entirely
 pub const HEARING_SECTORS: usize = 0;
-pub const INPUTS: usize = 15 + 1 + 6 + HEARING_SECTORS + 2; // now 24 total when HEARING_SECTORS=0
+pub const INPUTS: usize = VISION_RAYS * 5 + 1 + 6 + HEARING_SECTORS + 2;
 // Movement controller outputs now: [ turn, speed ] (relative turn model)
 // turn in [-1,1] -> applied delta heading in [-MAX_TURN_PER_STEP, MAX_TURN_PER_STEP]
 // speed in [-1,1] -> [0,1]

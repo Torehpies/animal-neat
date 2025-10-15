@@ -150,9 +150,9 @@ pub fn draw_network_panel(area: Rect, genome: &Genome) {
         let r = sensing::input_ranges();
         if r.vision.contains(&idx) {
             let i = idx - r.vision.start;
-            let sector = ["L", "F", "R"][i / 5];
+            let ray = i / 5;
             let cat = match i % 5 { 0 => "P", 1 => "C", 2 => "S", 3 => "O", _ => "W" };
-            return format!("V {}:{}", sector, cat);
+            return format!("V R{}:{}", ray, cat);
         }
         if idx == r.energy { return "Energy".to_string(); }
         if r.memory.contains(&idx) {
