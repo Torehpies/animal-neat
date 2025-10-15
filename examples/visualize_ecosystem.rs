@@ -603,12 +603,44 @@ fn prepare_scoreboard(state: &mut AppState) {
 
 fn finalize_end_of_episode(state: &mut AppState, rng: &mut impl ::rand::Rng) {
     use crate::params::ECO_CONTINUOUS;
+    // Compute intelligence proxy (from the just-finished episode) before resetting
+    // Proxy focuses on behavior-shaping components: herding + approach/chase (other/same)
+    let (intel_best, intel_mean) = {
+        let w_herd = crate::params::get_fit_herding_weight();
+        let w_approach = crate::params::get_fit_approach_food_weight();
+        let w_chase = crate::params::get_fit_chase_other_weight();
+        let w_chase_same = crate::params::get_fit_chase_same_weight();
+        let mut best = f32::NEG_INFINITY;
+        let mut sum = 0.0f32;
+        let mut count = 0usize;
+        for a in &state.episode.agents {
+            let v = w_herd * a.herding_units
+                + w_approach * a.approach_food_units
+                + w_chase * a.chase_other_units
+                + w_chase_same * a.chase_same_units;
+            if v.is_finite() {
+                if v > best { best = v; }
+                sum += v; count += 1;
+            }
+        }
+        let mean = if count > 0 { sum / count as f32 } else { 0.0 };
+        (best, mean)
+    };
     if ECO_CONTINUOUS {
         state.eco_episode_counter += 1;
         eco_cull_population_by_fitness(state);
+        // Log fitness (best/mean) for eco mode as well
+        if state.last_best.is_finite() { state.graphs.best.push(state.last_best); }
+        if state.last_avg.is_finite() { state.graphs.mean.push(state.last_avg); }
+        // Log intelligence proxy for this episode
+        if intel_best.is_finite() { state.graphs.intel_best.push(intel_best); }
+        if intel_mean.is_finite() { state.graphs.intel_mean.push(intel_mean); }
         state.graphs.reset_episode();
         state.episode = Episode::new(rng, state.population.len(), &state.member_species);
     } else {
+        // Log intelligence proxy for this episode (before resetting)
+        if intel_best.is_finite() { state.graphs.intel_best.push(intel_best); }
+        if intel_mean.is_finite() { state.graphs.intel_mean.push(intel_mean); }
         state.evolve_one_generation();
         state.graphs.reset_episode();
         state.episode = Episode::new(rng, state.population.len(), &state.member_species);

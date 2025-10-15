@@ -23,6 +23,9 @@ pub struct Trends {
     pub mean: Series,   // appended per generation/episode end
     pub births: Series,
     pub deaths: Series,
+    // Intelligence proxy (behavior shaping signals), appended per episode end
+    pub intel_best: Series,
+    pub intel_mean: Series,
 }
 impl Trends { pub fn new() -> Self { Self::default() } pub fn reset_episode(&mut self) { self.pop.clear(); self.species.clear(); self.births.clear(); self.deaths.clear(); } }
 
@@ -72,8 +75,8 @@ pub fn draw_graphs_panel(area: Rect, trends: &Trends) {
     draw_panel(frame, SUBPANEL_BG, PANEL_BORDER, 2.0);
     let inner = Rect { x: frame.x + PAD*0.5, y: frame.y + PAD*0.5, w: frame.w - PAD, h: frame.h - PAD };
 
-    // Split into three rows
-    let row_h = (inner.h - GAP*2.0) / 3.0;
+    // Split into four rows
+    let row_h = (inner.h - GAP*3.0) / 4.0;
     let r = |i: i32| Rect { x: inner.x, y: inner.y + (row_h + GAP) * i as f32, w: inner.w, h: row_h };
 
     // Helper to draw legend entries
@@ -114,4 +117,14 @@ pub fn draw_graphs_panel(area: Rect, trends: &Trends) {
     let mut _ly3 = a3.y + 30.0;
     _ly3 = legend_entry(a3.x + 6.0, _ly3, "Births", Color::new(0.6, 0.9, 0.6, 0.9));
     _ly3 = legend_entry(a3.x + 6.0, _ly3, "Deaths", Color::new(0.95, 0.5, 0.5, 0.9));
+
+    // Row 4: intelligence proxy (per-episode)
+    let a4 = r(3);
+    draw_axes(a4);
+    draw_line_series(a4, &trends.intel_best, Color::new(0.5, 0.9, 1.0, 0.95));
+    draw_line_series(a4, &trends.intel_mean, Color::new(0.7, 0.8, 1.0, 0.9));
+    draw_text("Intelligence proxy (best / mean)", a4.x + 6.0, a4.y + 14.0, 14.0, LIGHTGRAY);
+    let mut _ly4 = a4.y + 30.0;
+    _ly4 = legend_entry(a4.x + 6.0, _ly4, "Best (proxy)", Color::new(0.5, 0.9, 1.0, 0.95));
+    _ly4 = legend_entry(a4.x + 6.0, _ly4, "Mean (proxy)", Color::new(0.7, 0.8, 1.0, 0.9));
 }
