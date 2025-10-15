@@ -78,25 +78,13 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         steps += 1;
     }
 
-    // Compose final fitness with optional normalized exploration and sublinear eaten term
-    let total_cells = ((WORLD_W / EXPL_CELL_SIZE).ceil() * (WORLD_H / EXPL_CELL_SIZE).ceil()) as f32;
+    // Simplified fitness: Lifetime (normalized), Energy (avg normalized), Offspring count
     agents.iter().enumerate().map(|(i, a)| {
-        let eaten_plants = a.eaten.saturating_sub(a.kills) as f32;
-        let eaten_meat = a.kills as f32;
-        let intake_events = a.eaten as usize; // total edible events (plants + meat)
-        let missing = INTAKE_MIN_EVENTS.saturating_sub(intake_events) as f32;
-        let intake_penalty = missing * INTAKE_MISS_PENALTY;
-        let intake = eaten_plants * PLANT_FITNESS + eaten_meat * MEAT_FITNESS - intake_penalty;
-        let frac = if total_cells > 0.0 { (visited[i].len() as f32) / total_cells } else { 0.0 };
-        let exploration = frac * EXPL_WEIGHT;
-        let survival = (a.alive_steps as f32).powf(SURVIVAL_TIME_EXP) * SURVIVAL_STEP_FITNESS;
-        let predation_reward = (a.attack_hits as f32) * ATTACK_HIT_FITNESS + (a.kills_caused as f32) * KILL_CAUSED_FITNESS;
+        let lifetime_score = (a.alive_steps as f32) / (MAX_STEPS as f32);
         // Average energy while alive (normalized 0..1)
         let avg_energy_norm = if a.alive_steps > 0 { (energy_accum[i] / a.alive_steps as f32) / crate::params::get_max_energy() } else { 0.0 };
-        let energy_term = avg_energy_norm * ENERGY_AVG_WEIGHT;
-        // Subtract idle penalty
-        let idle_penalty = a.total_idle_penalty;
-        intake + exploration + survival + predation_reward + energy_term + comm_fit[i] - idle_penalty
+        let offspring_score = a.offspring_count as f32;
+        lifetime_score + avg_energy_norm + offspring_score
     }).collect()
 }
 

@@ -523,21 +523,15 @@ async fn main() {
 // Compute episode scores similar to eco_cull, without side effects
 fn compute_episode_score(a: &crate::sim::Agent) -> (f32, i32, i32, f32) {
     use crate::params::*;
-    let eaten_plants = a.eaten.saturating_sub(a.kills) as f32;
-    let eaten_meat = a.kills as f32;
-    let intake_events = a.eaten as usize;
-    let missing = INTAKE_MIN_EVENTS.saturating_sub(intake_events) as f32;
-    let intake_penalty = missing * INTAKE_MISS_PENALTY;
-    let intake = eaten_plants * PLANT_FITNESS + eaten_meat * MEAT_FITNESS - intake_penalty;
-    let exploration = (a.alive_steps as f32 / MAX_STEPS as f32) * EXPL_WEIGHT;
-    let survival = (a.alive_steps as f32).powf(SURVIVAL_TIME_EXP) * SURVIVAL_STEP_FITNESS;
-    let predation_reward = (a.attack_hits as f32) * ATTACK_HIT_FITNESS + (a.kills_caused as f32) * KILL_CAUSED_FITNESS;
+    // Simplified scoreboard: score uses only lifetime (normalized), avg energy (normalized), and offspring count
     let avg_energy_norm = if a.alive_steps > 0 { (a.energy_accum / a.alive_steps as f32) / crate::params::get_max_energy() } else { 0.0 };
-    let energy_term = avg_energy_norm * ENERGY_AVG_WEIGHT;
-    let reproduction = (a.offspring_count as f32) * REPRO_BIRTH_FITNESS_PARENT;
-    let idle_penalty = a.total_idle_penalty;
-    let score = intake + exploration + survival + predation_reward + energy_term + reproduction - idle_penalty;
-    (score, eaten_plants as i32, eaten_meat as i32, avg_energy_norm)
+    let lifetime_score = (a.alive_steps as f32) / (MAX_STEPS as f32);
+    let offspring_score = a.offspring_count as f32;
+    let score = lifetime_score + avg_energy_norm + offspring_score;
+    // Keep plant/meat counts for display only
+    let eaten_plants = a.eaten.saturating_sub(a.kills) as i32;
+    let eaten_meat = a.kills as i32;
+    (score, eaten_plants, eaten_meat, avg_energy_norm)
 }
 
 fn prepare_scoreboard(state: &mut AppState) {
@@ -582,34 +576,14 @@ fn finalize_end_of_episode(state: &mut AppState, rng: &mut impl ::rand::Rng) {
 }
 
 fn eco_cull_population_by_fitness(state: &mut AppState) {
-    // Compute fitness directly from live episode stats to avoid costly headless re-simulation.
-    // This removes the freeze at episode end in fast mode.
-    // (Exploration proxy does not use actual cell coverage; omit total_cells computation.)
-    // Build exploration sets on demand: we didn't store per-agent visited cells in live mode; approximate with alive_steps fraction.
-    // Simple proxy: exploration_reward = (alive_steps / MAX_STEPS) * EXPL_WEIGHT (cheap; avoids tracking HashSet each step).
+    // Compute fitness directly from live episode stats using simplified formula.
     let mut scores: Vec<f32> = Vec::with_capacity(state.population.len());
     for a in state.episode.agents.iter() {
-        // Intake components
-        let eaten_plants = a.eaten.saturating_sub(a.kills) as f32;
-        let eaten_meat = a.kills as f32;
-        let intake_events = a.eaten as usize;
-        let missing = INTAKE_MIN_EVENTS.saturating_sub(intake_events) as f32;
-        let intake_penalty = missing * INTAKE_MISS_PENALTY;
-        let intake = eaten_plants * PLANT_FITNESS + eaten_meat * MEAT_FITNESS - intake_penalty;
-        // Exploration proxy
-        let exploration = (a.alive_steps as f32 / MAX_STEPS as f32) * EXPL_WEIGHT;
-        // Survival shaping
-        let survival = (a.alive_steps as f32).powf(SURVIVAL_TIME_EXP) * SURVIVAL_STEP_FITNESS;
-        // Predation reward
-        let predation_reward = (a.attack_hits as f32) * ATTACK_HIT_FITNESS + (a.kills_caused as f32) * KILL_CAUSED_FITNESS;
-        // Average energy while alive (normalized)
+        // Lifetime, Energy, Offspring only
+        let lifetime_score = (a.alive_steps as f32) / (MAX_STEPS as f32);
         let avg_energy_norm = if a.alive_steps > 0 { (a.energy_accum / a.alive_steps as f32) / crate::params::get_max_energy() } else { 0.0 };
-        let energy_term = avg_energy_norm * ENERGY_AVG_WEIGHT;
-        // Reproduction bonus
-        let reproduction = (a.offspring_count as f32) * REPRO_BIRTH_FITNESS_PARENT;
-        // Idleness penalty
-        let idle_penalty = a.total_idle_penalty;
-        let score = intake + exploration + survival + predation_reward + energy_term + reproduction - idle_penalty;
+        let offspring_score = a.offspring_count as f32;
+        let score = lifetime_score + avg_energy_norm + offspring_score;
         scores.push(score);
     }
     // Build indices sorted by fitness desc
