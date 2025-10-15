@@ -158,12 +158,18 @@ pub fn tick_step<R: Rng>(
         while a.theta <= -std::f32::consts::PI { a.theta += 2.0 * std::f32::consts::PI; }
         if USE_INERTIA {
             a.body.vel *= 1.0 - DRAG_COEFF;
-            let thrust_scalar = (intent.raw_thrust + 1.0) * 0.5;
-            let mut dv = intent.dir * (thrust_scalar * MAX_THRUST);
-            if intent.raw_thrust < 0.0 {
+            // Zero-centered thrust: 0 => no thrust; >0 forward push; <0 applies braking only
+            let mut thrust = intent.raw_thrust;
+            // Small deadzone to prevent jitter
+            if thrust.abs() < THRUST_DEADZONE { thrust = 0.0; }
+            let mut dv = Vec2::new(0.0, 0.0);
+            if thrust > 0.0 {
+                dv = intent.dir * (thrust.min(1.0) * MAX_THRUST);
+            } else if thrust < 0.0 {
+                // Brake proportional to negative thrust when moving forward
                 let forward_speed = a.body.vel.dot(intent.dir);
                 if forward_speed > 0.0 {
-                    let brake = (-intent.raw_thrust).min(1.0) * MAX_THRUST;
+                    let brake = (-thrust).min(1.0) * MAX_THRUST;
                     dv += intent.dir * -brake;
                 }
             }
@@ -176,7 +182,10 @@ pub fn tick_step<R: Rng>(
             a.body.pos += a.body.vel;
             a.body.pos = wrap_to_world(a.body.pos);
         } else {
-            let mut speed = (intent.raw_thrust + 1.0) * 0.5; if speed > 1.0 { speed = 1.0; }
+            // Direct-speed model: zero-centered; 0 => stop; >0 forward; <0 no backward (optional)
+            let mut speed = intent.raw_thrust;
+            if speed.abs() < THRUST_DEADZONE { speed = 0.0; }
+            speed = speed.clamp(0.0, 1.0);
             let vel = intent.dir * (speed * MAX_SPEED);
             a.body.pos += vel; a.body.pos = wrap_to_world(a.body.pos);
         }

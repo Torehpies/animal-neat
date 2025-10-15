@@ -667,6 +667,7 @@ fn eco_cull_population_by_fitness(state: &mut AppState) {
     let w_herd = crate::params::get_fit_herding_weight();
         let w_approach = crate::params::get_fit_approach_food_weight();
         let w_chase = crate::params::get_fit_chase_other_weight();
+    let complexity_penalty = crate::params::COMPLEXITY_PENALTY_PER_CONN;
         state.episode.agents.iter().enumerate().map(|(i, a)| {
             let lifetime_score = (a.alive_steps as f32) / (MAX_STEPS as f32);
             let avg_energy_norm = if a.alive_steps > 0 { (a.energy_accum / a.alive_steps as f32) / crate::params::get_max_energy() } else { 0.0 };
@@ -677,7 +678,7 @@ fn eco_cull_population_by_fitness(state: &mut AppState) {
             let meat = a.kills as f32;
             let approach_units = a.approach_food_units;
             let chase_units = a.chase_other_units;
-            w_life * lifetime_score
+            let mut s = w_life * lifetime_score
                 + w_energy * avg_energy_norm
                 + w_off * offspring_score
                 + w_comm * comm_score
@@ -688,7 +689,12 @@ fn eco_cull_population_by_fitness(state: &mut AppState) {
                 + w_kill * (a.kills_caused as f32)
                 + w_herd * a.herding_units
                 + w_approach * approach_units
-                + w_chase * chase_units
+                + w_chase * chase_units;
+            if complexity_penalty > 0.0 {
+                let enabled = state.population[i].connections.iter().filter(|c| c.enabled).count() as f32;
+                s -= complexity_penalty * enabled;
+            }
+            s
         }).collect()
     };
 

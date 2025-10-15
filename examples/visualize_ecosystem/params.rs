@@ -343,6 +343,11 @@ pub const MAX_THRUST: f32 = 1.0;                  // units of velocity added whe
 pub const MAX_VELOCITY: f32 = 4.5;                // hard cap on velocity magnitude (pre world scaling)
 pub const EXTRA_VEL_ENERGY_C1: f32 = 0.1;        // linear velocity cost term
 pub const EXTRA_VEL_ENERGY_C2: f32 = 0.01;       // cubic velocity cost term (penalize high bursts)
+// Controller deadzone to avoid micro-jitter when raw outputs are near zero
+pub const THRUST_DEADZONE: f32 = 0.05;
+
+// Optional: mild complexity penalty (per enabled connection) to discourage degenerate minimal networks
+pub const COMPLEXITY_PENALTY_PER_CONN: f32 = 0.0; // set small, e.g., 0.001..0.01
 
 // ==============
 // Agent Collisions

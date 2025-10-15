@@ -97,6 +97,7 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
     let w_approach = crate::params::get_fit_approach_food_weight();
     let w_chase = crate::params::get_fit_chase_other_weight();
     let w_chase_same = crate::params::get_fit_chase_same_weight();
+    let complexity_penalty = crate::params::COMPLEXITY_PENALTY_PER_CONN;
     agents.iter().enumerate().map(|(i, a)| {
         let lifetime_score = (a.alive_steps as f32) / (MAX_STEPS as f32);
         let avg_energy_norm = if a.alive_steps > 0 { (energy_accum[i] / a.alive_steps as f32) / crate::params::get_max_energy() } else { 0.0 };
@@ -109,7 +110,7 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         let approach_units = a.approach_food_units;
     let chase_units = a.chase_other_units;
     let chase_same_units = a.chase_same_units;
-        w_life * lifetime_score
+        let mut s = w_life * lifetime_score
             + w_energy * avg_energy_norm
             + w_off * offspring_score
             + w_comm * comm_score
@@ -121,7 +122,13 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             + w_herd * herd_units
             + w_approach * approach_units
             + w_chase * chase_units
-            + w_chase_same * chase_same_units
+            + w_chase_same * chase_same_units;
+        if complexity_penalty > 0.0 {
+            // Penalize number of enabled connections in the genome
+            let enabled = population[i].connections.iter().filter(|c| c.enabled).count() as f32;
+            s -= complexity_penalty * enabled;
+        }
+        s
     }).collect()
 }
 
