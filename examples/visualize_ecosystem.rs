@@ -755,12 +755,16 @@ fn spawn_offspring_if_needed<R: Rng>(
         if a.repro_cooldown > 0 { a.repro_cooldown -= 1; }
     }
 
-    // Gather eligible parents by species (meets energy, cooldown, offspring cap)
+    // Gather eligible parents by species (meets energy, cooldown, offspring cap, and optional non-idle requirement)
     let threshold = ECO_BIRTH_ENERGY_THRESHOLD;
     let mut by_species: std::collections::HashMap<usize, Vec<usize>> = std::collections::HashMap::new();
     for &i in &live_indices {
         let a = &episode.agents[i];
-        if a.repro_cooldown == 0 && a.offspring_count < ECO_MAX_OFFSPRING_PER_AGENT && a.energy >= threshold {
+        let non_idle_ok = if params::ECO_REQUIRE_NON_IDLE_FOR_BIRTH {
+            // consider non-idle if moving or hasn't exceeded idle threshold
+            a.body.vel.length() > 0.2 || a.idle_steps < IDLENESS_THRESHOLD_STEPS
+        } else { true };
+        if a.repro_cooldown == 0 && a.offspring_count < ECO_MAX_OFFSPRING_PER_AGENT && a.energy >= threshold && non_idle_ok {
             by_species.entry(a.species_id).or_default().push(i);
         }
     }
@@ -854,19 +858,31 @@ fn spawn_offspring_if_needed<R: Rng>(
         episode.comm_fitness_accum.push(0.0);
         episode.births_this_episode += 1;
 
-    // Apply costs and cooldowns to parents; award reproduction fitness bonus to parents
-        if let Some(pa) = episode.agents.get_mut(i) {
+        // Apply costs and cooldowns to parents; then push them apart to reduce clustering after birth
+        {
+            let (a_idx, b_idx) = if i < j { (i, j) } else { (j, i) };
+            let (left, right) = episode.agents.split_at_mut(b_idx);
+            let pa = &mut left[a_idx];
+            let pb = &mut right[0];
             pa.energy = (pa.energy - cost * 0.5).max(0.0);
-            pa.repro_cooldown = ECO_BIRTH_COOLDOWN_STEPS;
-            pa.offspring_count += 1;
-            if let Some(fit) = episode.comm_fitness_accum.get_mut(i) { *fit += REPRO_BIRTH_FITNESS_PARENT; }
-        }
-        if let Some(pb) = episode.agents.get_mut(j) {
             pb.energy = (pb.energy - cost * 0.5).max(0.0);
-            pb.repro_cooldown = ECO_BIRTH_COOLDOWN_STEPS;
+            pa.offspring_count += 1;
             pb.offspring_count += 1;
-            if let Some(fit) = episode.comm_fitness_accum.get_mut(j) { *fit += REPRO_BIRTH_FITNESS_PARENT; }
+            // Scale cooldown by current offspring count to space repeated births
+            pa.repro_cooldown = ECO_BIRTH_COOLDOWN_STEPS + (pa.offspring_count * (ECO_BIRTH_COOLDOWN_STEPS / 2));
+            pb.repro_cooldown = ECO_BIRTH_COOLDOWN_STEPS + (pb.offspring_count * (ECO_BIRTH_COOLDOWN_STEPS / 2));
+            // Separation impulse to reduce clustering after birth
+            let sep_ab = pa.body.pos - pb.body.pos;
+            let len = sep_ab.length();
+            if len > 1e-3 {
+                let dir = sep_ab / len;
+                pa.body.vel += dir * BIRTH_SEPARATION_IMPULSE;
+                pb.body.vel -= dir * BIRTH_SEPARATION_IMPULSE;
+            }
         }
+        // Award reproduction fitness bonus to parents (done after mutable borrows above are dropped)
+        if let Some(fit) = episode.comm_fitness_accum.get_mut(i) { *fit += REPRO_BIRTH_FITNESS_PARENT; }
+        if let Some(fit) = episode.comm_fitness_accum.get_mut(j) { *fit += REPRO_BIRTH_FITNESS_PARENT; }
         realized += 1;
     }
     realized

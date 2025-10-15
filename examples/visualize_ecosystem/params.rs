@@ -168,14 +168,14 @@ pub const ENERGY_AVG_WEIGHT: f32 = 10.0;
 // Reproduction shaping: reward per successful birth (applied to each parent)
 // This is applied during ECO culling by adding offspring_count * REPRO_BIRTH_FITNESS_PARENT
 // to the parent's score. Keep modest to avoid runaway reproduction loops.
-pub const REPRO_BIRTH_FITNESS_PARENT: f32 = 8.0;
+pub const REPRO_BIRTH_FITNESS_PARENT: f32 = 3.0;
 
 // Social/Herding shaping: small per-step reward when staying behind/near same-species
 // We use the same-species memory vector in local coordinates (x=right, y=forward) and
 // reward positive forward alignment (same_y > 0). This nudges agents to follow others
 // in front of them without forcing tight clustering. Keep this small.
 pub const HERDING_ENABLED: bool = true;
-pub const HERDING_REWARD_PER_STEP: f32 = 0.01; // applied as HERDING_REWARD_PER_STEP * max(0, same_y)
+pub const HERDING_REWARD_PER_STEP: f32 = 0.005; // applied as HERDING_REWARD_PER_STEP * max(0, same_y)
 // Intake penalty: penalize agents with very low or zero intake to discourage camping/aimless wandering
 // If an agent eats fewer than INTAKE_MIN_EVENTS times, apply a linear penalty per missing event.
 // Example: INTAKE_MIN_EVENTS=2, INTAKE_MISS_PENALTY=5.0 => 0 eats: -10, 1 eat: -5, 2+ eats: 0
@@ -202,14 +202,18 @@ pub const ECO_CONTINUOUS: bool = true;
 // Hard caps and thresholds
 pub const ECO_MAX_POP: usize = 250;                 // maximum concurrent agents
 pub const ECO_MIN_POP: usize = 10;                 // minimum seeding on reset if all die
-pub const ECO_BIRTH_ENERGY_THRESHOLD: f32 = 250.0; // minimum energy to allow birth
-pub const ECO_BIRTH_ENERGY_COST: f32 = 50.0;      // energy deducted from parent per birth
-pub const ECO_BIRTH_COOLDOWN_STEPS: usize = 40;    // steps before the same parent can reproduce again
-pub const ECO_MAX_OFFSPRING_PER_AGENT: usize = 50;  // per-episode cap
+pub const ECO_BIRTH_ENERGY_THRESHOLD: f32 = 320.0; // minimum energy to allow birth
+pub const ECO_BIRTH_ENERGY_COST: f32 = 120.0;      // energy deducted from parent per birth
+pub const ECO_BIRTH_COOLDOWN_STEPS: usize = 150;    // steps before the same parent can reproduce again
+pub const ECO_MAX_OFFSPRING_PER_AGENT: usize = 10;  // per-episode cap
 pub const ECO_NEWBORN_ENERGY: f32 = 150.0;         // initial energy for newborns
 pub const ECO_NEWBORN_HEALTH: f32 = AGENT_BASE_HEALTH / 2.0;
 /// Distance within which two same-species, eligible parents can mate to produce an offspring
-pub const ECO_MATE_RADIUS: f32 = 8.0 * AGENT_RADIUS;
+pub const ECO_MATE_RADIUS: f32 = 6.0 * AGENT_RADIUS;
+/// Require parents to be actively moving (not idle) to be eligible for birth
+pub const ECO_REQUIRE_NON_IDLE_FOR_BIRTH: bool = true;
+/// Impulse applied to both parents after birth to nudge them apart and discourage clustering
+pub const BIRTH_SEPARATION_IMPULSE: f32 = 1.2; // units of velocity added along separation vector
 // Batched speciation (eco continuous): run full speciation every N simulation steps OR when
 // pending births exceed a threshold, instead of per-birth, to reduce pauses at high population.
 pub const RESPEC_INTERVAL_STEPS: usize = 25; // tune: bigger = fewer speciation passes
@@ -223,7 +227,7 @@ pub const NEWBORN_FLASH_STEPS: usize = 18;
 // Predation/scavenging
 // =====================
 pub const EAT_AGENT_RADIUS: f32 = 2.5 * AGENT_RADIUS;
-pub const MEAT_ENERGY: f32 = 220.0;
+pub const MEAT_ENERGY: f32 = 180.0;
 pub const PREDATION_ENABLED: bool = true;
 pub const SCAVENGE_ENABLED: bool = true;
 /// Require live prey to be within predator's vision cone to attack (enables ambush tactics)
@@ -237,7 +241,7 @@ pub const INJURY_HEAL_RATE: f32 = 0.04;          // health regained per step whi
 pub const EAT_HEAL_FRACTION: f32 = 0.10;         // fraction of max health restored on plant eat
 pub const MEAT_HEAL_BONUS: f32 = 12.0;           // flat bonus health on meat intake (before clamp)
 pub const PREDATION_DAMAGE: f32 = 80.0;          // health damage dealt on a successful predation attempt
-pub const SCAVENGE_TOUCH_DAMAGE: f32 = 0.0;      // health damage to scavenger when consuming corpse (risk factor)
+pub const SCAVENGE_TOUCH_DAMAGE: f32 = 1.0;      // health damage to scavenger when consuming corpse (risk factor)
 pub const INVULN_AFTER_HIT_STEPS: usize = 2;     // brief invulnerability frames after taking damage
 pub const HEALTH_TO_ENERGY_RATIO: f32 = 0.25;    // when health reaches 0 convert leftover health deficit to energy penalty (soft coupling)
 pub const DEATH_HEALTH_THRESHOLD: f32 = 0.0;     // health <= this means agent dead (corpse logic kicks in)
@@ -248,11 +252,11 @@ pub const DEATH_HEALTH_THRESHOLD: f32 = 0.0;     // health <= this means agent d
 /// Enable penalty for staying in the same place too long
 pub const IDLENESS_PENALTY_ENABLED: bool = true;
 /// Number of steps before idleness penalty kicks in (5 seconds ≈ varies by sim speed, using steps)
-pub const IDLENESS_THRESHOLD_STEPS: usize = 100;
+pub const IDLENESS_THRESHOLD_STEPS: usize = 60;
 /// Distance threshold to consider agent as "staying in same place"
 pub const IDLENESS_DISTANCE_THRESHOLD: f32 = 3.0;
 /// Fitness penalty applied per step when idle beyond threshold
-pub const IDLENESS_PENALTY_PER_STEP: f32 = 0.02;
+pub const IDLENESS_PENALTY_PER_STEP: f32 = 0.06;
 
 // ===============================
 // Motor model (relative turn + speed)
@@ -296,7 +300,7 @@ pub const SOUND_ATTENUATION_EXP: f32 = 2.0;
 // Digestion / Corpse decay
 // ==============================
 pub const CORPSE_INITIAL_ENERGY: f32 = MEAT_ENERGY;
-pub const CORPSE_DECAY_RATE: f32 = 0.002;
+pub const CORPSE_DECAY_RATE: f32 = 0.006;
 pub const DIGEST_STEPS_PLANT: u16 = 25;
 pub const DIGEST_STEPS_MEAT: u16 = 45;
 
