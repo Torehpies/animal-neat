@@ -103,7 +103,7 @@ pub const PLANT_LIFETIME_MAX_STEPS: usize = 3600; // ~60s at 60 FPS
 // =====================
 // Vision cone parameters
 // =====================
-pub const VISION_RAYS: usize = 10;
+pub const VISION_RAYS: usize = 7;
 pub const VISION_ANGLE_DEG: f32 = 90.0;  // Narrower cone (was 80.0)
 pub const VISION_RANGE: f32 = 100.0;     // Longer range (was 90.0)
 /// Derived: radians for convenience if needed by math
