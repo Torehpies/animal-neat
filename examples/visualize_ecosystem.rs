@@ -314,7 +314,7 @@ async fn main() {
         let normal_step_interval = 0.05f32;           // seconds per simulation step in normal mode
         let fast_steps_per_frame: usize = 500;       // simulation steps per frame in fast mode
 
-        loop {
+        'sim_loop: loop {
             clear_background(BLACK);
             let w = screen_width();
             let h = screen_height();
@@ -453,18 +453,57 @@ async fn main() {
             if state.focused_agent.is_some() {
                 state.focused_agent = None;
             } else {
-                // Pause and run the modal menu; it returns an action
+                // Pause and show the overlay menu
                 let prev_running_state = running;
                 running = false;
-                match ui_sim_menu::run_sim_menu(&mut state).await {
-                    ui_sim_menu::SimMenuResult::Resume => {
-                        running = prev_running_state;
-                    }
-                    ui_sim_menu::SimMenuResult::BackToMain => {
-                            // return to main menu by exiting the inner simulation loop
-                            // (use plain `break` so the outer 'main_loop iterates and shows the main menu)
+                
+                // Enter menu loop - render the frozen simulation behind the overlay each frame
+                loop {
+                    // Clear and render the simulation (frozen state)
+                    clear_background(Color::new(0.05, 0.05, 0.08, 1.0));
+                    
+                    // Render world and HUD as normal (paused)
+                    let (mx_menu, my_menu) = mouse_position();
+                    let fitted_menu = ui_common::fit_world_rect(world_area);
+                    let mouse_world_menu = if mx_menu >= fitted_menu.x && mx_menu <= fitted_menu.x + fitted_menu.w 
+                        && my_menu >= fitted_menu.y && my_menu <= fitted_menu.y + fitted_menu.h {
+                        Some(ui_common::screen_to_world(fitted_menu, mx_menu, my_menu))
+                    } else { None };
+                    
+                    ui_world_view::draw_world(
+                        world_area,
+                        &state.episode,
+                        state.show_cones,
+                        &state.member_species,
+                        state.show_unified_overlay,
+                        mouse_world_menu,
+                        state.show_energy_overlay,
+                        state.show_collision_radii,
+                        state.focused_agent,
+                        state.show_grid,
+                        true,
+                        false,
+                        true,
+                        state.color_by_species,
+                    );
+                    ui_hud::draw_hud(hud_area, &state, false, fast_mode, &state.member_species);
+                    
+                    // Now draw the menu overlay on top
+                    match ui_sim_menu::draw_sim_menu(&mut click_cooldown) {
+                        Some(ui_sim_menu::SimMenuResult::Resume) => {
+                            running = prev_running_state;
                             break;
                         }
+                        Some(ui_sim_menu::SimMenuResult::BackToMain) => {
+                            // return to main menu by exiting the simulation loop
+                            break 'sim_loop;
+                        }
+                        None => {
+                            // Still in menu, continue loop
+                        }
+                    }
+                    
+                    next_frame().await;
                 }
             }
         }
