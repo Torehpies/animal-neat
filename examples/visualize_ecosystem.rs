@@ -576,134 +576,80 @@ fn finalize_end_of_episode(state: &mut AppState, rng: &mut impl ::rand::Rng) {
 }
 
 fn eco_cull_population_by_fitness(state: &mut AppState) {
-    // Compute fitness directly from live episode stats using simplified formula.
-    let mut scores: Vec<f32> = Vec::with_capacity(state.population.len());
-    for a in state.episode.agents.iter() {
-        // Lifetime, Energy, Offspring only
-        let lifetime_score = (a.alive_steps as f32) / (MAX_STEPS as f32);
-        let avg_energy_norm = if a.alive_steps > 0 { (a.energy_accum / a.alive_steps as f32) / crate::params::get_max_energy() } else { 0.0 };
-        let offspring_score = a.offspring_count as f32;
-        let score = lifetime_score + avg_energy_norm + offspring_score;
-        scores.push(score);
-    }
-    // Build indices sorted by fitness desc
-    let mut all_idxs: Vec<usize> = (0..state.population.len()).collect();
-    all_idxs.sort_by(|&a, &b| scores[b]
-        .partial_cmp(&scores[a])
-        .unwrap_or(std::cmp::Ordering::Equal));
+    // Strict NEAT at episode end using live-episode fitness for ALL agents (including newborns).
+    // 1) Compute fitness scores from the finished episode
+    let mut scores: Vec<f32> = state
+        .episode
+        .agents
+        .iter()
+        .map(|a| {
+            let lifetime_score = (a.alive_steps as f32) / (MAX_STEPS as f32);
+            let avg_energy_norm = if a.alive_steps > 0 {
+                (a.energy_accum / a.alive_steps as f32) / crate::params::get_max_energy()
+            } else {
+                0.0
+            };
+            let offspring_score = a.offspring_count as f32;
+            lifetime_score + avg_energy_norm + offspring_score
+        })
+        .collect();
 
-    // 1) Build by-species lists sorted by within-species fitness
-    use std::collections::HashMap;
-    let mut by_species: HashMap<usize, Vec<usize>> = HashMap::new();
-    for (idx, sid) in state.member_species.iter().enumerate() { by_species.entry(*sid).or_default().push(idx); }
-    for v in by_species.values_mut() {
-        v.sort_by(|&a, &b| scores[b]
+    // 2) Cull to target population size by global fitness order (if current pop > target)
+    let target = crate::params::get_population_size();
+    let current_len = state.population.len();
+    if current_len > target {
+        let mut idxs: Vec<usize> = (0..current_len).collect();
+        idxs.sort_by(|&a, &b| scores[b]
             .partial_cmp(&scores[a])
             .unwrap_or(std::cmp::Ordering::Equal));
+        idxs.truncate(target);
+        // rebuild population and scores in selected order
+        let mut new_pop = Vec::with_capacity(idxs.len());
+        let mut new_scores = Vec::with_capacity(idxs.len());
+        for i in idxs { new_pop.push(state.population[i].clone()); new_scores.push(scores[i]); }
+        state.population = new_pop;
+        scores = new_scores;
     }
 
-    let mut selected: Vec<usize> = Vec::new();
+    // 3) Hand off to the library's NEAT evolution with speciation-aware reproduction
+    let old_len = state.population.len(); // after culling
+    state.population = evolution::evolution(
+        std::mem::take(&mut state.population),
+        scores.clone(), // aligned 1:1 with culled population
+        &mut state.speciator,
+        &mut state.innov,
+        &state.cfg,
+    );
+    debug_assert_eq!(state.population.len(), old_len, "population size should be stable across generations");
 
-    if EQUAL_ALLOC_ENABLED && !by_species.is_empty() {
-        // Rank species by their best member's fitness
-        let mut species_best: Vec<(usize, f32)> = by_species
+    // 4) Update stats for HUD
+    if !scores.is_empty() {
+        let best = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let avg = scores.iter().sum::<f32>() / (scores.len() as f32);
+        state.last_best = best;
+        state.last_avg = avg;
+        state.last_best_generation = state.eco_episode_counter; // last eco-episode index
+        // Snapshot best genome: pick elite after evolution (first of best species kept by evolution)
+        if let Some((_idx, _)) = scores
             .iter()
-            .map(|(sid, members)| {
-                let best_score = members
-                    .iter()
-                    .copied()
-                    .map(|i| scores[i])
-                    .fold(f32::NEG_INFINITY, f32::max);
-                (*sid, best_score)
-            })
-            .collect();
-        species_best.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-
-        let k = EQUAL_ALLOC_TOP_K.max(1).min(species_best.len());
-    let chosen_species: Vec<usize> = species_best.into_iter().take(k).map(|(sid, _)| sid).collect();
-
-        // Compute base quota and distribute remainder to top species
-    let pop_cap = params::get_population_size();
-    let base = pop_cap / k;
-    let remainder = pop_cap % k;
-
-        // Take from each chosen species up to its quota, or all available if fewer
-        for (rank, sid) in chosen_species.iter().enumerate() {
-            if selected.len() >= pop_cap { break; }
-            let quota = base + if rank < remainder { 1 } else { 0 };
-            if let Some(members) = by_species.get(sid) {
-                let take = members.len().min(quota);
-                selected.extend_from_slice(&members[..take]);
-            }
-        }
-        // If underfilled (some species didn't have enough members), fill by global fitness
-        if selected.len() < pop_cap {
-            let mut seen: std::collections::HashSet<usize> = selected.iter().copied().collect();
-            for i in &all_idxs {
-                if selected.len() >= pop_cap { break; }
-                if !seen.contains(i) { selected.push(*i); seen.insert(*i); }
-            }
-        }
-    } else {
-        // Fallback: Keep up to ECO_CULL_MIN_PER_SPECIES per species by best fitness within that species
-        if ECO_CULL_MIN_PER_SPECIES > 0 {
-            for v in by_species.values() {
-                let take = v.len().min(ECO_CULL_MIN_PER_SPECIES);
-                selected.extend_from_slice(&v[..take]);
-            }
-        }
-
-        // 2) Fill remaining slots by global fitness order, skipping already selected
-        let mut seen: std::collections::HashSet<usize> = selected.iter().copied().collect();
-        for i in &all_idxs {
-            if selected.len() >= params::get_population_size() { break; }
-            if !seen.contains(i) { selected.push(*i); seen.insert(*i); }
-        }
-
-        // If we still exceed population size (e.g., many species × min), trim globally
-        if selected.len() > params::get_population_size() {
-            selected.sort_by(|&a, &b| scores[b]
-                .partial_cmp(&scores[a])
-                .unwrap_or(std::cmp::Ordering::Equal));
-            selected.truncate(params::get_population_size());
+            .enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+        {
+            // Note: after evolution, ordering changed; snapshot just uses the new population's first elite of the best species
+            state.last_best_genome = state.population.first().cloned();
         }
     }
 
-    // Rebuild population vector in selected order
-    let mut new_pop = Vec::with_capacity(selected.len());
-    for &i in &selected { new_pop.push(state.population[i].clone()); }
-    state.population = new_pop;
-
-    // After culling, perform mutation pass on the survivor population (post-episode),
-    // keeping with standard NEAT where mutation happens between generations/episodes.
-    // Apply mutation to all but optionally the top elite (could be added later if desired).
-    for g in state.population.iter_mut() {
-        g.mutate(&mut state.innov, &state.cfg);
-    }
-    // Update best/avg stats for HUD
-    if !scores.is_empty() && !state.population.is_empty() {
-        // Recompute best/avg over kept indices
-        let best_score = selected.iter().copied().map(|i| scores[i]).fold(f32::NEG_INFINITY, f32::max);
-        let avg_score = selected.iter().copied().map(|i| scores[i]).sum::<f32>() / (selected.len() as f32);
-        state.last_best = best_score;
-        state.last_avg = avg_score;
-        state.last_best_generation = state.eco_episode_counter; // repurpose as last eval eco-episode id
-        // Snapshot the best genome for the network panel
-        // Find which kept index had best score and clone its genome
-        if let Some((&best_idx, _)) = selected.iter().zip(selected.iter().map(|&i| scores[i])).max_by(|a,b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)) {
-            let pos = selected.iter().position(|&x| x == best_idx).unwrap_or(0);
-            state.last_best_genome = state.population.get(pos).cloned();
-        } else {
-            state.last_best_genome = state.population.get(0).cloned();
-        }
-    }
-        // Important: clear existing species to avoid stale representative indices
-        state.speciator.get_species_mut().clear();
+    // 5) Recompute species and member mapping for the next episode
     state.speciator.speciate(&state.population);
     state.member_species = {
         let mut map = vec![0usize; state.population.len()];
         for (sidx, s) in state.speciator.get_species().iter().enumerate() {
-            for &m in &s.members { if m < state.population.len() { map[m] = sidx; } }
+            for &m in &s.members {
+                if m < state.population.len() {
+                    map[m] = sidx;
+                }
+            }
         }
         map
     };
