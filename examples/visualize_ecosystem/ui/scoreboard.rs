@@ -111,10 +111,15 @@ pub fn draw_scoreboard(_fullscreen: Rect, state: &AppState, rows: &[ScoreEntry],
     if modal {
         let bx2 = bx + btn_w + gap;
         let cont_hover = point_in_rect(mx, my, bx2, by, btn_w, btn_h);
-        draw_button(bx2, by, btn_w, btn_h, "Continue", cont_hover);
+        draw_button(bx2, by, btn_w, btn_h, "Continue [C]", cont_hover);
         if cont_hover && is_mouse_button_pressed(MouseButton::Left) {
             continue_clicked = true;
         }
+        // Also show a subtle hint near the button area
+        let hint_fs = 14.0;
+        let hint = "Press C to Continue";
+        let tw = measure_text(hint, None, hint_fs as u16, 1.0).width;
+        draw_text(hint, bx2 + (btn_w - tw) * 0.5, by - 8.0, hint_fs, LIGHTGRAY);
     }
 
     if close_hover && is_mouse_button_pressed(MouseButton::Left) && !modal {

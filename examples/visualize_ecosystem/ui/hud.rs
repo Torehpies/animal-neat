@@ -109,31 +109,95 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
         }
     }
 
-    // Controls (toggleable) - always allow when enabled, even in simple HUD
+    // Controls (toggleable) with two columns, one control per row, short descriptions
     if state.show_controls {
         if y <= max_y {
             y = section_title("Controls", x, y, max_w);
-            let line_left = [
-                "[P] Pause/Resume   [F] Fast Mode   [X] Ultra Mode   [R] Reset Episode   [Esc] Clear Focus",
-                "[Click] Focus Agent   [N] Best Panel   [M] Live Net   [H] Toggle Controls   [K] Color Mode   [O] FPS",
-            ];
-            let line_right = [
-                if state.scoreboard_pending {
-                    "[T] Close Scoreboard & Continue"
-                } else if state.show_scoreboard_panel {
-                    "[T] Pause at episode end (scoreboard ON)"
-                } else {
-                    "[T] Pause at episode end (scoreboard OFF)"
-                },
-                "[V] Vision Rays   [U] Unified Overlay",
-                "[E] Energy Bar   [C] Collision Radii   [G] Exploration Grid   [Z] Graphs Panel",
-            ];
+            // Simple square indicator for toggles: filled when ON, outline when OFF
+            let ind_on = Color::new(0.95, 0.8, 0.25, 1.0);
+            let ind_off = Color::new(0.45, 0.5, 0.6, 1.0);
             let col_gap = 12.0;
             let col_w = (max_w - col_gap) * 0.5;
+            let fs = 17.0;
+            let ind_size = 9.0;
+            let ind_pad = 4.0;
+            let key_pad = 0.0; // no extra spacing between key and description
+
+            // Left column rows
             let mut yl = y;
-            for line in line_left.iter() { if yl <= max_y { yl = draw_text_wrapped(line, x + 6.0, yl, 17.0, LIGHTGRAY, col_w, 6.0); } }
+            let left_rows: &[( &str, &str, bool )] = &[
+                ("[P]", "Pause/Resume", !running),
+                ("[F]", "Fast Mode", fast_mode),
+                ("[X]", "Ultra Mode", state.ultra_mode),
+                ("[R]", "Reset Episode", false),
+                ("[Esc]", "Clear Focus", state.focused_agent.is_some()),
+                ("[CLK]", "Focus Agent", state.focused_agent.is_some()),
+                ("[N]", "Best Network", state.show_best_network_panel),
+                ("[M]", "Live Network", state.show_live_network),
+                ("[H]", "Toggle Controls", state.show_controls),
+            ];
+            // Compute dynamic key slot width for left column
+            let mut key_slot_w_left = 0.0f32;
+            for (key, _, _) in left_rows.iter() {
+                let w = measure_text(key, None, fs as u16, 1.0).width;
+                if w > key_slot_w_left { key_slot_w_left = w; }
+            }
+            key_slot_w_left += 1.0; // minimal padding
+            // clamp to a tighter range so the gap doesn't look excessive
+            key_slot_w_left = key_slot_w_left.clamp(24.0, 44.0);
+            for (key, desc, on) in left_rows.iter() {
+                if yl > max_y { break; }
+                // indicator box
+                let ix = x + 6.0;
+                let iy = yl - fs + (fs - ind_size) * 0.5; // center square to text row
+                draw_rectangle(ix, iy, ind_size, ind_size, if *on { ind_on } else { Color::new(0.0,0.0,0.0,0.0) });
+                draw_rectangle_lines(ix, iy, ind_size, ind_size, 1.2, if *on { ind_on } else { ind_off });
+                // draw key in fixed slot
+                let key_x = ix + ind_size + ind_pad;
+                draw_text_clamped(key, key_x, yl, fs, LIGHTGRAY, key_slot_w_left);
+                // draw desc aligned to constant x regardless of key width
+                let desc_x = key_x + key_slot_w_left + key_pad;
+                let desc_w = col_w - (desc_x - (x + 6.0));
+                draw_text_clamped(desc, desc_x, yl, fs, LIGHTGRAY, desc_w);
+                yl += fs + 6.0;
+            }
+
+            // Right column rows
             let mut yr = y;
-            for line in line_right.iter() { if yr <= max_y { yr = draw_text_wrapped(line, x + 6.0 + col_w + col_gap, yr, 17.0, LIGHTGRAY, col_w, 6.0); } }
+            let right_rows: &[( &str, &str, bool )] = &[
+                ("[T]", "Pause at episode end", state.show_scoreboard_panel),
+                ("[C]", if state.scoreboard_pending { "Continue" } else { "Collision Radii" }, if state.scoreboard_pending { false } else { state.show_collision_radii }),
+                ("[V]", "Vision Rays", state.show_cones),
+                ("[U]", "Unified Overlay", state.show_unified_overlay),
+                ("[E]", "Energy Bar", state.show_energy_overlay),
+                ("[G]", "Exploration Grid", state.show_grid),
+                ("[Z]", "Graphs Panel", state.show_graphs_panel),
+                ("[O]", "FPS Counter", state.show_fps),
+                ("[K]", "Color by Species", state.color_by_species),
+            ];
+            // Compute dynamic key slot width for right column
+            let mut key_slot_w_right = 0.0f32;
+            for (key, _, _) in right_rows.iter() {
+                let w = measure_text(key, None, fs as u16, 1.0).width;
+                if w > key_slot_w_right { key_slot_w_right = w; }
+            }
+            key_slot_w_right += 1.0;
+            key_slot_w_right = key_slot_w_right.clamp(24.0, 32.0);
+            for (key, desc, on) in right_rows.iter() {
+                if yr > max_y { break; }
+                let ix = x + 6.0 + col_w + col_gap;
+                let iy = yr - fs + (fs - ind_size) * 0.5;
+                draw_rectangle(ix, iy, ind_size, ind_size, if *on { ind_on } else { Color::new(0.0,0.0,0.0,0.0) });
+                draw_rectangle_lines(ix, iy, ind_size, ind_size, 1.2, if *on { ind_on } else { ind_off });
+                // key in fixed slot
+                let key_x = ix + ind_size + ind_pad;
+                draw_text_clamped(key, key_x, yr, fs, LIGHTGRAY, key_slot_w_right);
+                // desc aligned to constant x
+                let desc_x = key_x + key_slot_w_right + key_pad;
+                let desc_w = col_w - (desc_x - (x + 6.0 + col_w + col_gap));
+                draw_text_clamped(desc, desc_x, yr, fs, LIGHTGRAY, desc_w);
+                yr += fs + 6.0;
+            }
             let _y_end = yl.max(yr) + GAP;
         }
     } else {

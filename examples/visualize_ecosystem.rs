@@ -144,21 +144,21 @@ impl AppState {
             last_best: f32::NEG_INFINITY,
             last_avg: 0.0,
             episode,
-            show_cones: true,
+            show_cones: false,
             member_species,
             last_best_generation: 0,
             last_best_genome: None,
             show_unified_overlay: false,
-            show_energy_overlay: true,
+            show_energy_overlay: false,
             show_collision_radii: false,
             show_grid: false,
-            show_best_network_panel: true,
+            show_best_network_panel: false,
             show_live_network: false,
             focused_agent: None,
             eco_episode_counter: 0,
             show_controls: true,
-            color_by_species: false,
-            show_graphs_panel: true,
+            color_by_species: true,
+            show_graphs_panel: false,
             graphs: ui_graphs::Trends::new(),
             sim_config,
             show_fps: true,
@@ -299,7 +299,16 @@ async fn main() {
         if is_key_pressed(KeyCode::V) { state.show_cones = !state.show_cones; }
             if is_key_pressed(KeyCode::U) { state.show_unified_overlay = !state.show_unified_overlay; }
             if is_key_pressed(KeyCode::E) { state.show_energy_overlay = !state.show_energy_overlay; }
-        if is_key_pressed(KeyCode::C) { state.show_collision_radii = !state.show_collision_radii; }
+        // 'C' key: if scoreboard is open, it acts as Continue; otherwise it's for collision radii toggle
+        if is_key_pressed(KeyCode::C) {
+            if state.scoreboard_pending {
+                let mut rng = ::rand::rng();
+                finalize_end_of_episode(&mut state, &mut rng);
+                running = true; // resume autoplay
+            } else {
+                state.show_collision_radii = !state.show_collision_radii;
+            }
+        }
         if is_key_pressed(KeyCode::G) { state.show_grid = !state.show_grid; }
     if is_key_pressed(KeyCode::N) { state.show_best_network_panel = !state.show_best_network_panel; }
     if is_key_pressed(KeyCode::M) { state.show_live_network = !state.show_live_network; }
@@ -309,18 +318,14 @@ async fn main() {
     if is_key_pressed(KeyCode::O) { state.show_fps = !state.show_fps; }
     if is_key_pressed(KeyCode::X) { state.ultra_mode = !state.ultra_mode; }
     // Scoreboard toggle (T):
-    // - If scoreboard is currently open (episode ended and paused), pressing T closes it and continues autoplay,
-    //   and also disables pausing for future episodes (toggle off).
-    // - Otherwise, pressing T toggles the preference: when ON, the app pauses at episode end and shows the scoreboard;
+    // - Pressing T toggles the preference: when ON, the app pauses at episode end and shows the scoreboard;
     //   when OFF, episodes autoplay between generations and the scoreboard is not shown.
+    // - When the scoreboard is currently open, T only toggles the preference for future episodes; it does NOT close or continue.
     if is_key_pressed(KeyCode::T) {
-        if state.scoreboard_pending {
-            // Close scoreboard and continue, disable pause-between-episodes
-            let mut rng = ::rand::rng();
-            state.show_scoreboard_panel = false;
-            finalize_end_of_episode(&mut state, &mut rng);
-            running = true; // resume autoplay
+        if !state.scoreboard_pending {
+            state.show_scoreboard_panel = !state.show_scoreboard_panel;
         } else {
+            // Toggle preference only; keep scoreboard open until 'C' or button click
             state.show_scoreboard_panel = !state.show_scoreboard_panel;
         }
     }
@@ -496,7 +501,7 @@ async fn main() {
         // Scoreboard panel: shown after episodes only when toggle is ON
         if state.scoreboard_pending && state.show_scoreboard_panel {
             let fullscreen = Rect { x: 0.0, y: 0.0, w, h };
-            let clicked = ui_scoreboard::draw_scoreboard(fullscreen, &state, &state.scoreboard_rows, false);
+            let clicked = ui_scoreboard::draw_scoreboard(fullscreen, &state, &state.scoreboard_rows, true);
             if clicked { // Treat button click as continue too
                 let mut rng = ::rand::rng();
                 finalize_end_of_episode(&mut state, &mut rng);
