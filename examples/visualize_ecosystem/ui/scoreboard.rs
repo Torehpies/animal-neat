@@ -12,9 +12,9 @@ pub fn draw_scoreboard(_fullscreen: Rect, state: &AppState, rows: &[ScoreEntry],
         draw_rectangle(0.0, 0.0, w, h, dim);
     }
 
-    // Panel size
-    let panel_w = (w * 0.64).clamp(720.0, 1100.0);
-    let panel_h = (h * 0.64).clamp(420.0, 720.0);
+    // Panel size (enlarged to fit more columns)
+    let panel_w = (w * 0.82).clamp(900.0, 1600.0);
+    let panel_h = (h * 0.78).clamp(520.0, 900.0);
     let panel_x = (w - panel_w) * 0.5;
     let panel_y = (h - panel_h) * 0.5;
     let panel = Rect { x: panel_x, y: panel_y, w: panel_w, h: panel_h };
@@ -33,20 +33,20 @@ pub fn draw_scoreboard(_fullscreen: Rect, state: &AppState, rows: &[ScoreEntry],
     y = section_title(&title, x, y, max_w);
 
     // Columns header
-    let header_fs = 16.0;
+    let header_fs = 15.0;
     let cols = [
-        ("#", 42.0),
-        ("Agent", 70.0),
-        ("Species", 90.0),
-        ("Score", 110.0),
-        ("Plants", 80.0),
-        ("Meat", 70.0),
-        ("Births", 70.0),
-        ("Alive", 80.0),
-        ("IdlePenalty", 110.0),
-        ("Atk", 60.0),
-        ("Kills", 70.0),
-        ("AvgE", 80.0),
+        ("#", 36.0),
+        ("Idx", 56.0),
+        ("Sp", 56.0),
+        ("Scr", 100.0),
+        ("Plt", 64.0),
+        ("Meat", 64.0),
+        ("Off", 60.0),
+        ("Age", 70.0),
+        ("Idle", 84.0),
+        ("Atk", 56.0),
+        ("K", 48.0),
+        ("AvgE", 64.0),
     ];
     // Fit columns within available width by uniform scaling
     let base_sum: f32 = cols.iter().map(|(_, w)| *w).sum();
