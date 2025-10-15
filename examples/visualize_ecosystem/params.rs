@@ -174,6 +174,16 @@ pub const REPRO_BIRTH_FITNESS_PARENT: f32 = 8.0;
 // in front of them without forcing tight clustering. Keep this small.
 pub const HERDING_ENABLED: bool = true;
 pub const HERDING_REWARD_PER_STEP: f32 = 0.01; // applied as HERDING_REWARD_PER_STEP * max(0, same_y)
+// Herding crowd scaling: reduce herding reward when the local same-species density is high
+// Radius (world units) used to count nearby conspecifics for crowding
+pub const HERDING_CROWD_RADIUS: f32 = 50.0;
+// Count at which crowding is considered "full" (used to normalize to [0,1])
+pub const HERDING_CROWD_FULL_COUNT: usize = 6;
+// How strongly crowding reduces the herding reward (0.0 = no penalty, 1.0 = full removal)
+pub const HERDING_CROWD_PENALTY: f32 = 0.85;
+// Optional short-cut steering bias that nudges agents toward the local same-species direction
+// Helps evolving controllers exploit social vectors early. Set to 0.0 to disable.
+pub const PACK_FOLLOW_STRENGTH: f32 = 0.0;
 // Intake penalty: penalize agents with very low or zero intake to discourage camping/aimless wandering
 // If an agent eats fewer than INTAKE_MIN_EVENTS times, apply a linear penalty per missing event.
 // Example: INTAKE_MIN_EVENTS=2, INTAKE_MISS_PENALTY=5.0 => 0 eats: -10, 1 eat: -5, 2+ eats: 0

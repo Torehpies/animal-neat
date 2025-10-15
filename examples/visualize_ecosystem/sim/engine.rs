@@ -71,7 +71,7 @@ pub fn tick_step<R: Rng>(
         sim::mask_inputs(&mut inputs);
 
         let out = population[i].evaluate_slice(&inputs);
-        let mut raw_turn = out.get(0).copied().unwrap_or(0.0);
+    let mut raw_turn = out.get(0).copied().unwrap_or(0.0);
         let mut raw_thrust = out.get(1).copied().unwrap_or(0.0);
     // Third output reserved for communication; forced to 0 when COMMUNICATION_ENABLED = false
     let mut raw_call = if COMMUNICATION_ENABLED { out.get(2).copied().unwrap_or(0.0) } else { 0.0 };
@@ -79,6 +79,18 @@ pub fn tick_step<R: Rng>(
         raw_thrust = raw_thrust.clamp(-1.0, 1.0);
         raw_call = raw_call.clamp(-1.0, 1.0);
     a.call_intensity = if COMMUNICATION_ENABLED { (raw_call + 1.0) * 0.5 } else { 0.0 };
+        // Optional pack-follow steering bias: nudge the raw_turn toward the angle to the nearest same-species
+        if PACK_FOLLOW_STRENGTH > 0.0 {
+            // sensing::nearest_same_other_vectors_local returns ((same_right, same_forward), (other_right, other_forward))
+            let ((same_x, same_y), _) = sensing::nearest_same_other_vectors_local(a.body.pos, a.theta, &snapshot, i, my_species);
+            if same_x.abs() + same_y.abs() > 1e-6 {
+                // angle relative to forward: atan2(right, forward)
+                let angle_local = same_x.atan2(same_y); // radians in [-pi,pi]
+                // normalize to [-1,1]
+                let bias = (angle_local / std::f32::consts::PI).clamp(-1.0, 1.0) * PACK_FOLLOW_STRENGTH;
+                raw_turn = (raw_turn + bias).clamp(-1.0, 1.0);
+            }
+        }
         let turn_delta = raw_turn * MAX_TURN_PER_STEP;
         a.theta += turn_delta;
         while a.theta > std::f32::consts::PI { a.theta -= 2.0 * std::f32::consts::PI; }
@@ -229,7 +241,23 @@ pub fn tick_step<R: Rng>(
         // Social herding shaping: reward following same-species in front (positive forward alignment)
         if HERDING_ENABLED {
             let forward_align = same_y.max(0.0); // prefer being behind/following a same-species target
-            if let Some(fit) = comm_fit.get_mut(i) { *fit += forward_align * HERDING_REWARD_PER_STEP; }
+            // compute local same-species crowding (exclude self)
+            let mut same_count = 0usize;
+            let rr = HERDING_CROWD_RADIUS * HERDING_CROWD_RADIUS;
+            for (j, (pos_j, alive_j, consumed_j, species_j, _)) in snapshot.iter().enumerate() {
+                if j == i { continue; }
+                if !*alive_j || *consumed_j { continue; }
+                if *species_j != my_species { continue; }
+                let dx = pos_j.x - a.body.pos.x;
+                let dy = pos_j.y - a.body.pos.y;
+                if dx*dx + dy*dy <= rr { same_count += 1; }
+            }
+            let norm = (same_count as f32) / (HERDING_CROWD_FULL_COUNT.max(1) as f32);
+            let crowd_factor = norm.clamp(0.0, 1.0);
+            let scale = 1.0 - crowd_factor * HERDING_CROWD_PENALTY;
+            if let Some(fit) = comm_fit.get_mut(i) {
+                *fit += forward_align * HERDING_REWARD_PER_STEP * scale;
+            }
         }
 
         // Communication: spawn/score signals only when enabled
