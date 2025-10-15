@@ -4,6 +4,7 @@ use macroquad::prelude::Vec2;
 use neat::genome::Genome;
 use ::rand::Rng;
 use sim::{resolve_predation, decay_corpses_and_flashes};
+use neat::neat::compatibility::distance as neat_distance;
 
 use crate::{params::*, sensing, sim::{self, CommSignal, Agent, DigestEvent, dir_from_theta, grid_index}, world::{self, wrap_to_world}};
 use crate::body::{resolve_collision, Body};
@@ -202,7 +203,16 @@ pub fn tick_step<R: Rng>(
             'outer: for oy in -1..=1 { for ox in -1..=1 { if let Some(bucket) = grid.get(&(gx+ox, gy+oy)) {
                 for &j in bucket { if j == i { continue; }
                     let (pos_j, alive_j, consumed_j, species_j, is_corpse_j) = snapshot[j]; if consumed_j { continue; }
-                    if alive_j && species_j == my_species { continue; }
+                    // Kinship protection: skip attacking if target is same species OR genetically similar enough
+                    if alive_j {
+                        if species_j == my_species {
+                            continue;
+                        } else {
+                            // If genomes are similar enough by NEAT distance, treat as kin and skip
+                            let d = neat_distance(&population[i], &population[j], ECO_MATE_C1, ECO_MATE_C2, ECO_MATE_C3);
+                            if d <= ECO_MATE_COMPATIBILITY_THRESHOLD { continue; }
+                        }
+                    }
                     if (alive_j && !PREDATION_ENABLED) || ((!alive_j || is_corpse_j) && !SCAVENGE_ENABLED) { continue; }
                     let dx = pos_j.x - a.body.pos.x; let dy = pos_j.y - a.body.pos.y; let dist2 = dx*dx + dy*dy; if dist2 > EAT_AGENT_RADIUS*EAT_AGENT_RADIUS { continue; }
                     if alive_j && PREDATION_REQUIRES_VISION { let len = (dist2 as f32).sqrt(); if len < 1e-6 { continue; } let dot = dir.dot(Vec2::new(dx,dy)/len); if dot < half_cone_cos { continue; } }

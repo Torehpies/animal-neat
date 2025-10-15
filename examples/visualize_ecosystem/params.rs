@@ -212,8 +212,17 @@ pub const ECO_BIRTH_COOLDOWN_STEPS: usize = 150;    // steps before the same par
 pub const ECO_MAX_OFFSPRING_PER_AGENT: usize = 10;  // per-episode cap
 pub const ECO_NEWBORN_ENERGY: f32 = 150.0;         // initial energy for newborns
 pub const ECO_NEWBORN_HEALTH: f32 = AGENT_BASE_HEALTH / 2.0;
-/// Distance within which two same-species, eligible parents can mate to produce an offspring
+/// Distance within which two eligible parents can mate to produce an offspring
+/// Note: Mating is allowed across species if genomes are sufficiently similar (see ECO_MATE_COMPATIBILITY_THRESHOLD).
 pub const ECO_MATE_RADIUS: f32 = 6.0 * AGENT_RADIUS;
+/// Compatibility distance threshold for allowing cross-species mating and kinship protection.
+/// If distance(genome_i, genome_j) <= this threshold, agents are considered "similar enough" to
+/// mate and to avoid attacking each other (kin protection) even if their species IDs differ.
+pub const ECO_MATE_COMPATIBILITY_THRESHOLD: f32 = 1.0; // tune: lower = stricter similarity
+/// Coefficients for NEAT compatibility distance used in ecosystem similarity checks
+pub const ECO_MATE_C1: f32 = 1.0;
+pub const ECO_MATE_C2: f32 = 1.0;
+pub const ECO_MATE_C3: f32 = 0.4;
 /// Require parents to be actively moving (not idle) to be eligible for birth
 pub const ECO_REQUIRE_NON_IDLE_FOR_BIRTH: bool = true;
 /// Impulse applied to both parents after birth to nudge them apart and discourage clustering

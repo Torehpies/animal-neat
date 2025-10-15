@@ -729,49 +729,52 @@ fn spawn_offspring_if_needed<R: Rng>(
         if a.repro_cooldown > 0 { a.repro_cooldown -= 1; }
     }
 
-    // Gather eligible parents by species (meets energy, cooldown, offspring cap, and optional non-idle requirement)
+    // Gather eligible parents (energy, cooldown, offspring cap, optional non-idle)
     let threshold = ECO_BIRTH_ENERGY_THRESHOLD;
-    let mut by_species: std::collections::HashMap<usize, Vec<usize>> = std::collections::HashMap::new();
+    let mut eligible: Vec<usize> = Vec::new();
     for &i in &live_indices {
         let a = &episode.agents[i];
         let non_idle_ok = if params::ECO_REQUIRE_NON_IDLE_FOR_BIRTH {
-            // consider non-idle if moving or hasn't exceeded idle threshold
             a.body.vel.length() > 0.2 || a.idle_steps < IDLENESS_THRESHOLD_STEPS
         } else { true };
         if a.repro_cooldown == 0 && a.offspring_count < ECO_MAX_OFFSPRING_PER_AGENT && a.energy >= threshold && non_idle_ok {
-            by_species.entry(a.species_id).or_default().push(i);
+            eligible.push(i);
         }
     }
 
-    // Attempt to find nearby pairs within species and spawn one child per found pair this step
+    // Attempt to find nearby pairs among eligible agents. Allow cross-species mating if genomes are similar enough by NEAT distance.
     let cost = ECO_BIRTH_ENERGY_COST;
-    let mut births: Vec<(usize, usize, crate::body::Body, usize)> = Vec::new(); // (p1_idx, p2_idx, child_body, species_id)
-    for (sid, indices) in by_species.into_iter() {
-        // Simple n^2 pairing; early exit when near pop cap
-        let mut used: std::collections::HashSet<usize> = std::collections::HashSet::new();
-        'outer: for (ii, &i) in indices.iter().enumerate() {
-            if used.contains(&i) { continue; }
-            let ai = &episode.agents[i];
-            for &j in indices.iter().skip(ii+1) {
-                if used.contains(&j) { continue; }
-                let aj = &episode.agents[j];
-                // Distance check
-                let dx = ai.body.pos.x - aj.body.pos.x; let dy = ai.body.pos.y - aj.body.pos.y;
-                if dx*dx + dy*dy <= ECO_MATE_RADIUS*ECO_MATE_RADIUS {
-                    // Both will pay half cost; ensure after payment they stay >= 0 energy
-                    let half = cost * 0.5;
-                    if ai.energy >= half && aj.energy >= half {
-                        // Child spawn near parents: midpoint with small jitter
-                        let mid = Vec2 { x: (ai.body.pos.x + aj.body.pos.x) * 0.5, y: (ai.body.pos.y + aj.body.pos.y) * 0.5 };
-                        let jitter = Vec2 { x: (rng.random::<f32>() - 0.5) * 3.0 * AGENT_RADIUS, y: (rng.random::<f32>() - 0.5) * 3.0 * AGENT_RADIUS };
-                        let mut pos = mid + jitter;
-                        pos.x = (pos.x % WORLD_W + WORLD_W) % WORLD_W; pos.y = (pos.y % WORLD_H + WORLD_H) % WORLD_H;
-                        births.push((i, j, crate::body::Body { pos, vel: Vec2::new(0.0, 0.0), radius: AGENT_RADIUS }, sid));
-                        used.insert(i); used.insert(j);
-                        if live_indices.len() + births.len() >= ECO_MAX_POP { break 'outer; }
-                    }
-                }
+    let mut births: Vec<(usize, usize, crate::body::Body, usize)> = Vec::new(); // (p1_idx, p2_idx, child_body, species_id_tag)
+    let mut used: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    eligible.sort_unstable();
+    'pairing: for (ii, &i) in eligible.iter().enumerate() {
+        if used.contains(&i) { continue; }
+        let ai = &episode.agents[i];
+        for &j in eligible.iter().skip(ii+1) {
+            if used.contains(&j) { continue; }
+            let aj = &episode.agents[j];
+            // Proximity check
+            let dx = ai.body.pos.x - aj.body.pos.x; let dy = ai.body.pos.y - aj.body.pos.y;
+            if dx*dx + dy*dy > ECO_MATE_RADIUS*ECO_MATE_RADIUS { continue; }
+            // Similarity check: allow if same species OR compatibility distance <= threshold
+            let mut similar = ai.species_id == aj.species_id;
+            if !similar {
+                let d = neat::neat::compatibility::distance(&population[i], &population[j], ECO_MATE_C1, ECO_MATE_C2, ECO_MATE_C3);
+                if d <= ECO_MATE_COMPATIBILITY_THRESHOLD { similar = true; }
             }
+            if !similar { continue; }
+            // Energy cost feasibility
+            let half = cost * 0.5; if ai.energy < half || aj.energy < half { continue; }
+            // Child spawn near parents: midpoint with small jitter
+            let mid = Vec2 { x: (ai.body.pos.x + aj.body.pos.x) * 0.5, y: (ai.body.pos.y + aj.body.pos.y) * 0.5 };
+            let jitter = Vec2 { x: (rng.random::<f32>() - 0.5) * 3.0 * AGENT_RADIUS, y: (rng.random::<f32>() - 0.5) * 3.0 * AGENT_RADIUS };
+            let mut pos = mid + jitter;
+            pos.x = (pos.x % WORLD_W + WORLD_W) % WORLD_W; pos.y = (pos.y % WORLD_H + WORLD_H) % WORLD_H;
+            // Tag child with one parent's species id for in-episode kin behavior. We choose the first parent's species id.
+            let sid = ai.species_id;
+            births.push((i, j, crate::body::Body { pos, vel: Vec2::new(0.0, 0.0), radius: AGENT_RADIUS }, sid));
+            used.insert(i); used.insert(j);
+            if live_indices.len() + births.len() >= ECO_MAX_POP { break 'pairing; }
         }
     }
 
