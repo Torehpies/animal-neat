@@ -166,15 +166,38 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
                 draw_text_clamped("No agent focused", panel.x, panel.y + panel.h * 0.5, 16.0, GRAY, panel.w - 8.0);
             }
         } else if state.show_best_network_panel {
-            let title = if state.last_best.is_finite() && state.last_best > f32::NEG_INFINITY {
-                if ECO_CONTINUOUS { format!("Best network (last eval, fit {:.2})", state.last_best) } else { format!("Best network (last gen {}, fit {:.2})", state.last_best_generation, state.last_best) }
-            } else { "Best network (pending)".to_string() };
-            draw_text_clamped(&title, panel.x, panel.y - 8.0, 18.0, LIGHTGRAY, panel.w - 8.0);
-            if let Some(genome) = state.last_best_genome.as_ref() {
-                draw_network_panel(panel, genome);
+            // If an agent is focused, prefer showing its network in the panel so clicking an agent
+            // displays that agent's network (keeps the visual layout unchanged).
+            if let Some(fi) = state.focused_agent {
+                if fi < state.population.len() {
+                    let title = format!("Focused Agent #{} network", fi);
+                    draw_text_clamped(&title, panel.x, panel.y - 8.0, 18.0, LIGHTGRAY, panel.w - 8.0);
+                    let genome = &state.population[fi];
+                    draw_network_panel(panel, genome);
+                } else {
+                    // Fallback to best network if focused index is out-of-range
+                    let title = if state.last_best.is_finite() && state.last_best > f32::NEG_INFINITY {
+                        if ECO_CONTINUOUS { format!("Best network (last eval, fit {:.2})", state.last_best) } else { format!("Best network (last gen {}, fit {:.2})", state.last_best_generation, state.last_best) }
+                    } else { "Best network (pending)".to_string() };
+                    draw_text_clamped(&title, panel.x, panel.y - 8.0, 18.0, LIGHTGRAY, panel.w - 8.0);
+                    if let Some(genome) = state.last_best_genome.as_ref() {
+                        draw_network_panel(panel, genome);
+                    } else {
+                        let msg = if ECO_CONTINUOUS { "Evolves with periodic evaluations. Once a new best is found, it will appear here." } else { "Evolves as episodes complete. Once a new best is found, its network will appear here." };
+                        draw_text_clamped(msg, panel.x, panel.y + panel.h * 0.5, 16.0, GRAY, panel.w - 8.0);
+                    }
+                }
             } else {
-                let msg = if ECO_CONTINUOUS { "Evolves with periodic evaluations. Once a new best is found, it will appear here." } else { "Evolves as episodes complete. Once a new best is found, its network will appear here." };
-                draw_text_clamped(msg, panel.x, panel.y + panel.h * 0.5, 16.0, GRAY, panel.w - 8.0);
+                let title = if state.last_best.is_finite() && state.last_best > f32::NEG_INFINITY {
+                    if ECO_CONTINUOUS { format!("Best network (last eval, fit {:.2})", state.last_best) } else { format!("Best network (last gen {}, fit {:.2})", state.last_best_generation, state.last_best) }
+                } else { "Best network (pending)".to_string() };
+                draw_text_clamped(&title, panel.x, panel.y - 8.0, 18.0, LIGHTGRAY, panel.w - 8.0);
+                if let Some(genome) = state.last_best_genome.as_ref() {
+                    draw_network_panel(panel, genome);
+                } else {
+                    let msg = if ECO_CONTINUOUS { "Evolves with periodic evaluations. Once a new best is found, it will appear here." } else { "Evolves as episodes complete. Once a new best is found, its network will appear here." };
+                    draw_text_clamped(msg, panel.x, panel.y + panel.h * 0.5, 16.0, GRAY, panel.w - 8.0);
+                }
             }
         }
     }

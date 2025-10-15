@@ -392,6 +392,10 @@ async fn main() {
             state.focused_agent = best.map(|(i, _)| i);
         }
     }
+    // Right click clears focus (unfocus)
+    if is_mouse_button_pressed(MouseButton::Right) {
+        state.focused_agent = None;
+    }
     // (mouse_world already defined above)
 
     ui_world_view::draw_world(
