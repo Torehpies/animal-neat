@@ -260,10 +260,10 @@ pub const ECO_CONTINUOUS: bool = true;
 pub const ECO_MAX_POP: usize = 250;                 // maximum concurrent agents
 pub const ECO_MIN_POP: usize = 10;                 // minimum seeding on reset if all die
 pub const ECO_BIRTH_ENERGY_THRESHOLD: f32 = 100.0; // minimum energy to allow birth
-pub const ECO_BIRTH_ENERGY_COST: f32 = 50.0;      // energy deducted from parent per birth
-pub const ECO_BIRTH_COOLDOWN_STEPS: usize = 100;    // steps before the same parent can reproduce again
+pub const ECO_BIRTH_ENERGY_COST: f32 = 75.0;      // energy deducted from parent per birth
+pub const ECO_BIRTH_COOLDOWN_STEPS: usize = 50;    // steps before the same parent can reproduce again
 pub const ECO_MAX_OFFSPRING_PER_AGENT: usize = 100;  // per-episode cap
-pub const ECO_NEWBORN_ENERGY: f32 = 150.0;         // initial energy for newborns
+pub const ECO_NEWBORN_ENERGY: f32 = 250.0;         // initial energy for newborns
 pub const ECO_NEWBORN_HEALTH: f32 = AGENT_BASE_HEALTH / 1.5;
 /// Distance within which two eligible parents can mate to produce an offspring
 /// Note: Mating is allowed across species if genomes are sufficiently similar (see ECO_MATE_COMPATIBILITY_THRESHOLD).
@@ -380,7 +380,7 @@ pub const DIGEST_STEPS_MEAT: u16 = 45;
 // Speciation (visualizer)
 // =============================
 // Target number of species and adaptation rate for the compatibility threshold.
-pub const SPECIES_TARGET: usize = 8;     // e.g., aim for ~8 species
+pub const SPECIES_TARGET: usize = 10;     // e.g., aim for ~8 species
 pub const SPECIES_ADAPT_RATE: f32 = 0.01; // how fast the threshold adapts towards target
 // During eco culling, keep at least this many per species (subject to POPULATION_SIZE cap)
 pub const ECO_CULL_MIN_PER_SPECIES: usize = 10;
