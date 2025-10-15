@@ -110,11 +110,41 @@ pub fn draw_network_panel(area: Rect, genome: &Genome) {
         if ids.is_empty() { continue; }
         let t = if max_depth == 0 { 0.0 } else { d as f32 / (max_depth as f32) };
         let x = left_x * (1.0 - t) + right_x * t;
-        let n = ids.len().max(1) as f32;
-        for (i, id) in ids.iter().enumerate() {
-            let ty = if n <= 1.0 { 0.5 } else { i as f32 / (n - 1.0) };
-            let y = top_y * (1.0 - ty) + bot_y * ty;
-            pos.insert(*id, (x, y));
+
+        // For input layer (d==0), add extra spacing between modality groups to avoid overlap
+        if d == 0 {
+            let r = sensing::input_ranges();
+            // Only position visible (non-hidden) inputs to keep spacing consistent
+            let visible: Vec<u32> = ids.iter().copied().filter(|id| !hidden_inputs.contains(id)).collect();
+            let mut y_cursor = top_y;
+            let base_spacing = 7.0; // further reduced spacing per input node
+            let group_gap = 1.0; // much smaller gap between modality groups
+
+            for (i, id) in visible.iter().enumerate() {
+                let idx = *id as usize;
+                if i > 0 {
+                    let prev_idx = visible[i-1] as usize;
+                    let crosses_boundary =
+                        (prev_idx < r.vision.end && idx >= r.vision.end) ||
+                        (prev_idx < r.energy + 1 && idx >= r.energy + 1) ||
+                        (prev_idx < r.memory.end && idx >= r.memory.end) ||
+                        (prev_idx < r.hearing.end && idx >= r.hearing.end) ||
+                        (prev_idx < r.position.end && idx >= r.position.end);
+                    if crosses_boundary {
+                        y_cursor += group_gap;
+                    }
+                }
+                pos.insert(*id, (x, y_cursor));
+                y_cursor += base_spacing;
+            }
+        } else {
+            // For other layers, use uniform spacing
+            let n = ids.len().max(1) as f32;
+            for (i, id) in ids.iter().enumerate() {
+                let ty = if n <= 1.0 { 0.5 } else { i as f32 / (n - 1.0) };
+                let y = top_y * (1.0 - ty) + bot_y * ty;
+                pos.insert(*id, (x, y));
+            }
         }
     }
 
@@ -179,17 +209,18 @@ pub fn draw_network_panel(area: Rect, genome: &Genome) {
     };
 
     let draw_input_labels = |ids: &Vec<u32>| {
-        // Larger font; place the label just to the left of the node (about 10px gap)
-        let fs_px: f32 = 16.0;
-        let fs: u16 = 16;
+        // Smaller font and tighter gap so labels take less vertical space.
+        let fs_px: f32 = 12.0;
+        let fs: u16 = 12;
+        let horiz_gap = 12.0; // tighter gap between node and label
         for id in ids {
             if hidden_inputs.contains(id) { continue; }
             if let Some(&(x, y)) = pos.get(id) {
                 let label = input_label(*id as usize);
                 let tw = measure_text(&label, None, fs, 1.0).width;
-                let tx = x - 10.0 - tw; // 10px left of the circle edge
-                let ty = y + 5.0; // slight vertical offset
-                // Foreground
+                // Place label so its vertical center aligns with node center
+                let tx = x - horiz_gap - tw;
+                let ty = y + (fs_px * 0.35); // approximate vertical centering
                 draw_text(&label, tx, ty, fs_px, LIGHTGRAY);
             }
         }
@@ -281,7 +312,41 @@ pub fn draw_network_panel_activations(area: Rect, genome: &Genome, activations: 
     let top_y = area.y + 24.0;
     let bot_y = area.y + area.h - 24.0;
     let mut pos: std::collections::HashMap<u32, (f32, f32)> = std::collections::HashMap::new();
-    for (d, ids) in by_layer.iter().enumerate() { if ids.is_empty() { continue; } let t = if max_depth == 0 { 0.0 } else { d as f32 / (max_depth as f32) }; let x = left_x * (1.0 - t) + right_x * t; let n = ids.len().max(1) as f32; for (i, id) in ids.iter().enumerate() { let ty = if n <= 1.0 { 0.5 } else { i as f32 / (n - 1.0) }; let y = top_y * (1.0 - ty) + bot_y * ty; pos.insert(*id, (x, y)); } }
+    for (d, ids) in by_layer.iter().enumerate() {
+        if ids.is_empty() { continue; }
+        let t = if max_depth == 0 { 0.0 } else { d as f32 / (max_depth as f32) };
+        let x = left_x * (1.0 - t) + right_x * t;
+
+        if d == 0 {
+            let r = sensing::input_ranges();
+            let visible: Vec<u32> = ids.iter().copied().filter(|id| !hidden_inputs.contains(id)).collect();
+            let mut y_cursor = top_y;
+            let base_spacing = 12.0;
+            let group_gap = 4.0;
+            for (i, id) in visible.iter().enumerate() {
+                let idx = *id as usize;
+                if i > 0 {
+                    let prev_idx = visible[i-1] as usize;
+                    let crosses_boundary =
+                        (prev_idx < r.vision.end && idx >= r.vision.end) ||
+                        (prev_idx < r.energy + 1 && idx >= r.energy + 1) ||
+                        (prev_idx < r.memory.end && idx >= r.memory.end) ||
+                        (prev_idx < r.hearing.end && idx >= r.hearing.end) ||
+                        (prev_idx < r.position.end && idx >= r.position.end);
+                    if crosses_boundary { y_cursor += group_gap; }
+                }
+                pos.insert(*id, (x, y_cursor));
+                y_cursor += base_spacing;
+            }
+        } else {
+            let n = ids.len().max(1) as f32;
+            for (i, id) in ids.iter().enumerate() {
+                let ty = if n <= 1.0 { 0.5 } else { i as f32 / (n - 1.0) };
+                let y = top_y * (1.0 - ty) + bot_y * ty;
+                pos.insert(*id, (x, y));
+            }
+        }
+    }
 
     // Draw connections (by weight only for simplicity)
     for conn in &genome.connections {
