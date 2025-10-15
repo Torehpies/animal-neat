@@ -35,6 +35,9 @@ pub async fn pick_snapshot() -> Option<String> {
         mb.cmp(&ma)
     });
 
+    // Advance one frame to clear any input state that carried over from the caller
+    next_frame().await;
+
     let page_size: usize = 10;
     let mut page: usize = 0;
 
@@ -47,13 +50,12 @@ pub async fn pick_snapshot() -> Option<String> {
 
         let list_x = w * 0.15;
         let list_w = w * 0.7;
-        let mut list_y = h * 0.18;
+        let list_y = h * 0.18;
         let item_h = 36.0;
 
         let start = page * page_size;
         let end = ((page + 1) * page_size).min(files.len());
         for (i, p) in files[start..end].iter().enumerate() {
-            let idx = start + i;
             let name = p.file_name().and_then(|s| s.to_str()).unwrap_or("?");
             let rect_x = list_x;
             let rect_y = list_y + (i as f32) * (item_h + 8.0);
@@ -69,6 +71,8 @@ pub async fn pick_snapshot() -> Option<String> {
             draw_text(name, rect_x + 8.0, rect_y + 22.0, 20.0, BLACK);
 
             if hovered && is_mouse_button_pressed(MouseButton::Left) {
+                // wait for release to avoid the same click being delivered to the caller
+                while is_mouse_button_down(MouseButton::Left) { next_frame().await; }
                 return Some(p.to_string_lossy().into_owned());
             }
         }

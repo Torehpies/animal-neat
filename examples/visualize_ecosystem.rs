@@ -49,6 +49,8 @@ mod body;
 mod sim;
 #[path = "visualize_ecosystem/snapshot.rs"]
 mod snapshot;
+#[path = "visualize_ecosystem/ui/load_picker.rs"]
+mod ui_load_picker;
 use sim::{Episode, Agent, AgentId};
 use ::rand::Rng;
 use params::*;
@@ -303,6 +305,13 @@ async fn main() {
         }
         let mut running = true;      // continuous evolution by default
         let mut fast_mode = false;   // start at normal speed
+        // In-simulation modal menu state
+        let mut sim_menu_open: bool = false;
+        let mut save_dialog_open: bool = false;
+        let mut save_input: String = String::new();
+        let mut prev_running_state: bool = running;
+        // Click cooldown (seconds) to avoid double/triple activations from fast clicks
+        let mut click_cooldown: f32 = 0.0;
         let mut normal_step_timer = 0.0f32;          // accumulates frame time for normal stepping
         let normal_step_interval = 0.05f32;           // seconds per simulation step in normal mode
         let fast_steps_per_frame: usize = 500;       // simulation steps per frame in fast mode
@@ -441,13 +450,23 @@ async fn main() {
             }
         }
         
-        // ESC: if focused on an agent, clear focus; otherwise go back to menu
+        // ESC: if focused on an agent, clear focus; otherwise open in-sim menu overlay
         if is_key_pressed(KeyCode::Escape) {
             if state.focused_agent.is_some() {
                 state.focused_agent = None;
             } else {
-                // Go back to menu
-                continue 'main_loop;
+                // Open or close the in-simulation modal menu instead of going straight back to main menu
+                sim_menu_open = !sim_menu_open;
+                if sim_menu_open {
+                    // pause simulation while menu is open
+                    prev_running_state = running;
+                    running = false;
+                } else {
+                    // restore running state when closing menu (unless explicitly resumed)
+                    running = prev_running_state;
+                    save_dialog_open = false;
+                    save_input.clear();
+                }
             }
         }
         // Removed per-row overlay toggles (1..4). Unified overlay is controlled via 'U'.
@@ -568,7 +587,7 @@ async fn main() {
     }
     // (mouse_world already defined above)
 
-    ui_world_view::draw_world(
+        ui_world_view::draw_world(
         world_area,
         &state.episode,
         state.show_cones,
@@ -585,6 +604,235 @@ async fn main() {
         state.color_by_species,
     );
     ui_hud::draw_hud(hud_area, &state, running, fast_mode, &state.member_species);
+        // Decrement click cooldown
+        if click_cooldown > 0.0 {
+            click_cooldown -= get_frame_time();
+            if click_cooldown < 0.0 { click_cooldown = 0.0; }
+        }
+
+        // If the simulation menu overlay is open, draw it on top and handle its input.
+        if sim_menu_open {
+            // Modal panel
+            let panel_w = 420.0;
+            let panel_h = 240.0;
+            let cx = screen_width() * 0.5;
+            let cy = screen_height() * 0.5;
+            let panel_x = cx - panel_w * 0.5;
+            let panel_y = cy - panel_h * 0.5;
+
+            draw_rectangle(panel_x, panel_y, panel_w, panel_h, Color::new(0.06, 0.06, 0.08, 0.95));
+            draw_rectangle_lines(panel_x, panel_y, panel_w, panel_h, 2.0, GRAY);
+            let title = "Simulation Menu";
+            let tw = measure_text(title, None, 28, 1.0).width;
+            draw_text(title, cx - tw * 0.5, panel_y + 36.0, 28.0, WHITE);
+
+            let btn_w = 140.0;
+            let btn_h = 40.0;
+            let gap = 18.0;
+            let left_x = panel_x + 32.0;
+            let mut by = panel_y + 72.0;
+
+            // Resume button
+            let resume_x = left_x;
+            let resume_y = by;
+            let (mx, my) = mouse_position();
+            let hovering_resume = mx >= resume_x && mx <= resume_x + btn_w && my >= resume_y && my <= resume_y + btn_h;
+            let resume_col = if hovering_resume { Color::new(0.25, 0.7, 0.25, 1.0) } else { Color::new(0.18, 0.5, 0.18, 1.0) };
+            draw_rectangle(resume_x, resume_y, btn_w, btn_h, resume_col);
+            draw_rectangle_lines(resume_x, resume_y, btn_w, btn_h, 2.0, WHITE);
+            let txt = "Resume";
+            let tw = measure_text(txt, None, 20, 1.0).width;
+            draw_text(txt, resume_x + (btn_w - tw) / 2.0, resume_y + 26.0, 20.0, WHITE);
+
+            // Save button (open save dialog)
+            let save_x = resume_x + btn_w + gap;
+            let save_y = by;
+            let hovering_save = mx >= save_x && mx <= save_x + btn_w && my >= save_y && my <= save_y + btn_h;
+            let save_col = if hovering_save { Color::new(0.25, 0.6, 0.9, 1.0) } else { Color::new(0.15, 0.45, 0.75, 1.0) };
+            draw_rectangle(save_x, save_y, btn_w, btn_h, save_col);
+            draw_rectangle_lines(save_x, save_y, btn_w, btn_h, 2.0, WHITE);
+            let txt = "Save...";
+            let tw = measure_text(txt, None, 20, 1.0).width;
+            draw_text(txt, save_x + (btn_w - tw) / 2.0, save_y + 26.0, 20.0, WHITE);
+
+            // Load button (open load picker)
+            let load_x = save_x + btn_w + gap;
+            let load_y = by;
+            let hovering_load = mx >= load_x && mx <= load_x + btn_w && my >= load_y && my <= load_y + btn_h;
+            let load_col = if hovering_load { Color::new(0.9, 0.6, 0.25, 1.0) } else { Color::new(0.7, 0.45, 0.12, 1.0) };
+            draw_rectangle(load_x, load_y, btn_w, btn_h, load_col);
+            draw_rectangle_lines(load_x, load_y, btn_w, btn_h, 2.0, WHITE);
+            let txt = "Load...";
+            let tw = measure_text(txt, None, 20, 1.0).width;
+            draw_text(txt, load_x + (btn_w - tw) / 2.0, load_y + 26.0, 20.0, WHITE);
+
+            by += btn_h + 18.0;
+
+            // Back to Main Menu button
+            let back_x = left_x;
+            let back_y = by;
+            let back_w = panel_w - 64.0;
+            let hovering_back = mx >= back_x && mx <= back_x + back_w && my >= back_y && my <= back_y + btn_h;
+            let back_col = if hovering_back { Color::new(0.8, 0.25, 0.25, 1.0) } else { Color::new(0.6, 0.18, 0.18, 1.0) };
+            draw_rectangle(back_x, back_y, back_w, btn_h, back_col);
+            draw_rectangle_lines(back_x, back_y, back_w, btn_h, 2.0, WHITE);
+            let txt = "Back to Main Menu";
+            let tw = measure_text(txt, None, 20, 1.0).width;
+            draw_text(txt, back_x + (back_w - tw) / 2.0, back_y + 26.0, 20.0, WHITE);
+
+            // Handle mouse clicks for modal buttons (consume while modal open)
+            if is_mouse_button_pressed(MouseButton::Left) {
+                // Only accept clicks when cooldown expired
+                if click_cooldown <= 0.0 {
+                    if hovering_resume {
+                        // Close menu and resume
+                        sim_menu_open = false;
+                        running = true;
+                        save_dialog_open = false;
+                        save_input.clear();
+                        click_cooldown = 0.25;
+                    } else if hovering_save {
+                        // Open save name dialog
+                        save_dialog_open = true;
+                        save_input.clear();
+                        click_cooldown = 0.25;
+                    } else if hovering_load {
+                        // Open the load picker overlay (async).
+                        // Hide the in-sim menu and wait for the mouse release so the picker doesn't
+                        // immediately receive the same click event and select a file.
+                        click_cooldown = 0.25;
+                        // wait until left mouse button is released before opening picker
+                        while is_mouse_button_down(MouseButton::Left) { next_frame().await; }
+                        // run the picker UI (await)
+                        if let Some(path) = ui_load_picker::pick_snapshot().await {
+                            // Attempt to load similar to quick-load logic
+                            if let Ok(snap) = snapshot::load_sim_snapshot(&path) {
+                                state.population = snap.population;
+                                state.generation = snap.generation;
+                                state.innov = snap.innovation;
+                                state.episode.food = snap.food.iter().map(|v| v.to_vec2()).collect();
+                                state.episode.agents.clear();
+                                for (i, a_snap) in snap.agents.iter().enumerate() {
+                                    let body = crate::body::Body { pos: a_snap.body_pos.to_vec2(), vel: a_snap.body_vel.to_vec2(), radius: AGENT_RADIUS };
+                                    state.episode.agents.push(Agent {
+                                        id: AgentId(i),
+                                        body,
+                                        theta: a_snap.theta,
+                                        energy: a_snap.energy,
+                                        health: a_snap.health,
+                                        max_health: a_snap.max_health,
+                                        invuln_steps: a_snap.invuln_steps,
+                                        alive_steps: a_snap.alive_steps,
+                                        eaten: a_snap.eaten,
+                                        consumed: a_snap.consumed,
+                                        kills: a_snap.kills,
+                                        predation_flash_steps: a_snap.predation_flash_steps,
+                                        dead_since: a_snap.dead_since,
+                                        corpse_energy: a_snap.corpse_energy,
+                                        digest: std::collections::VecDeque::new(),
+                                        last_food_mem: a_snap.last_food_mem.to_vec2(),
+                                        last_danger_mem: a_snap.last_danger_mem.to_vec2(),
+                                        last_same_mem: a_snap.last_same_mem.to_vec2(),
+                                        last_other_mem: a_snap.last_other_mem.to_vec2(),
+                                        species_id: a_snap.species_id,
+                                        age_steps: a_snap.age_steps,
+                                        call_intensity: a_snap.call_intensity,
+                                        heard_sectors: a_snap.heard_sectors,
+                                        repro_cooldown: a_snap.repro_cooldown,
+                                        offspring_count: a_snap.offspring_count,
+                                        attack_hits: a_snap.attack_hits,
+                                        kills_caused: a_snap.kills_caused,
+                                        idle_anchor: a_snap.idle_anchor.to_vec2(),
+                                        idle_steps: a_snap.idle_steps,
+                                        total_idle_penalty: a_snap.total_idle_penalty,
+                                    });
+                                }
+                                state.episode.steps = snap.episode_steps;
+                                state.speciator.get_species_mut().clear();
+                                state.speciator.speciate(&state.population);
+                                state.member_species = snap.member_species;
+                                println!("Loaded sim snapshot from {}", path);
+                            } else {
+                                // fallback to population-only snapshot
+                                match io::load_population_snapshot(&path) {
+                                    Ok(snap) => {
+                                        state.population = snap.population;
+                                        state.generation = snap.generation;
+                                        state.innov = snap.innovation;
+                                        state.speciator.get_species_mut().clear();
+                                        state.speciator.speciate(&state.population);
+                                        state.member_species = {
+                                            let mut map = vec![0usize; state.population.len()];
+                                            for (sidx, s) in state.speciator.get_species().iter().enumerate() {
+                                                for &m in &s.members { if m < state.population.len() { map[m] = sidx; } }
+                                            }
+                                            map
+                                        };
+                                        let mut rng = ::rand::rng();
+                                        state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
+                                        println!("Loaded population snapshot from {}", path);
+                                    }
+                                    Err(e) => eprintln!("Failed to load snapshot {}: {}", path, e),
+                                }
+                            }
+                        }
+                        // restore paused state to showing the menu so the user can continue interacting
+                        sim_menu_open = true;
+                    } else if hovering_back {
+                        // Return to main menu
+                        save_input.clear();
+                        // return to main menu by breaking to the outer 'main_loop
+                        break 'main_loop;
+                    }
+                }
+            }
+
+            // Save dialog: simple text input overlay above modal
+            if save_dialog_open {
+                let dlg_w = 520.0;
+                let dlg_h = 120.0;
+                let dx = screen_width() * 0.5 - dlg_w * 0.5;
+                let dy = panel_y - dlg_h - 12.0;
+                draw_rectangle(dx, dy, dlg_w, dlg_h, Color::new(0.05, 0.05, 0.06, 0.96));
+                draw_rectangle_lines(dx, dy, dlg_w, dlg_h, 2.0, WHITE);
+                let title = "Save Simulation";
+                draw_text(title, dx + 12.0, dy + 28.0, 24.0, WHITE);
+                let hint = "Enter filename (without extension) and press Enter to save or Esc to cancel";
+                draw_text(hint, dx + 12.0, dy + 52.0, 14.0, Color::new(0.8, 0.8, 0.8, 1.0));
+
+                // Draw input box
+                let ib_x = dx + 12.0;
+                let ib_y = dy + 72.0;
+                let ib_w = dlg_w - 24.0;
+                let ib_h = 32.0;
+                draw_rectangle(ib_x, ib_y, ib_w, ib_h, Color::new(0.12, 0.12, 0.14, 1.0));
+                draw_rectangle_lines(ib_x, ib_y, ib_w, ib_h, 2.0, WHITE);
+                let display = if save_input.is_empty() { "filename_".to_string() } else { format!("{}_", save_input) };
+                draw_text(&display, ib_x + 8.0, ib_y + 22.0, 20.0, YELLOW);
+
+                // Keyboard handling for the save dialog
+                if is_key_pressed(KeyCode::Backspace) { save_input.pop(); }
+                if is_key_pressed(KeyCode::Escape) { save_dialog_open = false; save_input.clear(); }
+                if is_key_pressed(KeyCode::Enter) {
+                    if !save_input.trim().is_empty() {
+                        let filename = format!("snapshots/{}.json", save_input.trim());
+                        match snapshot::save_sim_snapshot(&filename, state.generation, &state.population, &state.innov, &state.episode, &state.member_species) {
+                            Ok(_) => println!("Saved sim snapshot to {}", filename),
+                            Err(e) => eprintln!("Failed to save sim snapshot {}: {}", filename, e),
+                        }
+                        save_dialog_open = false;
+                        save_input.clear();
+                        // keep the in-sim menu open after save
+                        sim_menu_open = true;
+                    }
+                }
+                while let Some(ch) = get_char_pressed() {
+                    if ch.is_ascii() && (ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' || ch == '.') {
+                        save_input.push(ch);
+                    }
+                }
+            }
+        }
 
         next_frame().await;
     } // end 'sim_loop
