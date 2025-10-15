@@ -15,7 +15,7 @@ thread_local! {
     static RUNTIME_POPULATION_SIZE: Cell<usize> = Cell::new(50);
     // Fitness weights (runtime configurable)
     // score = w_lifetime*lifetime + w_energy*avg_energy + w_offspring*offspring + w_comm*comm - w_idle*idle_penalty
-    static RUNTIME_FIT_LIFETIME_WEIGHT: Cell<f32> = Cell::new(0.5);
+    static RUNTIME_FIT_LIFETIME_WEIGHT: Cell<f32> = Cell::new(0.1);
     static RUNTIME_FIT_ENERGY_WEIGHT: Cell<f32> = Cell::new(3.0);
     static RUNTIME_FIT_OFFSPRING_WEIGHT: Cell<f32> = Cell::new(10.0);
     static RUNTIME_FIT_COMM_WEIGHT: Cell<f32> = Cell::new(0.0);
@@ -259,12 +259,12 @@ pub const ECO_CONTINUOUS: bool = true;
 // Hard caps and thresholds
 pub const ECO_MAX_POP: usize = 250;                 // maximum concurrent agents
 pub const ECO_MIN_POP: usize = 10;                 // minimum seeding on reset if all die
-pub const ECO_BIRTH_ENERGY_THRESHOLD: f32 = 320.0; // minimum energy to allow birth
-pub const ECO_BIRTH_ENERGY_COST: f32 = 120.0;      // energy deducted from parent per birth
-pub const ECO_BIRTH_COOLDOWN_STEPS: usize = 150;    // steps before the same parent can reproduce again
-pub const ECO_MAX_OFFSPRING_PER_AGENT: usize = 10;  // per-episode cap
+pub const ECO_BIRTH_ENERGY_THRESHOLD: f32 = 100.0; // minimum energy to allow birth
+pub const ECO_BIRTH_ENERGY_COST: f32 = 50.0;      // energy deducted from parent per birth
+pub const ECO_BIRTH_COOLDOWN_STEPS: usize = 100;    // steps before the same parent can reproduce again
+pub const ECO_MAX_OFFSPRING_PER_AGENT: usize = 100;  // per-episode cap
 pub const ECO_NEWBORN_ENERGY: f32 = 150.0;         // initial energy for newborns
-pub const ECO_NEWBORN_HEALTH: f32 = AGENT_BASE_HEALTH / 2.0;
+pub const ECO_NEWBORN_HEALTH: f32 = AGENT_BASE_HEALTH / 1.5;
 /// Distance within which two eligible parents can mate to produce an offspring
 /// Note: Mating is allowed across species if genomes are sufficiently similar (see ECO_MATE_COMPATIBILITY_THRESHOLD).
 pub const ECO_MATE_RADIUS: f32 = 6.0 * AGENT_RADIUS;

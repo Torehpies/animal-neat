@@ -205,14 +205,24 @@ pub fn tick_step<R: Rng>(
         }
 
         // Positive shaping: reward approaching food and chasing other-species
-        // Approach food: measure reduction in distance to nearest food between this and previous step approximation
+        // Approach food: only reward if facing food AND moving forward (no reward for staring without motion)
         if crate::params::get_fit_approach_food_weight() != 0.0 {
             // Using current food vector magnitude as a proxy for closeness improvement with thrust
             let food_vec_now = Vec2 { x: intent.cur_food_vec.0, y: intent.cur_food_vec.1 };
-            let food_signal = food_vec_now.length(); // 0..1 strength
+            let food_signal = food_vec_now.length(); // 0..1 strength (0 if none)
             let forward = intent.dir; // facing after turn
             let closing = food_vec_now.x * forward.x + food_vec_now.y * forward.y; // projection onto forward
-            let mut reward = (closing.max(0.0)) * food_signal; // only forward motion rewarded
+            // Forward motion factor: velocity along forward (inertia) or positive thrust (no inertia)
+            let motion_factor = if USE_INERTIA {
+                let fwd_speed = a.body.vel.dot(forward).max(0.0);
+                (fwd_speed / MAX_VELOCITY).clamp(0.0, 1.0)
+            } else {
+                let mut t = intent.raw_thrust;
+                if t.abs() < THRUST_DEADZONE { t = 0.0; }
+                t.max(0.0).clamp(0.0, 1.0)
+            };
+            // Reward only when both alignment and forward motion are positive
+            let mut reward = (closing.max(0.0)) * motion_factor * food_signal;
             reward = reward.clamp(0.0, APPROACH_MAX_DELTA_PER_STEP);
             if reward > APPROACH_EPS { a.approach_food_units += reward; }
         }
@@ -284,12 +294,26 @@ pub fn tick_step<R: Rng>(
         // Stats & energy
         delta.total_agent_steps += 1;
         if USE_INERTIA { delta.avg_speed_accum += a.body.vel.length() / MAX_SPEED; }
-        else { delta.avg_speed_accum += (intent.raw_thrust + 1.0) * 0.5; }
+        else {
+            let mut speed = intent.raw_thrust;
+            if speed.abs() < THRUST_DEADZONE { speed = 0.0; }
+            speed = speed.clamp(0.0, 1.0);
+            delta.avg_speed_accum += speed;
+        }
         delta.heading_change_accum += intent.turn_delta.abs();
         a.alive_steps += 1; a.age_steps = a.age_steps.saturating_add(1);
         let mut energy_cost = crate::params::get_energy_drain_per_step();
-        if USE_INERTIA { let vmag = a.body.vel.length(); energy_cost += vmag * EXTRA_VEL_ENERGY_C1 + vmag*vmag*vmag * EXTRA_VEL_ENERGY_C2; if intent.turn_delta.abs()>0.0 && vmag>1e-4 { energy_cost += TURN_ENERGY_SCALE * intent.raw_turn.abs().min(1.0); } }
-        else { let speed = (intent.raw_thrust + 1.0) * 0.5; energy_cost += speed * MOVE_ENERGY_SCALE; if intent.turn_delta.abs()>0.0 && speed>1e-4 { energy_cost += TURN_ENERGY_SCALE * intent.raw_turn.abs().min(1.0); } }
+        if USE_INERTIA {
+            let vmag = a.body.vel.length();
+            energy_cost += vmag * EXTRA_VEL_ENERGY_C1 + vmag*vmag*vmag * EXTRA_VEL_ENERGY_C2;
+            if intent.turn_delta.abs()>0.0 && vmag>1e-4 { energy_cost += TURN_ENERGY_SCALE * intent.raw_turn.abs().min(1.0); }
+        } else {
+            let mut speed = intent.raw_thrust;
+            if speed.abs() < THRUST_DEADZONE { speed = 0.0; }
+            speed = speed.clamp(0.0, 1.0);
+            energy_cost += speed * MOVE_ENERGY_SCALE;
+            if intent.turn_delta.abs()>0.0 && speed>1e-4 { energy_cost += TURN_ENERGY_SCALE * intent.raw_turn.abs().min(1.0); }
+        }
         if COMMUNICATION_ENABLED { energy_cost += a.call_intensity * CALL_COST; }
         a.energy -= energy_cost; if a.energy <= 0.0 || a.health <= DEATH_HEALTH_THRESHOLD { if a.dead_since.is_none() { a.dead_since = Some(step_idx); a.corpse_energy = CORPSE_INITIAL_ENERGY; } }
         if a.energy > 0.0 && a.health > DEATH_HEALTH_THRESHOLD { let ef=(a.energy/ crate::params::get_max_energy()).clamp(0.0,1.0); a.health=(a.health + INJURY_HEAL_RATE * ef * a.max_health).min(a.max_health); }
