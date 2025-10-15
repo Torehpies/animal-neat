@@ -147,7 +147,7 @@ pub const SEASONAL_ENABLED: bool = true;
 pub const SEASONAL_PERIOD_STEPS: usize = 4000; // higher = slower seasons
 pub const SEASONAL_AMPLITUDE: f32 = 0.35;      // 0.0..1.0; multiplies growth by (1 + A*sin(...))
 pub const BIOME_SEASON_PHASE: [f32; 3] = [0.0, 1.2, 2.4]; // radians offset per biome
-pub const FOOD_COUNT: usize = 300;
+pub const FOOD_COUNT: usize = 500;
 pub const FOOD_RADIUS: f32 = 1.2;
 pub const FOOD_ENERGY: f32 = 60.0;
 
@@ -157,10 +157,21 @@ pub const FOOD_MIN_SEP: f32 = 2.5;
 pub const FOOD_RESPAWN_PROB: f32 = 0.006;
 pub const FOOD_SPREAD_CHANCE: f32 = 0.01;
 pub const FOOD_SPREAD_RADIUS: f32 = 15.0;
+// Season/biome knobs for plant decay and spawning (defaults match current behavior)
+// Decay: per-tick life decrement ≈ PLANT_DECAY_BASE_PER_TICK / season_factor^PLANT_DECAY_SEASON_EXP
+// The integer decrement uses stochastic rounding and is clamped to PLANT_DECAY_MAX_STEPS_PER_TICK
+pub const PLANT_DECAY_BASE_PER_TICK: f32 = 5.0;
+pub const PLANT_DECAY_SEASON_EXP: f32 = 20.0;      // higher -> harsher bad seasons, longer good seasons
+pub const PLANT_DECAY_MAX_STEPS_PER_TICK: f32 = 20.0; // safety cap for extremely bad seasons
+// Respawn: probability scaled by season_factor^FOOD_RESPAWN_SEASON_EXP and biased via best-of-N sampling
+pub const FOOD_RESPAWN_SEASON_EXP: f32 = 10.0;     // higher -> fewer spawns in bad seasons, more in good
+pub const FOOD_RESPAWN_CANDIDATE_SAMPLES: usize = 3; // best-of-N random positions each step (0/1 disables bias)
+// Spread: per-plant spread chance scaled by season_factor^FOOD_SPREAD_SEASON_EXP
+pub const FOOD_SPREAD_SEASON_EXP: f32 = 2.25;     // mild push toward good seasons during spread
 // Plant lifetime: each plant despawns after a random lifetime (in steps) drawn from this range.
 // Longer lifetimes in favorable season/biomes (scaled by the same seasonal factor used for growth).
-pub const PLANT_LIFETIME_MIN_STEPS: usize = 1200; // ~20s at 60 FPS
-pub const PLANT_LIFETIME_MAX_STEPS: usize = 3600; // ~60s at 60 FPS
+pub const PLANT_LIFETIME_MIN_STEPS: usize = 900; // ~20s at 60 FPS
+pub const PLANT_LIFETIME_MAX_STEPS: usize = 2700; // ~60s at 60 FPS
 
 // =====================
 // Vision cone parameters
