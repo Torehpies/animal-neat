@@ -16,7 +16,7 @@ thread_local! {
     // score = w_lifetime*lifetime + w_energy*avg_energy + w_offspring*offspring + w_comm*comm - w_idle*idle_penalty
     static RUNTIME_FIT_LIFETIME_WEIGHT: Cell<f32> = Cell::new(0.2);
     static RUNTIME_FIT_ENERGY_WEIGHT: Cell<f32> = Cell::new(1.5);
-    static RUNTIME_FIT_OFFSPRING_WEIGHT: Cell<f32> = Cell::new(1.5);
+    static RUNTIME_FIT_OFFSPRING_WEIGHT: Cell<f32> = Cell::new(3.5);
     static RUNTIME_FIT_COMM_WEIGHT: Cell<f32> = Cell::new(0.0);
     static RUNTIME_FIT_IDLE_PENALTY_WEIGHT: Cell<f32> = Cell::new(1.0);
     static RUNTIME_FIT_PLANT_WEIGHT: Cell<f32> = Cell::new(1.0);
@@ -180,6 +180,8 @@ pub const OUTPUTS: usize = 2 + (COMMUNICATION_ENABLED as usize);
 pub const ENABLE_VISION_INPUTS: bool = true;   // pooled sector proximities (plant/same/other/wall)
 pub const ENABLE_HEARING_INPUTS: bool = false;  // heard call energy sectors
 pub const ENABLE_MEMORY_INPUTS: bool = true;   // last food (x,y), same (x,y), other (x,y) memory vectors (6 floats)
+// Fine-grained vision toggle: when false, wall channels are ignored and left at their default "no signal" value (1.0)
+pub const ENABLE_VISION_WALLS: bool = false;
 // Density inputs removed in revised vision model
 
 // ==========================
@@ -258,7 +260,7 @@ pub const NEWBORN_FLASH_STEPS: usize = 18;
 // Predation/scavenging
 // =====================
 pub const EAT_AGENT_RADIUS: f32 = 2.5 * AGENT_RADIUS;
-pub const MEAT_ENERGY: f32 = 180.0;
+pub const MEAT_ENERGY: f32 = 250.0;
 pub const PREDATION_ENABLED: bool = true;
 pub const SCAVENGE_ENABLED: bool = true;
 /// Require live prey to be within predator's vision cone to attack (enables ambush tactics)

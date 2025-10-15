@@ -180,14 +180,27 @@ pub fn tick_step<R: Rng>(
             let vel = intent.dir * (speed * MAX_SPEED);
             a.body.pos += vel; a.body.pos = wrap_to_world(a.body.pos);
         }
-        // Idleness
+        // Idleness: only penalize if agent is idle AND it currently sees food or remembers food
         if IDLENESS_PENALTY_ENABLED {
             let dist_from_anchor = (a.body.pos - a.idle_anchor).length();
             if dist_from_anchor < IDLENESS_DISTANCE_THRESHOLD {
                 a.idle_steps += 1;
                 a.total_idle_steps = a.total_idle_steps.saturating_add(1);
-                // Count idle penalty in unit steps beyond threshold; fitness weight scales impact
-                if a.idle_steps > IDLENESS_THRESHOLD_STEPS { a.total_idle_penalty += 1.0; }
+                if a.idle_steps > IDLENESS_THRESHOLD_STEPS {
+                    // Determine if there is a meaningful food signal now or in memory
+                    let food_now_len = {
+                        let (fx, fy) = intent.cur_food_vec; (fx*fx + fy*fy).sqrt()
+                    };
+                    let food_mem_len = {
+                        let fx = a.last_food_mem.x; let fy = a.last_food_mem.y; (fx*fx + fy*fy).sqrt()
+                    };
+                    // Threshold to avoid noise; vectors are in [-1,1] space from sensing
+                    const FOOD_SIGNAL_EPS: f32 = 0.10;
+                    if food_now_len > FOOD_SIGNAL_EPS || food_mem_len > FOOD_SIGNAL_EPS {
+                        // Count idle penalty in unit steps beyond threshold; fitness weight scales impact
+                        a.total_idle_penalty += 1.0;
+                    }
+                }
             } else { a.idle_anchor = a.body.pos; a.idle_steps = 0; }
         }
         // Eating

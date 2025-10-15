@@ -238,9 +238,11 @@ pub fn build_inputs_inplace(
                 } else if *is_corpse { match best[1] { Some(b) if t >= b => {}, _ => best[1] = Some(t) } }
             }
         }
-        // Wall along this ray
-        let tw = ray_wall_distance(pos, rdir);
-        if tw.is_finite() && tw > 0.0 && tw <= VISION_RANGE { best[4] = Some(best[4].map_or(tw, |b| b.min(tw))); }
+        // Wall along this ray (optional)
+        if super::params::ENABLE_VISION_WALLS {
+            let tw = ray_wall_distance(pos, rdir);
+            if tw.is_finite() && tw > 0.0 && tw <= VISION_RANGE { best[4] = Some(best[4].map_or(tw, |b| b.min(tw))); }
+        }
         // Write normalized distances into output slice
         let base = ranges.vision.start + ri * 5;
         for cat in 0..5 {
