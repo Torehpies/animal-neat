@@ -41,6 +41,8 @@ mod ui_hud;
 mod ui_network;
 #[path = "visualize_ecosystem/ui/menu.rs"]
 mod ui_menu;
+#[path = "visualize_ecosystem/ui/main_menu.rs"]
+mod ui_main_menu;
 #[path = "visualize_ecosystem/elements/body.rs"]
 mod body;
 #[path = "visualize_ecosystem/sim/mod.rs"]
@@ -223,15 +225,12 @@ fn window_conf() -> Conf {
 
 #[macroquad::main(window_conf)]
 async fn main() {
-    // Main loop that can restart with new config
+    // Top-level loop so we can return to the main menu (label used by ESC handler)
     'main_loop: loop {
-        // Show menu first to get configuration
-        let mut menu_state = MenuState::new();
-        let sim_config = loop {
-            if let Some(config) = draw_menu(&mut menu_state) {
-                break config;
-            }
-            next_frame().await;
+        // Main menu runner (in separate module) – returns when user chooses to create a sim or exits
+        let sim_config = match ui_main_menu::run_main_menu().await {
+            Some(cfg) => cfg,
+            None => return, // user selected Exit
         };
         
         // Apply configuration to global params (via world module)
