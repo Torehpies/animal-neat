@@ -42,6 +42,7 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         kills_caused: 0,
         idle_anchor: world::rand_pos(&mut rng),
         idle_steps: 0,
+    total_idle_steps: 0,
         total_idle_penalty: 0.0,
         input_buf: vec![0.0; crate::params::INPUTS],
         energy_accum: 0.0,
@@ -84,13 +85,23 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
     let w_off = crate::params::get_fit_offspring_weight();
     let w_comm = crate::params::get_fit_comm_weight();
     let w_idle = crate::params::get_fit_idle_penalty_weight();
+    let w_plant = crate::params::get_fit_plant_weight();
+    let w_meat = crate::params::get_fit_meat_weight();
     agents.iter().enumerate().map(|(i, a)| {
         let lifetime_score = (a.alive_steps as f32) / (MAX_STEPS as f32);
         let avg_energy_norm = if a.alive_steps > 0 { (energy_accum[i] / a.alive_steps as f32) / crate::params::get_max_energy() } else { 0.0 };
         let offspring_score = a.offspring_count as f32;
         let comm_score = comm_fit.get(i).copied().unwrap_or(0.0);
         let idle_penalty = a.total_idle_penalty;
-        w_life * lifetime_score + w_energy * avg_energy_norm + w_off * offspring_score + w_comm * comm_score - w_idle * idle_penalty
+        let plants = a.eaten.saturating_sub(a.kills) as f32;
+        let meat = a.kills as f32;
+        w_life * lifetime_score
+            + w_energy * avg_energy_norm
+            + w_off * offspring_score
+            + w_comm * comm_score
+            - w_idle * idle_penalty
+            + w_plant * plants
+            + w_meat * meat
     }).collect()
 }
 

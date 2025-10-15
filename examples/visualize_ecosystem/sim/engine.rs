@@ -185,6 +185,7 @@ pub fn tick_step<R: Rng>(
             let dist_from_anchor = (a.body.pos - a.idle_anchor).length();
             if dist_from_anchor < IDLENESS_DISTANCE_THRESHOLD {
                 a.idle_steps += 1;
+                a.total_idle_steps = a.total_idle_steps.saturating_add(1);
                 // Count idle penalty in unit steps beyond threshold; fitness weight scales impact
                 if a.idle_steps > IDLENESS_THRESHOLD_STEPS { a.total_idle_penalty += 1.0; }
             } else { a.idle_anchor = a.body.pos; a.idle_steps = 0; }

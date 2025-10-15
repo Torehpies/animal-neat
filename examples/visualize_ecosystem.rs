@@ -109,6 +109,7 @@ pub struct ScoreEntry {
     eaten_meat: i32,
     offspring: usize,
     alive_steps: u32,
+    idle_penalty_value: f32,
     attack_hits: usize,
     kills_caused: usize,
     avg_energy_norm: f32,
@@ -521,24 +522,42 @@ async fn main() {
 }
 
 // Compute episode scores similar to eco_cull, without side effects
-fn compute_episode_score(a: &crate::sim::Agent) -> (f32, i32, i32, f32) {
+fn compute_episode_score(a: &crate::sim::Agent, comm_fit: f32) -> (f32, i32, i32, f32, f32) {
     use crate::params::*;
-    // Simplified scoreboard: score uses only lifetime (normalized), avg energy (normalized), and offspring count
+    // Scoreboard score aligns with eval.rs weighted formula
     let avg_energy_norm = if a.alive_steps > 0 { (a.energy_accum / a.alive_steps as f32) / crate::params::get_max_energy() } else { 0.0 };
     let lifetime_score = (a.alive_steps as f32) / (MAX_STEPS as f32);
     let offspring_score = a.offspring_count as f32;
-    let score = lifetime_score + avg_energy_norm + offspring_score;
+    let plants = a.eaten.saturating_sub(a.kills) as f32;
+    let meat = a.kills as f32;
+    let idle_penalty = a.total_idle_penalty;
+    let w_life = crate::params::get_fit_lifetime_weight();
+    let w_energy = crate::params::get_fit_energy_weight();
+    let w_off = crate::params::get_fit_offspring_weight();
+    let w_comm = crate::params::get_fit_comm_weight();
+    let w_idle = crate::params::get_fit_idle_penalty_weight();
+    let w_plant = crate::params::get_fit_plant_weight();
+    let w_meat = crate::params::get_fit_meat_weight();
+    let score = w_life * lifetime_score
+        + w_energy * avg_energy_norm
+        + w_off * offspring_score
+        + w_comm * comm_fit
+        - w_idle * idle_penalty
+        + w_plant * plants
+        + w_meat * meat;
     // Keep plant/meat counts for display only
     let eaten_plants = a.eaten.saturating_sub(a.kills) as i32;
     let eaten_meat = a.kills as i32;
-    (score, eaten_plants, eaten_meat, avg_energy_norm)
+    let idle_penalty_value = w_idle * a.total_idle_penalty;
+    (score, eaten_plants, eaten_meat, avg_energy_norm, idle_penalty_value)
 }
 
 fn prepare_scoreboard(state: &mut AppState) {
     // Build rows and sort by score desc
     let mut rows: Vec<ScoreEntry> = Vec::with_capacity(state.episode.agents.len());
     for (i, a) in state.episode.agents.iter().enumerate() {
-        let (score, plants, meat, avg_energy_norm) = compute_episode_score(a);
+        let comm_fit = state.episode.comm_fitness_accum.get(i).copied().unwrap_or(0.0);
+        let (score, plants, meat, avg_energy_norm, idle_penalty_value) = compute_episode_score(a, comm_fit);
         rows.push(ScoreEntry {
             idx: i,
             species: a.species_id,
@@ -547,6 +566,7 @@ fn prepare_scoreboard(state: &mut AppState) {
             eaten_meat: meat,
             offspring: a.offspring_count,
             alive_steps: a.alive_steps,
+            idle_penalty_value,
             attack_hits: a.attack_hits,
             kills_caused: a.kills_caused,
             avg_energy_norm,
@@ -578,21 +598,25 @@ fn finalize_end_of_episode(state: &mut AppState, rng: &mut impl ::rand::Rng) {
 fn eco_cull_population_by_fitness(state: &mut AppState) {
     // Strict NEAT at episode end using live-episode fitness for ALL agents (including newborns).
     // 1) Compute fitness scores from the finished episode
-    let mut scores: Vec<f32> = state
-        .episode
-        .agents
-        .iter()
-        .map(|a| {
+    let mut scores: Vec<f32> = {
+        let w_life = crate::params::get_fit_lifetime_weight();
+        let w_energy = crate::params::get_fit_energy_weight();
+        let w_off = crate::params::get_fit_offspring_weight();
+        let w_comm = crate::params::get_fit_comm_weight();
+        let w_idle = crate::params::get_fit_idle_penalty_weight();
+        let w_plant = crate::params::get_fit_plant_weight();
+        let w_meat = crate::params::get_fit_meat_weight();
+        state.episode.agents.iter().enumerate().map(|(i, a)| {
             let lifetime_score = (a.alive_steps as f32) / (MAX_STEPS as f32);
-            let avg_energy_norm = if a.alive_steps > 0 {
-                (a.energy_accum / a.alive_steps as f32) / crate::params::get_max_energy()
-            } else {
-                0.0
-            };
+            let avg_energy_norm = if a.alive_steps > 0 { (a.energy_accum / a.alive_steps as f32) / crate::params::get_max_energy() } else { 0.0 };
             let offspring_score = a.offspring_count as f32;
-            lifetime_score + avg_energy_norm + offspring_score
-        })
-        .collect();
+            let comm_score = state.episode.comm_fitness_accum.get(i).copied().unwrap_or(0.0);
+            let idle_penalty = a.total_idle_penalty;
+            let plants = a.eaten.saturating_sub(a.kills) as f32;
+            let meat = a.kills as f32;
+            w_life * lifetime_score + w_energy * avg_energy_norm + w_off * offspring_score + w_comm * comm_score - w_idle * idle_penalty + w_plant * plants + w_meat * meat
+        }).collect()
+    };
 
     // 2) Cull to target population size by global fitness order (if current pop > target)
     let target = crate::params::get_population_size();
@@ -773,6 +797,7 @@ fn spawn_offspring_if_needed<R: Rng>(
             kills_caused: 0,
             idle_anchor: birth_pos,
             idle_steps: 0,
+            total_idle_steps: 0,
             total_idle_penalty: 0.0,
             input_buf: vec![0.0; crate::params::INPUTS],
             energy_accum: 0.0,

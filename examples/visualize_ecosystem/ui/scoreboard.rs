@@ -43,14 +43,20 @@ pub fn draw_scoreboard(_fullscreen: Rect, state: &AppState, rows: &[ScoreEntry],
         ("Meat", 70.0),
         ("Births", 70.0),
         ("Alive", 80.0),
+        ("IdlePenalty", 110.0),
         ("Atk", 60.0),
         ("Kills", 70.0),
         ("AvgE", 80.0),
     ];
+    // Fit columns within available width by uniform scaling
+    let base_sum: f32 = cols.iter().map(|(_, w)| *w).sum();
+    let scale = if base_sum > max_w { (max_w / base_sum).clamp(0.4, 1.0) } else { 1.0 };
+    let cw: Vec<f32> = cols.iter().map(|(_, w)| (*w) * scale).collect();
     let mut cx = x;
-    for (name, cw) in cols.iter() {
-        draw_text_clamped(name, cx, y, header_fs, LIGHTGRAY, *cw - 8.0);
-        cx += *cw;
+    for (i, (name, _)) in cols.iter().enumerate() {
+        let w = cw[i];
+        draw_text_clamped(name, cx, y, header_fs, LIGHTGRAY, w - 8.0);
+        cx += w;
     }
     y += header_fs + GAP + 2.0;
     draw_line(x, y, x + max_w, y, 1.0, Color::new(1.0,1.0,1.0,0.1));
@@ -79,17 +85,18 @@ pub fn draw_scoreboard(_fullscreen: Rect, state: &AppState, rows: &[ScoreEntry],
             let fs = 16.0;
             let yrow = y + ((rank - start) as f32) * row_h;
             let color = if rank == 0 { Color::new(1.0, 0.9, 0.5, 1.0) } else { WHITE };
-            draw_text_clamped(&format!("{}", rank+1), cx, yrow, fs, color, cols[0].1 - 8.0); cx += cols[0].1;
-            draw_text_clamped(&format!("{}", row.idx), cx, yrow, fs, color, cols[1].1 - 8.0); cx += cols[1].1;
-            draw_text_clamped(&format!("{}", row.species), cx, yrow, fs, color, cols[2].1 - 8.0); cx += cols[2].1;
-            draw_text_clamped(&format!("{:.2}", row.score), cx, yrow, fs, color, cols[3].1 - 8.0); cx += cols[3].1;
-            draw_text_clamped(&format!("{}", row.eaten_plants), cx, yrow, fs, color, cols[4].1 - 8.0); cx += cols[4].1;
-            draw_text_clamped(&format!("{}", row.eaten_meat), cx, yrow, fs, color, cols[5].1 - 8.0); cx += cols[5].1;
-            draw_text_clamped(&format!("{}", row.offspring), cx, yrow, fs, color, cols[6].1 - 8.0); cx += cols[6].1;
-            draw_text_clamped(&format!("{}", row.alive_steps), cx, yrow, fs, color, cols[7].1 - 8.0); cx += cols[7].1;
-            draw_text_clamped(&format!("{}", row.attack_hits), cx, yrow, fs, color, cols[8].1 - 8.0); cx += cols[8].1;
-            draw_text_clamped(&format!("{}", row.kills_caused), cx, yrow, fs, color, cols[9].1 - 8.0); cx += cols[9].1;
-            draw_text_clamped(&format!("{:.2}", row.avg_energy_norm), cx, yrow, fs, color, cols[10].1 - 8.0); cx += cols[10].1;
+            draw_text_clamped(&format!("{}", rank+1), cx, yrow, fs, color, cw[0] - 8.0); cx += cw[0];
+            draw_text_clamped(&format!("{}", row.idx), cx, yrow, fs, color, cw[1] - 8.0); cx += cw[1];
+            draw_text_clamped(&format!("{}", row.species), cx, yrow, fs, color, cw[2] - 8.0); cx += cw[2];
+            draw_text_clamped(&format!("{:.2}", row.score), cx, yrow, fs, color, cw[3] - 8.0); cx += cw[3];
+            draw_text_clamped(&format!("{}", row.eaten_plants), cx, yrow, fs, color, cw[4] - 8.0); cx += cw[4];
+            draw_text_clamped(&format!("{}", row.eaten_meat), cx, yrow, fs, color, cw[5] - 8.0); cx += cw[5];
+            draw_text_clamped(&format!("{}", row.offspring), cx, yrow, fs, color, cw[6] - 8.0); cx += cw[6];
+            draw_text_clamped(&format!("{}", row.alive_steps), cx, yrow, fs, color, cw[7] - 8.0); cx += cw[7];
+            draw_text_clamped(&format!("-{:.2}", row.idle_penalty_value), cx, yrow, fs, color, cw[8] - 8.0); cx += cw[8];
+            draw_text_clamped(&format!("{}", row.attack_hits), cx, yrow, fs, color, cw[9] - 8.0); cx += cw[9];
+            draw_text_clamped(&format!("{}", row.kills_caused), cx, yrow, fs, color, cw[10] - 8.0); cx += cw[10];
+            draw_text_clamped(&format!("{:.2}", row.avg_energy_norm), cx, yrow, fs, color, cw[11] - 8.0);
         }
     }
 

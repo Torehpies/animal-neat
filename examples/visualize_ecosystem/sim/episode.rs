@@ -55,6 +55,7 @@ impl Episode {
                 kills_caused: 0,
                 idle_anchor: world::rand_pos(rng),
                 idle_steps: 0,
+                total_idle_steps: 0,
                 total_idle_penalty: 0.0,
                 input_buf: vec![0.0; crate::params::INPUTS],
                 energy_accum: 0.0,
