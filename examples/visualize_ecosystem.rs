@@ -111,6 +111,8 @@ pub struct ScoreEntry {
     alive_steps: u32,
     idle_penalty_value: f32,
     herd_value: f32,
+    approach_value: f32,
+    chase_value: f32,
     attack_hits: usize,
     kills_caused: usize,
     avg_energy_norm: f32,
@@ -523,7 +525,7 @@ async fn main() {
 }
 
 // Compute episode scores similar to eco_cull, without side effects
-fn compute_episode_score(a: &crate::sim::Agent, comm_fit: f32) -> (f32, i32, i32, f32, f32, f32) {
+fn compute_episode_score(a: &crate::sim::Agent, comm_fit: f32) -> (f32, i32, i32, f32, f32, f32, f32, f32) {
     use crate::params::*;
     // Scoreboard score aligns with eval.rs weighted formula
     let avg_energy_norm = if a.alive_steps > 0 { (a.energy_accum / a.alive_steps as f32) / crate::params::get_max_energy() } else { 0.0 };
@@ -542,22 +544,28 @@ fn compute_episode_score(a: &crate::sim::Agent, comm_fit: f32) -> (f32, i32, i32
     let w_att = crate::params::get_fit_attacks_weight();
     let w_kill = crate::params::get_fit_kills_weight();
     let w_herd = crate::params::get_fit_herding_weight();
+    let w_approach = crate::params::get_fit_approach_food_weight();
+    let w_chase = crate::params::get_fit_chase_other_weight();
     let score = w_life * lifetime_score
         + w_energy * avg_energy_norm
         + w_off * offspring_score
         + w_comm * comm_fit
-        - w_idle * idle_penalty
+        - if IDLENESS_PENALTY_ENABLED { w_idle * idle_penalty } else { 0.0 }
         + w_plant * plants
         + w_meat * meat
         + w_att * (a.attack_hits as f32)
     + w_kill * (a.kills_caused as f32)
-    + w_herd * a.herding_units;
+    + w_herd * a.herding_units
+    + w_approach * a.approach_food_units
+    + w_chase * a.chase_other_units;
     // Keep plant/meat counts for display only
     let eaten_plants = a.eaten.saturating_sub(a.kills) as i32;
     let eaten_meat = a.kills as i32;
-    let idle_penalty_value = w_idle * a.total_idle_penalty;
+    let idle_penalty_value = if IDLENESS_PENALTY_ENABLED { w_idle * a.total_idle_penalty } else { 0.0 };
     let herd_value = w_herd * a.herding_units;
-    (score, eaten_plants, eaten_meat, avg_energy_norm, idle_penalty_value, herd_value)
+    let approach_value = w_approach * a.approach_food_units;
+    let chase_value = w_chase * a.chase_other_units;
+    (score, eaten_plants, eaten_meat, avg_energy_norm, idle_penalty_value, herd_value, approach_value, chase_value)
 }
 
 fn prepare_scoreboard(state: &mut AppState) {
@@ -565,7 +573,7 @@ fn prepare_scoreboard(state: &mut AppState) {
     let mut rows: Vec<ScoreEntry> = Vec::with_capacity(state.episode.agents.len());
     for (i, a) in state.episode.agents.iter().enumerate() {
         let comm_fit = state.episode.comm_fitness_accum.get(i).copied().unwrap_or(0.0);
-        let (score, plants, meat, avg_energy_norm, idle_penalty_value, herd_value) = compute_episode_score(a, comm_fit);
+        let (score, plants, meat, avg_energy_norm, idle_penalty_value, herd_value, approach_value, chase_value) = compute_episode_score(a, comm_fit);
         rows.push(ScoreEntry {
             idx: i,
             species: a.species_id,
@@ -576,6 +584,8 @@ fn prepare_scoreboard(state: &mut AppState) {
             alive_steps: a.alive_steps,
             idle_penalty_value,
             herd_value,
+            approach_value,
+            chase_value,
             attack_hits: a.attack_hits,
             kills_caused: a.kills_caused,
             avg_energy_norm,
@@ -618,6 +628,8 @@ fn eco_cull_population_by_fitness(state: &mut AppState) {
         let w_att = crate::params::get_fit_attacks_weight();
         let w_kill = crate::params::get_fit_kills_weight();
     let w_herd = crate::params::get_fit_herding_weight();
+        let w_approach = crate::params::get_fit_approach_food_weight();
+        let w_chase = crate::params::get_fit_chase_other_weight();
         state.episode.agents.iter().enumerate().map(|(i, a)| {
             let lifetime_score = (a.alive_steps as f32) / (MAX_STEPS as f32);
             let avg_energy_norm = if a.alive_steps > 0 { (a.energy_accum / a.alive_steps as f32) / crate::params::get_max_energy() } else { 0.0 };
@@ -626,16 +638,20 @@ fn eco_cull_population_by_fitness(state: &mut AppState) {
             let idle_penalty = a.total_idle_penalty;
             let plants = a.eaten.saturating_sub(a.kills) as f32;
             let meat = a.kills as f32;
+            let approach_units = a.approach_food_units;
+            let chase_units = a.chase_other_units;
             w_life * lifetime_score
                 + w_energy * avg_energy_norm
                 + w_off * offspring_score
                 + w_comm * comm_score
-                - w_idle * idle_penalty
+                - if IDLENESS_PENALTY_ENABLED { w_idle * idle_penalty } else { 0.0 }
                 + w_plant * plants
                 + w_meat * meat
                 + w_att * (a.attack_hits as f32)
                 + w_kill * (a.kills_caused as f32)
                 + w_herd * a.herding_units
+                + w_approach * approach_units
+                + w_chase * chase_units
         }).collect()
     };
 
@@ -823,6 +839,8 @@ fn spawn_offspring_if_needed<R: Rng>(
             input_buf: vec![0.0; crate::params::INPUTS],
             energy_accum: 0.0,
             herding_units: 0.0,
+            approach_food_units: 0.0,
+            chase_other_units: 0.0,
         });
         // Extend comm fitness accumulator to match agents length
         episode.comm_fitness_accum.push(0.0);

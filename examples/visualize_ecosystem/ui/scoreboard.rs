@@ -48,6 +48,8 @@ pub fn draw_scoreboard(_fullscreen: Rect, state: &AppState, rows: &[ScoreEntry],
         ("K", 48.0),
         ("AvgE", 64.0),
         ("Herd", 70.0),
+        ("Appr", 70.0),
+        ("Chs", 70.0),
     ];
     // Fit columns within available width by uniform scaling
     let base_sum: f32 = cols.iter().map(|(_, w)| *w).sum();
@@ -98,7 +100,9 @@ pub fn draw_scoreboard(_fullscreen: Rect, state: &AppState, rows: &[ScoreEntry],
             draw_text_clamped(&format!("{}", row.attack_hits), cx, yrow, fs, color, cw[9] - 8.0); cx += cw[9];
             draw_text_clamped(&format!("{}", row.kills_caused), cx, yrow, fs, color, cw[10] - 8.0); cx += cw[10];
             draw_text_clamped(&format!("{:.2}", row.avg_energy_norm), cx, yrow, fs, color, cw[11] - 8.0); cx += cw[11];
-            draw_text_clamped(&format!("{:.2}", row.herd_value), cx, yrow, fs, color, cw[12] - 8.0);
+            draw_text_clamped(&format!("{:.2}", row.herd_value), cx, yrow, fs, color, cw[12] - 8.0); cx += cw[12];
+            draw_text_clamped(&format!("{:.2}", row.approach_value), cx, yrow, fs, color, cw[13] - 8.0); cx += cw[13];
+            draw_text_clamped(&format!("{:.2}", row.chase_value), cx, yrow, fs, color, cw[14] - 8.0);
         }
     }
 

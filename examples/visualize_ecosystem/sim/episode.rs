@@ -60,6 +60,8 @@ impl Episode {
                 input_buf: vec![0.0; crate::params::INPUTS],
                 energy_accum: 0.0,
                 herding_units: 0.0,
+                approach_food_units: 0.0,
+                chase_other_units: 0.0,
             });
         }
         let food = world::build_world(rng);

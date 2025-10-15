@@ -180,28 +180,43 @@ pub fn tick_step<R: Rng>(
             let vel = intent.dir * (speed * MAX_SPEED);
             a.body.pos += vel; a.body.pos = wrap_to_world(a.body.pos);
         }
-        // Idleness: only penalize if agent is idle AND it currently sees food or remembers food
+        // Idleness: simple, parameterized penalty for staying in place
         if IDLENESS_PENALTY_ENABLED {
             let dist_from_anchor = (a.body.pos - a.idle_anchor).length();
             if dist_from_anchor < IDLENESS_DISTANCE_THRESHOLD {
                 a.idle_steps += 1;
                 a.total_idle_steps = a.total_idle_steps.saturating_add(1);
                 if a.idle_steps > IDLENESS_THRESHOLD_STEPS {
-                    // Determine if there is a meaningful food signal now or in memory
-                    let food_now_len = {
-                        let (fx, fy) = intent.cur_food_vec; (fx*fx + fy*fy).sqrt()
-                    };
-                    let food_mem_len = {
-                        let fx = a.last_food_mem.x; let fy = a.last_food_mem.y; (fx*fx + fy*fy).sqrt()
-                    };
-                    // Threshold to avoid noise; vectors are in [-1,1] space from sensing
-                    const FOOD_SIGNAL_EPS: f32 = 0.10;
-                    if food_now_len > FOOD_SIGNAL_EPS || food_mem_len > FOOD_SIGNAL_EPS {
-                        // Count idle penalty in unit steps beyond threshold; fitness weight scales impact
-                        a.total_idle_penalty += 1.0;
-                    }
+                    a.total_idle_penalty += IDLENESS_PENALTY_PER_STEP;
                 }
-            } else { a.idle_anchor = a.body.pos; a.idle_steps = 0; }
+            } else {
+                a.idle_anchor = a.body.pos;
+                a.idle_steps = 0;
+            }
+        }
+
+        // Positive shaping: reward approaching food and chasing other-species
+        // Approach food: measure reduction in distance to nearest food between this and previous step approximation
+        if crate::params::get_fit_approach_food_weight() != 0.0 {
+            // Using current food vector magnitude as a proxy for closeness improvement with thrust
+            let food_vec_now = Vec2 { x: intent.cur_food_vec.0, y: intent.cur_food_vec.1 };
+            let food_signal = food_vec_now.length(); // 0..1 strength
+            let forward = intent.dir; // facing after turn
+            let closing = food_vec_now.x * forward.x + food_vec_now.y * forward.y; // projection onto forward
+            let mut reward = (closing.max(0.0)) * food_signal; // only forward motion rewarded
+            reward = reward.clamp(0.0, APPROACH_MAX_DELTA_PER_STEP);
+            if reward > APPROACH_EPS { a.approach_food_units += reward; }
+        }
+        // Chase other-species: reward if moving towards nearest other-species agent
+        if crate::params::get_fit_chase_other_weight() != 0.0 {
+            // Use last_other_mem (local vector) approximated from previous step sensing
+            let v = a.last_other_mem; // in local frame, length encodes proximity signal
+            // Convert local vector v to world-forward projection by using its forward component directly
+            // last_other_mem.y is forward component in local frame from sensing
+            let forward_component = v.y.max(0.0);
+            let mut reward = forward_component; // already 0..1
+            reward = reward.clamp(0.0, APPROACH_MAX_DELTA_PER_STEP);
+            if reward > APPROACH_EPS { a.chase_other_units += reward; }
         }
         // Eating
     let ate = if world::eat_if_near(food, food_lifetime, &a.body) {
@@ -263,7 +278,7 @@ pub fn tick_step<R: Rng>(
         if a.energy > 0.0 && a.health > DEATH_HEALTH_THRESHOLD { let ef=(a.energy/ crate::params::get_max_energy()).clamp(0.0,1.0); a.health=(a.health + INJURY_HEAL_RATE * ef * a.max_health).min(a.max_health); }
     // Accumulate energy for eco-mode live fitness to avoid extra evaluation pass later
     if a.energy > 0.0 && a.health > DEATH_HEALTH_THRESHOLD { a.energy_accum += a.energy; }
-        // Memories (decay after storing new vectors)
+    // Memories (decay after storing new vectors)
         a.last_food_mem = Vec2 { x: intent.cur_food_vec.0, y: intent.cur_food_vec.1 };
         a.last_same_mem = Vec2 { x: intent.last_same_vec.0, y: intent.last_same_vec.1 };
         a.last_other_mem = Vec2 { x: intent.last_other_vec.0, y: intent.last_other_vec.1 };

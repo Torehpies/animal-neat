@@ -49,6 +49,9 @@ pub struct Agent {
     pub energy_accum: f32,
     // Accumulated herding units (time spent near same-species peers)
     pub herding_units: f32,
+    // New: accumulated approach rewards
+    pub approach_food_units: f32,   // closing distance towards plant/carcass
+    pub chase_other_units: f32,     // closing distance towards other-species agents
 }
 
 #[derive(Clone, Copy, Debug)]

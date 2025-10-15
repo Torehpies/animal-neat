@@ -24,7 +24,10 @@ thread_local! {
     static RUNTIME_FIT_MEAT_WEIGHT: Cell<f32> = Cell::new(3.0);
     static RUNTIME_FIT_ATTACKS_WEIGHT: Cell<f32> = Cell::new(1.0);
     static RUNTIME_FIT_KILLS_WEIGHT: Cell<f32> = Cell::new(3.0);
-    static RUNTIME_FIT_HERDING_WEIGHT: Cell<f32> = Cell::new(3.0);
+    static RUNTIME_FIT_HERDING_WEIGHT: Cell<f32> = Cell::new(1.0);
+    // New: reward approaching food/carcasses and chasing other-species agents
+    static RUNTIME_FIT_APPROACH_FOOD_WEIGHT: Cell<f32> = Cell::new(0.1);
+    static RUNTIME_FIT_CHASE_OTHER_WEIGHT: Cell<f32> = Cell::new(1.0);
 }
 // Getters for runtime energy config (fallback to these constants if not set)
 pub fn get_initial_energy() -> f32 { RUNTIME_INITIAL_ENERGY.with(|c| c.get()) }
@@ -42,6 +45,8 @@ pub fn get_fit_meat_weight() -> f32 { RUNTIME_FIT_MEAT_WEIGHT.with(|c| c.get()) 
 pub fn get_fit_attacks_weight() -> f32 { RUNTIME_FIT_ATTACKS_WEIGHT.with(|c| c.get()) }
 pub fn get_fit_kills_weight() -> f32 { RUNTIME_FIT_KILLS_WEIGHT.with(|c| c.get()) }
 pub fn get_fit_herding_weight() -> f32 { RUNTIME_FIT_HERDING_WEIGHT.with(|c| c.get()) }
+pub fn get_fit_approach_food_weight() -> f32 { RUNTIME_FIT_APPROACH_FOOD_WEIGHT.with(|c| c.get()) }
+pub fn get_fit_chase_other_weight() -> f32 { RUNTIME_FIT_CHASE_OTHER_WEIGHT.with(|c| c.get()) }
 
 
 
@@ -83,6 +88,10 @@ pub fn set_fitness_weights(
     RUNTIME_FIT_ATTACKS_WEIGHT.with(|c| c.set(attacks));
     RUNTIME_FIT_KILLS_WEIGHT.with(|c| c.set(kills));
 }
+
+// Parameters for approach/chase reward shaping
+pub const APPROACH_EPS: f32 = 0.001;             // minimal normalized closing to count
+pub const APPROACH_MAX_DELTA_PER_STEP: f32 = 1.0; // clamp per-step contribution (in normalized distance units)
 
 // =====================
 // Evolution / Population
@@ -306,13 +315,14 @@ pub const DEATH_HEALTH_THRESHOLD: f32 = 0.0;     // health <= this means agent d
 // Idleness Penalty
 // ===============================
 /// Enable penalty for staying in the same place too long
+// Idle penalty disabled in favor of positive approach/chase rewards
 pub const IDLENESS_PENALTY_ENABLED: bool = true;
 /// Number of steps before idleness penalty kicks in (5 seconds ≈ varies by sim speed, using steps)
-pub const IDLENESS_THRESHOLD_STEPS: usize = 60;
+pub const IDLENESS_THRESHOLD_STEPS: usize = 30;
 /// Distance threshold to consider agent as "staying in same place"
-pub const IDLENESS_DISTANCE_THRESHOLD: f32 = 3.0;
+pub const IDLENESS_DISTANCE_THRESHOLD: f32 = 10.0;
 /// Fitness penalty applied per step when idle beyond threshold
-pub const IDLENESS_PENALTY_PER_STEP: f32 = 0.06;
+pub const IDLENESS_PENALTY_PER_STEP: f32 = 0.1;
 
 // ===============================
 // Motor model (relative turn + speed)
