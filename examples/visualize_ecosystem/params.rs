@@ -215,10 +215,7 @@ pub const ECO_MATE_RADIUS: f32 = 8.0 * AGENT_RADIUS;
 pub const RESPEC_INTERVAL_STEPS: usize = 25; // tune: bigger = fewer speciation passes
 pub const RESPEC_MAX_PENDING: usize = 40;    // trigger early if many births accumulate
 
-// Newborn safety: for the first N steps of life, newborns cannot attack others and
-// cannot be targeted for predation. This prevents immediate culling of offspring by
-// their own parents or other nearby predators due to transient speciation flips.
-pub const NEWBORN_GRACE_STEPS: usize = 60;
+// Newborn grace removed: no temporary invulnerability; newborns behave as adults immediately.
 // Visual: how long to show a bright birth flash ring after an agent is created
 pub const NEWBORN_FLASH_STEPS: usize = 18;
 

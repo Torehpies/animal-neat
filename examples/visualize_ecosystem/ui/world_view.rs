@@ -252,12 +252,7 @@ pub fn draw_world(
             let alpha = 0.75 * (1.0 - t);
             draw_circle_lines(px, py, ring_r, 3.0, Color::new(1.0, 1.0, 0.2, alpha));
         }
-        // Newborn halo during grace window: cyan glow indicating protected status
-        if a.age_steps < NEWBORN_GRACE_STEPS && a.energy > 0.0 {
-            let frac = 1.0 - (a.age_steps as f32 / (NEWBORN_GRACE_STEPS as f32).max(1.0));
-            let halo_r = agent_r + 2.5;
-            draw_circle_lines(px, py, halo_r, 2.0, Color::new(0.2, 0.95, 1.0, 0.55 * frac + 0.25));
-        }
+        // Newborn grace halo removed for realism; keep only brief birth flash above
 
         // Focus highlight (draw after other rings for visibility)
         if Some(idx) == focused_agent {

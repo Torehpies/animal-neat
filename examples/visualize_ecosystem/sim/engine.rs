@@ -68,7 +68,7 @@ pub fn tick_step<R: Rng>(
         let is_corpse = !alive && !a.consumed && a.corpse_energy > 0.1;
         (a.body.pos, alive, a.consumed, *species_ids.get(i).unwrap_or(&0), is_corpse)
     }).collect();
-    let age_snapshot: Vec<usize> = agents.iter().map(|a| a.age_steps).collect();
+    // Age snapshot previously used for newborn grace; no longer needed
 
     let mut prey_targets: Vec<Option<usize>> = vec![None; agents.len()];
     let mut delta = StepDelta::zero();
@@ -201,8 +201,6 @@ pub fn tick_step<R: Rng>(
             'outer: for oy in -1..=1 { for ox in -1..=1 { if let Some(bucket) = grid.get(&(gx+ox, gy+oy)) {
                 for &j in bucket { if j == i { continue; }
                     let (pos_j, alive_j, consumed_j, species_j, is_corpse_j) = snapshot[j]; if consumed_j { continue; }
-                    if a.age_steps < NEWBORN_GRACE_STEPS { continue; }
-                    if age_snapshot.get(j).copied().unwrap_or(NEWBORN_GRACE_STEPS) < NEWBORN_GRACE_STEPS { continue; }
                     if alive_j && species_j == my_species { continue; }
                     if (alive_j && !PREDATION_ENABLED) || ((!alive_j || is_corpse_j) && !SCAVENGE_ENABLED) { continue; }
                     let dx = pos_j.x - a.body.pos.x; let dy = pos_j.y - a.body.pos.y; let dist2 = dx*dx + dy*dy; if dist2 > EAT_AGENT_RADIUS*EAT_AGENT_RADIUS { continue; }
