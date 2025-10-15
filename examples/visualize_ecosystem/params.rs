@@ -9,25 +9,25 @@ use std::cell::Cell;
 
 // Runtime config storage for energy parameters (thread-local)
 thread_local! {
-    static RUNTIME_INITIAL_ENERGY: Cell<f32> = Cell::new(500.0);
+    static RUNTIME_INITIAL_ENERGY: Cell<f32> = Cell::new(1000.0);
     static RUNTIME_MAX_ENERGY: Cell<f32> = Cell::new(5000.0);
     static RUNTIME_ENERGY_DRAIN: Cell<f32> = Cell::new(0.05);
     static RUNTIME_POPULATION_SIZE: Cell<usize> = Cell::new(50);
     // Fitness weights (runtime configurable)
     // score = w_lifetime*lifetime + w_energy*avg_energy + w_offspring*offspring + w_comm*comm - w_idle*idle_penalty
     static RUNTIME_FIT_LIFETIME_WEIGHT: Cell<f32> = Cell::new(0.5);
-    static RUNTIME_FIT_ENERGY_WEIGHT: Cell<f32> = Cell::new(4.5);
-    static RUNTIME_FIT_OFFSPRING_WEIGHT: Cell<f32> = Cell::new(4.5);
+    static RUNTIME_FIT_ENERGY_WEIGHT: Cell<f32> = Cell::new(3.0);
+    static RUNTIME_FIT_OFFSPRING_WEIGHT: Cell<f32> = Cell::new(10.0);
     static RUNTIME_FIT_COMM_WEIGHT: Cell<f32> = Cell::new(0.0);
     static RUNTIME_FIT_IDLE_PENALTY_WEIGHT: Cell<f32> = Cell::new(0.5);
-    static RUNTIME_FIT_PLANT_WEIGHT: Cell<f32> = Cell::new(1.0);
-    static RUNTIME_FIT_MEAT_WEIGHT: Cell<f32> = Cell::new(3.0);
-    static RUNTIME_FIT_ATTACKS_WEIGHT: Cell<f32> = Cell::new(1.0);
-    static RUNTIME_FIT_KILLS_WEIGHT: Cell<f32> = Cell::new(3.0);
-    static RUNTIME_FIT_HERDING_WEIGHT: Cell<f32> = Cell::new(1.0);
-    // New: reward approaching food/carcasses and chasing other-species agents
-    static RUNTIME_FIT_APPROACH_FOOD_WEIGHT: Cell<f32> = Cell::new(0.1);
-    static RUNTIME_FIT_CHASE_OTHER_WEIGHT: Cell<f32> = Cell::new(1.0);
+    static RUNTIME_FIT_PLANT_WEIGHT: Cell<f32> = Cell::new(2.0);
+    static RUNTIME_FIT_MEAT_WEIGHT: Cell<f32> = Cell::new(10.0);
+    static RUNTIME_FIT_ATTACKS_WEIGHT: Cell<f32> = Cell::new(5.0);
+    static RUNTIME_FIT_KILLS_WEIGHT: Cell<f32> = Cell::new(10.0);
+    static RUNTIME_FIT_HERDING_WEIGHT: Cell<f32> = Cell::new(0.5);
+    static RUNTIME_FIT_APPROACH_FOOD_WEIGHT: Cell<f32> = Cell::new(0.2);
+    static RUNTIME_FIT_CHASE_OTHER_WEIGHT: Cell<f32> = Cell::new(0.5);
+    static RUNTIME_FIT_CHASE_SAME_WEIGHT: Cell<f32> = Cell::new(0.5);
 }
 // Getters for runtime energy config (fallback to these constants if not set)
 pub fn get_initial_energy() -> f32 { RUNTIME_INITIAL_ENERGY.with(|c| c.get()) }
@@ -47,6 +47,7 @@ pub fn get_fit_kills_weight() -> f32 { RUNTIME_FIT_KILLS_WEIGHT.with(|c| c.get()
 pub fn get_fit_herding_weight() -> f32 { RUNTIME_FIT_HERDING_WEIGHT.with(|c| c.get()) }
 pub fn get_fit_approach_food_weight() -> f32 { RUNTIME_FIT_APPROACH_FOOD_WEIGHT.with(|c| c.get()) }
 pub fn get_fit_chase_other_weight() -> f32 { RUNTIME_FIT_CHASE_OTHER_WEIGHT.with(|c| c.get()) }
+pub fn get_fit_chase_same_weight() -> f32 { RUNTIME_FIT_CHASE_SAME_WEIGHT.with(|c| c.get()) }
 
 
 

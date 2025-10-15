@@ -49,6 +49,7 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         herding_units: 0.0,
         approach_food_units: 0.0,
         chase_other_units: 0.0,
+        chase_same_units: 0.0,
     }).collect();
     // Track exploration (unique grid cells)
     let mut visited: Vec<HashSet<u32>> = vec![HashSet::new(); agents.len()];
@@ -95,6 +96,7 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
     let w_herd = crate::params::get_fit_herding_weight();
     let w_approach = crate::params::get_fit_approach_food_weight();
     let w_chase = crate::params::get_fit_chase_other_weight();
+    let w_chase_same = crate::params::get_fit_chase_same_weight();
     agents.iter().enumerate().map(|(i, a)| {
         let lifetime_score = (a.alive_steps as f32) / (MAX_STEPS as f32);
         let avg_energy_norm = if a.alive_steps > 0 { (energy_accum[i] / a.alive_steps as f32) / crate::params::get_max_energy() } else { 0.0 };
@@ -105,7 +107,8 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         let meat = a.kills as f32;
         let herd_units = a.herding_units;
         let approach_units = a.approach_food_units;
-        let chase_units = a.chase_other_units;
+    let chase_units = a.chase_other_units;
+    let chase_same_units = a.chase_same_units;
         w_life * lifetime_score
             + w_energy * avg_energy_norm
             + w_off * offspring_score
@@ -118,6 +121,7 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             + w_herd * herd_units
             + w_approach * approach_units
             + w_chase * chase_units
+            + w_chase_same * chase_same_units
     }).collect()
 }
 

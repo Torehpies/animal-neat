@@ -62,6 +62,7 @@ impl Episode {
                 herding_units: 0.0,
                 approach_food_units: 0.0,
                 chase_other_units: 0.0,
+                chase_same_units: 0.0,
             });
         }
         let food = world::build_world(rng);

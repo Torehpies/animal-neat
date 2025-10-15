@@ -52,6 +52,7 @@ pub struct Agent {
     // New: accumulated approach rewards
     pub approach_food_units: f32,   // closing distance towards plant/carcass
     pub chase_other_units: f32,     // closing distance towards other-species agents
+    pub chase_same_units: f32,      // closing distance towards same-species agents
 }
 
 #[derive(Clone, Copy, Debug)]

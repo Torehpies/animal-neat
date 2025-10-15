@@ -218,6 +218,14 @@ pub fn tick_step<R: Rng>(
             reward = reward.clamp(0.0, APPROACH_MAX_DELTA_PER_STEP);
             if reward > APPROACH_EPS { a.chase_other_units += reward; }
         }
+        // Chase same-species: reward if moving towards nearest same-species agent
+        if crate::params::get_fit_chase_same_weight() != 0.0 {
+            let v = a.last_same_mem; // local frame (x=right, y=forward), strength attenuated by distance
+            let forward_component = v.y.max(0.0);
+            let mut reward = forward_component;
+            reward = reward.clamp(0.0, APPROACH_MAX_DELTA_PER_STEP);
+            if reward > APPROACH_EPS { a.chase_same_units += reward; }
+        }
         // Eating
     let ate = if world::eat_if_near(food, food_lifetime, &a.body) {
             if DIGEST_STEPS_PLANT > 0 { a.digest.push_back(DigestEvent { remaining: DIGEST_STEPS_PLANT, per_step: FOOD_ENERGY / (DIGEST_STEPS_PLANT as f32) }); }
