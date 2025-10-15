@@ -204,7 +204,12 @@ pub async fn run_sim_menu(state: &mut crate::AppState) -> SimMenuResult {
                 // Reset cooldown after picker closes
                 click_cooldown = 0.15;
             } else if hovering_back {
-                click_cooldown = 0.15;
+                click_cooldown = 0.20;
+                // Wait for cooldown
+                let cooldown_start = get_time();
+                while get_time() - cooldown_start < 0.20 {
+                    next_frame().await;
+                }
                 return SimMenuResult::BackToMain;
             }
         }

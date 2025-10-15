@@ -16,6 +16,7 @@ pub async fn run_main_menu() -> MenuResult {
     }
 
     let mut screen = MainScreen::MainMenu;
+    let mut click_cooldown = 0.0f32;
 
     loop {
         match screen {
@@ -80,12 +81,24 @@ pub async fn run_main_menu() -> MenuResult {
                 draw_centered_text("Exit", bx, by, btn_w, btn_h, 30.0, WHITE);
 
                 // Click handling
-                if is_mouse_button_pressed(MouseButton::Left) {
+                if is_mouse_button_pressed(MouseButton::Left) && click_cooldown <= 0.0 {
                     if simulate_hover {
+                        click_cooldown = 0.20;
+                        // Wait for cooldown
+                        let cooldown_start = get_time();
+                        while get_time() - cooldown_start < 0.20 {
+                            next_frame().await;
+                        }
                         screen = MainScreen::SimOptions;
+                        click_cooldown = 0.15;
                     } else if exit_hover {
                         return MenuResult::Exit;
                     }
+                }
+
+                // Cooldown decrement
+                if click_cooldown > 0.0 {
+                    click_cooldown = (click_cooldown - get_frame_time()).max(0.0);
                 }
 
                 next_frame().await;
@@ -160,7 +173,7 @@ pub async fn run_main_menu() -> MenuResult {
                 draw_centered_text("Back", back_x, by, back_w, back_h, 24.0, WHITE);
 
                 // Click handling
-                if is_mouse_button_pressed(MouseButton::Left) {
+                if is_mouse_button_pressed(MouseButton::Left) && click_cooldown <= 0.0 {
                     if create_hover {
                         let mut menu_state = MenuState::new();
                         let config = loop {
@@ -173,14 +186,35 @@ pub async fn run_main_menu() -> MenuResult {
                     }
 
                     if load_hover {
+                        click_cooldown = 0.20;
+                        // Wait for cooldown
+                        let cooldown_start = get_time();
+                        while get_time() - cooldown_start < 0.20 {
+                            next_frame().await;
+                        }
+                        
                         if let Some(path) = load_picker::pick_snapshot().await {
                             return MenuResult::Load(path);
                         }
+                        // Reset cooldown after picker closes
+                        click_cooldown = 0.15;
                     }
 
                     if back_hover {
+                        click_cooldown = 0.20;
+                        // Wait for cooldown
+                        let cooldown_start = get_time();
+                        while get_time() - cooldown_start < 0.20 {
+                            next_frame().await;
+                        }
                         screen = MainScreen::MainMenu;
+                        click_cooldown = 0.15;
                     }
+                }
+
+                // Cooldown decrement
+                if click_cooldown > 0.0 {
+                    click_cooldown = (click_cooldown - get_frame_time()).max(0.0);
                 }
 
                 next_frame().await;
