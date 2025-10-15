@@ -534,7 +534,10 @@ fn compute_episode_score(a: &crate::sim::Agent, comm_fit: f32) -> (f32, i32, i32
     let offspring_score = a.offspring_count as f32;
     let plants = a.eaten.saturating_sub(a.kills) as f32;
     let meat = a.kills as f32;
-    let idle_penalty = a.total_idle_penalty;
+    // Normalize idle penalty so w_idle meaning is comparable to other [0,1] terms
+    let max_idle_steps = (MAX_STEPS.saturating_sub(IDLENESS_THRESHOLD_STEPS)) as f32;
+    let max_idle_penalty = max_idle_steps * IDLENESS_PENALTY_PER_STEP;
+    let idle_penalty = if max_idle_penalty > 0.0 { (a.total_idle_penalty / max_idle_penalty).clamp(0.0, 1.0) } else { 0.0 };
     let w_life = crate::params::get_fit_lifetime_weight();
     let w_energy = crate::params::get_fit_energy_weight();
     let w_off = crate::params::get_fit_offspring_weight();
@@ -564,7 +567,7 @@ fn compute_episode_score(a: &crate::sim::Agent, comm_fit: f32) -> (f32, i32, i32
     // Keep plant/meat counts for display only
     let eaten_plants = a.eaten.saturating_sub(a.kills) as i32;
     let eaten_meat = a.kills as i32;
-    let idle_penalty_value = if IDLENESS_PENALTY_ENABLED { w_idle * a.total_idle_penalty } else { 0.0 };
+    let idle_penalty_value = if IDLENESS_PENALTY_ENABLED { w_idle * idle_penalty } else { 0.0 };
     let herd_value = w_herd * a.herding_units;
     let approach_value = w_approach * a.approach_food_units;
     let chase_value = w_chase * a.chase_other_units;
@@ -673,7 +676,10 @@ fn eco_cull_population_by_fitness(state: &mut AppState) {
             let avg_energy_norm = if a.alive_steps > 0 { (a.energy_accum / a.alive_steps as f32) / crate::params::get_max_energy() } else { 0.0 };
             let offspring_score = a.offspring_count as f32;
             let comm_score = state.episode.comm_fitness_accum.get(i).copied().unwrap_or(0.0);
-            let idle_penalty = a.total_idle_penalty;
+            // Normalize idle penalty to [0,1] of max achievable this episode
+            let max_idle_steps = (MAX_STEPS.saturating_sub(IDLENESS_THRESHOLD_STEPS)) as f32;
+            let max_idle_penalty = max_idle_steps * IDLENESS_PENALTY_PER_STEP;
+            let idle_penalty = if max_idle_penalty > 0.0 { (a.total_idle_penalty / max_idle_penalty).clamp(0.0, 1.0) } else { 0.0 };
             let plants = a.eaten.saturating_sub(a.kills) as f32;
             let meat = a.kills as f32;
             let approach_units = a.approach_food_units;

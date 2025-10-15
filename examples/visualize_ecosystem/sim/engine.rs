@@ -204,7 +204,7 @@ pub fn tick_step<R: Rng>(
             }
         }
 
-        // Positive shaping: reward approaching food and chasing other-species
+        // Positive shaping: reward approaching food and chasing other/same species
         // Approach food: only reward if facing food AND moving forward (no reward for staring without motion)
         if crate::params::get_fit_approach_food_weight() != 0.0 {
             // Using current food vector magnitude as a proxy for closeness improvement with thrust
@@ -229,19 +229,37 @@ pub fn tick_step<R: Rng>(
         // Chase other-species: reward if moving towards nearest other-species agent
         if crate::params::get_fit_chase_other_weight() != 0.0 {
             // Use last_other_mem (local vector) approximated from previous step sensing
-            let v = a.last_other_mem; // in local frame, length encodes proximity signal
-            // Convert local vector v to world-forward projection by using its forward component directly
-            // last_other_mem.y is forward component in local frame from sensing
+            let v = a.last_other_mem; // in local frame (x=right, y=forward), length encodes proximity signal
+            // Compute forward motion factor as in approach-food
+            let forward = intent.dir;
+            let motion_factor = if USE_INERTIA {
+                let fwd_speed = a.body.vel.dot(forward).max(0.0);
+                (fwd_speed / MAX_VELOCITY).clamp(0.0, 1.0)
+            } else {
+                let mut t = intent.raw_thrust;
+                if t.abs() < THRUST_DEADZONE { t = 0.0; }
+                t.max(0.0).clamp(0.0, 1.0)
+            };
             let forward_component = v.y.max(0.0);
-            let mut reward = forward_component; // already 0..1
+            let mut reward = forward_component * motion_factor; // gate by motion so spinning-in-place doesn't pay
             reward = reward.clamp(0.0, APPROACH_MAX_DELTA_PER_STEP);
             if reward > APPROACH_EPS { a.chase_other_units += reward; }
         }
         // Chase same-species: reward if moving towards nearest same-species agent
         if crate::params::get_fit_chase_same_weight() != 0.0 {
             let v = a.last_same_mem; // local frame (x=right, y=forward), strength attenuated by distance
+            // Compute forward motion factor as in approach-food
+            let forward = intent.dir;
+            let motion_factor = if USE_INERTIA {
+                let fwd_speed = a.body.vel.dot(forward).max(0.0);
+                (fwd_speed / MAX_VELOCITY).clamp(0.0, 1.0)
+            } else {
+                let mut t = intent.raw_thrust;
+                if t.abs() < THRUST_DEADZONE { t = 0.0; }
+                t.max(0.0).clamp(0.0, 1.0)
+            };
             let forward_component = v.y.max(0.0);
-            let mut reward = forward_component;
+            let mut reward = forward_component * motion_factor; // gate by motion to avoid stationary "radar"
             reward = reward.clamp(0.0, APPROACH_MAX_DELTA_PER_STEP);
             if reward > APPROACH_EPS { a.chase_same_units += reward; }
         }
@@ -306,13 +324,15 @@ pub fn tick_step<R: Rng>(
         if USE_INERTIA {
             let vmag = a.body.vel.length();
             energy_cost += vmag * EXTRA_VEL_ENERGY_C1 + vmag*vmag*vmag * EXTRA_VEL_ENERGY_C2;
-            if intent.turn_delta.abs()>0.0 && vmag>1e-4 { energy_cost += TURN_ENERGY_SCALE * intent.raw_turn.abs().min(1.0); }
         } else {
             let mut speed = intent.raw_thrust;
             if speed.abs() < THRUST_DEADZONE { speed = 0.0; }
             speed = speed.clamp(0.0, 1.0);
             energy_cost += speed * MOVE_ENERGY_SCALE;
-            if intent.turn_delta.abs()>0.0 && speed>1e-4 { energy_cost += TURN_ENERGY_SCALE * intent.raw_turn.abs().min(1.0); }
+        }
+        // Charge turn energy even when stationary to discourage spinning-in-place "radar" behavior
+        if intent.turn_delta.abs() > 0.0 {
+            energy_cost += TURN_ENERGY_SCALE * intent.raw_turn.abs().min(1.0);
         }
         if COMMUNICATION_ENABLED { energy_cost += a.call_intensity * CALL_COST; }
         a.energy -= energy_cost; if a.energy <= 0.0 || a.health <= DEATH_HEALTH_THRESHOLD { if a.dead_since.is_none() { a.dead_since = Some(step_idx); a.corpse_energy = CORPSE_INITIAL_ENERGY; } }

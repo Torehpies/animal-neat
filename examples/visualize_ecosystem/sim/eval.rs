@@ -103,7 +103,12 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         let avg_energy_norm = if a.alive_steps > 0 { (energy_accum[i] / a.alive_steps as f32) / crate::params::get_max_energy() } else { 0.0 };
         let offspring_score = a.offspring_count as f32;
         let comm_score = comm_fit.get(i).copied().unwrap_or(0.0);
-        let idle_penalty = a.total_idle_penalty;
+        // Normalize idle penalty to [0,1] fraction of maximum possible idle accumulation this episode
+        let max_idle_steps = (MAX_STEPS.saturating_sub(IDLENESS_THRESHOLD_STEPS)) as f32;
+        let max_idle_penalty = max_idle_steps * IDLENESS_PENALTY_PER_STEP;
+        let idle_penalty = if max_idle_penalty > 0.0 {
+            (a.total_idle_penalty / max_idle_penalty).clamp(0.0, 1.0)
+        } else { 0.0 };
         let plants = a.eaten.saturating_sub(a.kills) as f32;
         let meat = a.kills as f32;
         let herd_units = a.herding_units;

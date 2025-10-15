@@ -15,7 +15,7 @@ thread_local! {
     static RUNTIME_POPULATION_SIZE: Cell<usize> = Cell::new(50);
     // Fitness weights (runtime configurable)
     // score = w_lifetime*lifetime + w_energy*avg_energy + w_offspring*offspring + w_comm*comm - w_idle*idle_penalty
-    static RUNTIME_FIT_LIFETIME_WEIGHT: Cell<f32> = Cell::new(0.1);
+    static RUNTIME_FIT_LIFETIME_WEIGHT: Cell<f32> = Cell::new(0.05);
     static RUNTIME_FIT_ENERGY_WEIGHT: Cell<f32> = Cell::new(3.0);
     static RUNTIME_FIT_OFFSPRING_WEIGHT: Cell<f32> = Cell::new(10.0);
     static RUNTIME_FIT_COMM_WEIGHT: Cell<f32> = Cell::new(0.0);
@@ -26,8 +26,8 @@ thread_local! {
     static RUNTIME_FIT_KILLS_WEIGHT: Cell<f32> = Cell::new(10.0);
     static RUNTIME_FIT_HERDING_WEIGHT: Cell<f32> = Cell::new(0.5);
     static RUNTIME_FIT_APPROACH_FOOD_WEIGHT: Cell<f32> = Cell::new(0.2);
-    static RUNTIME_FIT_CHASE_OTHER_WEIGHT: Cell<f32> = Cell::new(0.5);
-    static RUNTIME_FIT_CHASE_SAME_WEIGHT: Cell<f32> = Cell::new(0.5);
+    static RUNTIME_FIT_CHASE_OTHER_WEIGHT: Cell<f32> = Cell::new(0.4);
+    static RUNTIME_FIT_CHASE_SAME_WEIGHT: Cell<f32> = Cell::new(0.4);
 }
 // Getters for runtime energy config (fallback to these constants if not set)
 pub fn get_initial_energy() -> f32 { RUNTIME_INITIAL_ENERGY.with(|c| c.get()) }
@@ -337,7 +337,7 @@ pub const TURN_ENERGY_SCALE: f32 = 0.75;          // energy cost added proportio
 // Inertia extension (Stage A): treat Output[1] as forward thrust instead of direct speed.
 // v_{t+1} = v_t * (1.0 - DRAG_COEFF) + thrust * MAX_THRUST * forward_dir
 // Speed capped softly by MAX_VELOCITY (explicit clamp)
-pub const USE_INERTIA: bool = true;               // feature flag to revert easily
+pub const USE_INERTIA: bool = false;               // feature flag to revert easily
 pub const DRAG_COEFF: f32 = 0.10;                 // fraction of velocity lost per step (0.1 -> ~63% after 10 steps)
 pub const MAX_THRUST: f32 = 1.0;                  // units of velocity added when thrust output = 1.0
 pub const MAX_VELOCITY: f32 = 4.5;                // hard cap on velocity magnitude (pre world scaling)
