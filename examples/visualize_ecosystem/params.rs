@@ -282,7 +282,7 @@ pub const ECO_MATE_RADIUS: f32 = 6.0 * AGENT_RADIUS;
 /// Compatibility distance threshold for allowing cross-species mating and kinship protection.
 /// If distance(genome_i, genome_j) <= this threshold, agents are considered "similar enough" to
 /// mate and to avoid attacking each other (kin protection) even if their species IDs differ.
-pub const ECO_MATE_COMPATIBILITY_THRESHOLD: f32 = 1.0; // tune: lower = stricter similarity
+pub const ECO_MATE_COMPATIBILITY_THRESHOLD: f32 = 0.25; // tune: lower = stricter similarity
 /// Coefficients for NEAT compatibility distance used in ecosystem similarity checks
 pub const ECO_MATE_C1: f32 = 1.0;
 pub const ECO_MATE_C2: f32 = 1.0;
