@@ -10,23 +10,23 @@ use std::cell::Cell;
 // Runtime config storage for energy parameters (thread-local)
 thread_local! {
     static RUNTIME_INITIAL_ENERGY: Cell<f32> = Cell::new(1000.0);
-    static RUNTIME_MAX_ENERGY: Cell<f32> = Cell::new(5000.0);
+    static RUNTIME_MAX_ENERGY: Cell<f32> = Cell::new(10000.0);
     static RUNTIME_ENERGY_DRAIN: Cell<f32> = Cell::new(0.05);
     static RUNTIME_POPULATION_SIZE: Cell<usize> = Cell::new(50);
     // Fitness weights (runtime configurable)
     // score = w_lifetime*lifetime + w_energy*avg_energy + w_offspring*offspring + w_comm*comm - w_idle*idle_penalty
     static RUNTIME_FIT_LIFETIME_WEIGHT: Cell<f32> = Cell::new(0.05);
-    static RUNTIME_FIT_ENERGY_WEIGHT: Cell<f32> = Cell::new(3.0);
+    static RUNTIME_FIT_ENERGY_WEIGHT: Cell<f32> = Cell::new(5.0);
     static RUNTIME_FIT_OFFSPRING_WEIGHT: Cell<f32> = Cell::new(10.0);
     static RUNTIME_FIT_COMM_WEIGHT: Cell<f32> = Cell::new(0.0);
-    static RUNTIME_FIT_IDLE_PENALTY_WEIGHT: Cell<f32> = Cell::new(0.5);
+    static RUNTIME_FIT_IDLE_PENALTY_WEIGHT: Cell<f32> = Cell::new(0.6);
     static RUNTIME_FIT_PLANT_WEIGHT: Cell<f32> = Cell::new(2.0);
-    static RUNTIME_FIT_MEAT_WEIGHT: Cell<f32> = Cell::new(10.0);
-    static RUNTIME_FIT_ATTACKS_WEIGHT: Cell<f32> = Cell::new(5.0);
-    static RUNTIME_FIT_KILLS_WEIGHT: Cell<f32> = Cell::new(10.0);
-    static RUNTIME_FIT_HERDING_WEIGHT: Cell<f32> = Cell::new(0.5);
-    static RUNTIME_FIT_APPROACH_FOOD_WEIGHT: Cell<f32> = Cell::new(0.2);
-    static RUNTIME_FIT_CHASE_OTHER_WEIGHT: Cell<f32> = Cell::new(0.4);
+    static RUNTIME_FIT_MEAT_WEIGHT: Cell<f32> = Cell::new(20.0);
+    static RUNTIME_FIT_ATTACKS_WEIGHT: Cell<f32> = Cell::new(10.0);
+    static RUNTIME_FIT_KILLS_WEIGHT: Cell<f32> = Cell::new(20.0);
+    static RUNTIME_FIT_HERDING_WEIGHT: Cell<f32> = Cell::new(0.3);
+    static RUNTIME_FIT_APPROACH_FOOD_WEIGHT: Cell<f32> = Cell::new(0.1);
+    static RUNTIME_FIT_CHASE_OTHER_WEIGHT: Cell<f32> = Cell::new(0.3);
     static RUNTIME_FIT_CHASE_SAME_WEIGHT: Cell<f32> = Cell::new(0.4);
 }
 // Getters for runtime energy config (fallback to these constants if not set)
@@ -88,6 +88,30 @@ pub fn set_fitness_weights(
     RUNTIME_FIT_MEAT_WEIGHT.with(|c| c.set(meat));
     RUNTIME_FIT_ATTACKS_WEIGHT.with(|c| c.set(attacks));
     RUNTIME_FIT_KILLS_WEIGHT.with(|c| c.set(kills));
+}
+
+// Setter specifically for behavior-shaping weights adjustable from the menu
+#[allow(dead_code)]
+pub fn set_behavior_weights(
+    approach_food: f32,
+    chase_other: f32,
+    chase_same: f32,
+    herding: f32,
+    attacks: f32,
+    kills: f32,
+    plant: f32,
+    meat: f32,
+    idle_penalty: f32,
+) {
+    RUNTIME_FIT_APPROACH_FOOD_WEIGHT.with(|c| c.set(approach_food));
+    RUNTIME_FIT_CHASE_OTHER_WEIGHT.with(|c| c.set(chase_other));
+    RUNTIME_FIT_CHASE_SAME_WEIGHT.with(|c| c.set(chase_same));
+    RUNTIME_FIT_HERDING_WEIGHT.with(|c| c.set(herding));
+    RUNTIME_FIT_ATTACKS_WEIGHT.with(|c| c.set(attacks));
+    RUNTIME_FIT_KILLS_WEIGHT.with(|c| c.set(kills));
+    RUNTIME_FIT_PLANT_WEIGHT.with(|c| c.set(plant));
+    RUNTIME_FIT_MEAT_WEIGHT.with(|c| c.set(meat));
+    RUNTIME_FIT_IDLE_PENALTY_WEIGHT.with(|c| c.set(idle_penalty));
 }
 
 // Parameters for approach/chase reward shaping
@@ -177,7 +201,7 @@ pub const PLANT_LIFETIME_MAX_STEPS: usize = 2700; // ~60s at 60 FPS
 // Vision cone parameters
 // =====================
 pub const VISION_RAYS: usize = 7;
-pub const VISION_ANGLE_DEG: f32 = 90.0;  // Narrower cone (was 80.0)
+pub const VISION_ANGLE_DEG: f32 = 100.0;  // Narrower cone (was 80.0)
 pub const VISION_RANGE: f32 = 100.0;     // Longer range (was 90.0)
 /// Derived: radians for convenience if needed by math
 
@@ -257,7 +281,7 @@ pub const COMM_SIGNAL_EFFECT_RADIUS: f32 = 60.0; // receivers must eat within th
 
 // Herding shaping (optional): reward time spent near same-species peers
 pub const HERDING_ENABLED: bool = true;            // master toggle for herding accumulation
-pub const HERDING_RADIUS: f32 = 6.0 * AGENT_RADIUS; // neighbors within this radius count towards herding
+pub const HERDING_RADIUS: f32 = 10.0 * AGENT_RADIUS; // neighbors within this radius count towards herding
 pub const HERDING_MAX_NEIGHBORS: usize = 4;        // cap per-step neighbor count to avoid runaway rewardsion
 pub const COMM_RECV_REWARD: f32 = 0.8;         // fitness added to eater when benefiting from a signal
 pub const COMM_CALLER_REWARD: f32 = 0.4;       // fitness added to original caller (smaller encourages some altruism)
@@ -270,7 +294,7 @@ pub const ECO_CONTINUOUS: bool = true;
 // Hard caps and thresholds
 pub const ECO_MAX_POP: usize = 250;                 // maximum concurrent agents
 pub const ECO_MIN_POP: usize = 10;                 // minimum seeding on reset if all die
-pub const ECO_BIRTH_ENERGY_THRESHOLD: f32 = 100.0; // minimum energy to allow birth
+pub const ECO_BIRTH_ENERGY_THRESHOLD: f32 = 75.0; // minimum energy to allow birth
 pub const ECO_BIRTH_ENERGY_COST: f32 = 75.0;      // energy deducted from parent per birth
 pub const ECO_BIRTH_COOLDOWN_STEPS: usize = 50;    // steps before the same parent can reproduce again
 pub const ECO_MAX_OFFSPRING_PER_AGENT: usize = 100;  // per-episode cap
@@ -282,7 +306,7 @@ pub const ECO_MATE_RADIUS: f32 = 6.0 * AGENT_RADIUS;
 /// Compatibility distance threshold for allowing cross-species mating and kinship protection.
 /// If distance(genome_i, genome_j) <= this threshold, agents are considered "similar enough" to
 /// mate and to avoid attacking each other (kin protection) even if their species IDs differ.
-pub const ECO_MATE_COMPATIBILITY_THRESHOLD: f32 = 0.25; // tune: lower = stricter similarity
+pub const ECO_MATE_COMPATIBILITY_THRESHOLD: f32 = 0.75; // tune: lower = stricter similarity
 /// Coefficients for NEAT compatibility distance used in ecosystem similarity checks
 pub const ECO_MATE_C1: f32 = 1.0;
 pub const ECO_MATE_C2: f32 = 1.0;
@@ -308,7 +332,7 @@ pub const MEAT_ENERGY: f32 = 250.0;
 pub const PREDATION_ENABLED: bool = true;
 pub const SCAVENGE_ENABLED: bool = true;
 /// Require live prey to be within predator's vision cone to attack (enables ambush tactics)
-pub const PREDATION_REQUIRES_VISION: bool = true;
+pub const PREDATION_REQUIRES_VISION: bool = false;
 /// Require corpses to be within vision cone to scavenge (set false for easier scavenging)
 pub const SCAVENGE_REQUIRES_VISION: bool = false;
 // Health / injury system

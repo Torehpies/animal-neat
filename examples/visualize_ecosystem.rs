@@ -296,6 +296,30 @@ async fn main() {
         world::set_runtime_config(sim_config.world_width, sim_config.world_height, sim_config.max_food, sim_config.food_respawn_prob);
         params::set_runtime_energy_config(sim_config.initial_energy, sim_config.max_energy, sim_config.energy_drain_per_step);
         params::set_runtime_population_size(sim_config.population_size);
+        // Apply fitness weights before starting
+        params::set_fitness_weights(
+            sim_config.w_lifetime,
+            sim_config.w_energy,
+            sim_config.w_offspring,
+            sim_config.w_comm,
+            sim_config.w_idle_penalty,
+            sim_config.w_plant,
+            sim_config.w_meat,
+            sim_config.w_attacks,
+            sim_config.w_kills,
+            sim_config.w_herding,
+        );
+        params::set_behavior_weights(
+            sim_config.w_approach,
+            sim_config.w_chase,
+            sim_config.w_chase_same,
+            sim_config.w_herding,
+            sim_config.w_attacks,
+            sim_config.w_kills,
+            sim_config.w_plant,
+            sim_config.w_meat,
+            sim_config.w_idle_penalty,
+        );
         
         let mut state = AppState::new(sim_config);
         // If the main menu requested to load a snapshot, apply it now
