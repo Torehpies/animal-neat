@@ -18,7 +18,7 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
 
     // Reserve bottom portion for network panel; can be hidden via toggles
     let graphs_h = if state.show_graphs_panel { (area.h * 0.36).clamp(140.0, 320.0) } else { 0.0 };
-    let network_h = if state.show_best_network_panel || state.show_live_network { (area.h * 0.42).clamp(160.0, 380.0) } else { 0.0 };
+    let network_h = if state.show_best_network_panel || state.show_live_network { (area.h * 0.542).clamp(160.0, 380.0) } else { 0.0 };
     let reserved_h = graphs_h + network_h;
     let max_y = area.y + area.h - PAD - reserved_h - 8.0;
     let max_w = area.w - (x - area.x) - PAD;

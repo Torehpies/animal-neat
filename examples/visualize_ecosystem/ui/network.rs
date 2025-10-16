@@ -100,7 +100,8 @@ pub fn draw_network_panel(area: Rect, genome: &Genome) {
     for layer in &mut by_layer { layer.sort_unstable(); }
 
     // Positions across columns
-    let left_x = area.x + 40.0;
+    // Move input column inward so labels/inputs fit inside the panel
+    let left_x = area.x + 64.0;
     let right_x = area.x + area.w - 40.0;
     let top_y = area.y + 24.0;
     let bot_y = area.y + area.h - 24.0;
@@ -219,7 +220,8 @@ pub fn draw_network_panel(area: Rect, genome: &Genome) {
                 let label = input_label(*id as usize);
                 let tw = measure_text(&label, None, fs, 1.0).width;
                 // Place label so its vertical center aligns with node center
-                let tx = x - horiz_gap - tw;
+                // Clamp label X so it doesn't overflow the left panel edge
+                let tx = (x - horiz_gap - tw).max(area.x + 8.0);
                 let ty = y + (fs_px * 0.35); // approximate vertical centering
                 draw_text(&label, tx, ty, fs_px, LIGHTGRAY);
             }
@@ -307,7 +309,8 @@ pub fn draw_network_panel_activations(area: Rect, genome: &Genome, activations: 
     for layer in &mut by_layer { layer.sort_unstable(); }
 
     // Positions
-    let left_x = area.x + 40.0;
+    // Move input column inward so labels/inputs fit inside the panel
+    let left_x = area.x + 64.0;
     let right_x = area.x + area.w - 40.0;
     let top_y = area.y + 24.0;
     let bot_y = area.y + area.h - 24.0;

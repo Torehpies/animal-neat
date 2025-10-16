@@ -418,7 +418,7 @@ async fn main() {
                 println!("Quick-saved sim snapshot to {}", filename);
             }
         }
-        if is_key_pressed(KeyCode::O) {
+        if is_key_pressed(KeyCode::L) {
             // Find the most-recent *.json file in snapshots/ and attempt to load it
             let mut latest: Option<(std::path::PathBuf, std::time::SystemTime)> = None;
             if let Ok(entries) = std::fs::read_dir("snapshots") {
@@ -524,6 +524,8 @@ async fn main() {
                 eprintln!("No snapshot files found in snapshots/");
             }
         }
+    // 'O' key: toggle FPS pill in HUD
+    if is_key_pressed(KeyCode::O) { state.show_fps = !state.show_fps; }
         
         // ESC: if focused on an agent, clear focus; otherwise open the in-sim menu
         if is_key_pressed(KeyCode::Escape) {
@@ -532,7 +534,6 @@ async fn main() {
             } else {
                 // Pause and show the overlay menu
                 let prev_running_state = running;
-                running = false;
                 
                 // Call the async menu - it handles its own rendering loop
                 match ui_sim_menu::run_sim_menu(&mut state).await {
