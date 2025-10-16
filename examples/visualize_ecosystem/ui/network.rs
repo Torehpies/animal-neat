@@ -100,7 +100,8 @@ pub fn draw_network_panel(area: Rect, genome: &Genome) {
     for layer in &mut by_layer { layer.sort_unstable(); }
 
     // Positions across columns
-    let left_x = area.x + 40.0;
+    // Move input column inward so labels/inputs fit inside the panel
+    let left_x = area.x + 64.0;
     let right_x = area.x + area.w - 40.0;
     let top_y = area.y + 24.0;
     let bot_y = area.y + area.h - 24.0;
@@ -110,11 +111,41 @@ pub fn draw_network_panel(area: Rect, genome: &Genome) {
         if ids.is_empty() { continue; }
         let t = if max_depth == 0 { 0.0 } else { d as f32 / (max_depth as f32) };
         let x = left_x * (1.0 - t) + right_x * t;
-        let n = ids.len().max(1) as f32;
-        for (i, id) in ids.iter().enumerate() {
-            let ty = if n <= 1.0 { 0.5 } else { i as f32 / (n - 1.0) };
-            let y = top_y * (1.0 - ty) + bot_y * ty;
-            pos.insert(*id, (x, y));
+
+        // For input layer (d==0), add extra spacing between modality groups to avoid overlap
+        if d == 0 {
+            let r = sensing::input_ranges();
+            // Only position visible (non-hidden) inputs to keep spacing consistent
+            let visible: Vec<u32> = ids.iter().copied().filter(|id| !hidden_inputs.contains(id)).collect();
+            let mut y_cursor = top_y;
+            let base_spacing = 7.0; // further reduced spacing per input node
+            let group_gap = 1.0; // much smaller gap between modality groups
+
+            for (i, id) in visible.iter().enumerate() {
+                let idx = *id as usize;
+                if i > 0 {
+                    let prev_idx = visible[i-1] as usize;
+                    let crosses_boundary =
+                        (prev_idx < r.vision.end && idx >= r.vision.end) ||
+                        (prev_idx < r.energy + 1 && idx >= r.energy + 1) ||
+                        (prev_idx < r.memory.end && idx >= r.memory.end) ||
+                        (prev_idx < r.hearing.end && idx >= r.hearing.end) ||
+                        (prev_idx < r.position.end && idx >= r.position.end);
+                    if crosses_boundary {
+                        y_cursor += group_gap;
+                    }
+                }
+                pos.insert(*id, (x, y_cursor));
+                y_cursor += base_spacing;
+            }
+        } else {
+            // For other layers, use uniform spacing
+            let n = ids.len().max(1) as f32;
+            for (i, id) in ids.iter().enumerate() {
+                let ty = if n <= 1.0 { 0.5 } else { i as f32 / (n - 1.0) };
+                let y = top_y * (1.0 - ty) + bot_y * ty;
+                pos.insert(*id, (x, y));
+            }
         }
     }
 
@@ -129,12 +160,12 @@ pub fn draw_network_panel(area: Rect, genome: &Genome) {
             draw_line(x1, y1, x2, y2, w, col);
         }
     }
-    // Draw nodes on top
+    // Draw nodes on top (smaller circles to reduce overlap)
     let draw_nodes = |ids: &Vec<u32>, color: Color| {
         for id in ids {
             if let Some(&(x, y)) = pos.get(id) {
-                draw_circle(x, y, 3.0, color);
-                draw_circle_lines(x, y, 3.0, 1.5, BLACK);
+                draw_circle(x, y, 2.2, color);
+                draw_circle_lines(x, y, 2.2, 1.0, BLACK);
             }
         }
     };
@@ -150,9 +181,9 @@ pub fn draw_network_panel(area: Rect, genome: &Genome) {
         let r = sensing::input_ranges();
         if r.vision.contains(&idx) {
             let i = idx - r.vision.start;
-            let sector = ["L", "F", "R"][i / 5];
+            let ray = i / 5;
             let cat = match i % 5 { 0 => "P", 1 => "C", 2 => "S", 3 => "O", _ => "W" };
-            return format!("V {}:{}", sector, cat);
+            return format!("V R{}:{}", ray, cat);
         }
         if idx == r.energy { return "Energy".to_string(); }
         if r.memory.contains(&idx) {
@@ -179,17 +210,19 @@ pub fn draw_network_panel(area: Rect, genome: &Genome) {
     };
 
     let draw_input_labels = |ids: &Vec<u32>| {
-        // Larger font; place the label just to the left of the node (about 10px gap)
-        let fs_px: f32 = 16.0;
-        let fs: u16 = 16;
+        // Smaller font and tighter gap so labels take less vertical space.
+        let fs_px: f32 = 12.0;
+        let fs: u16 = 12;
+        let horiz_gap = 12.0; // tighter gap between node and label
         for id in ids {
             if hidden_inputs.contains(id) { continue; }
             if let Some(&(x, y)) = pos.get(id) {
                 let label = input_label(*id as usize);
                 let tw = measure_text(&label, None, fs, 1.0).width;
-                let tx = x - 10.0 - tw; // 10px left of the circle edge
-                let ty = y + 5.0; // slight vertical offset
-                // Foreground
+                // Place label so its vertical center aligns with node center
+                // Clamp label X so it doesn't overflow the left panel edge
+                let tx = (x - horiz_gap - tw).max(area.x + 8.0);
+                let ty = y + (fs_px * 0.35); // approximate vertical centering
                 draw_text(&label, tx, ty, fs_px, LIGHTGRAY);
             }
         }
@@ -212,8 +245,8 @@ pub fn draw_network_panel(area: Rect, genome: &Genome) {
     // Position the legend beside the input nodes column for better alignment
     let mut lx = left_x + 12.0;
     let legend = |lx: &mut f32, label: &str, col: Color| {
-        draw_circle(*lx + 8.0, legend_y, 6.0, col);
-        draw_circle_lines(*lx + 8.0, legend_y, 6.0, 1.0, BLACK);
+        draw_circle(*lx + 8.0, legend_y, 4.0, col);
+        draw_circle_lines(*lx + 8.0, legend_y, 4.0, 0.8, BLACK);
         draw_text(label, *lx + 18.0, legend_y + 4.0, 14.0, LIGHTGRAY);
         *lx += 90.0;
     };
@@ -276,12 +309,47 @@ pub fn draw_network_panel_activations(area: Rect, genome: &Genome, activations: 
     for layer in &mut by_layer { layer.sort_unstable(); }
 
     // Positions
-    let left_x = area.x + 40.0;
+    // Move input column inward so labels/inputs fit inside the panel
+    let left_x = area.x + 64.0;
     let right_x = area.x + area.w - 40.0;
     let top_y = area.y + 24.0;
     let bot_y = area.y + area.h - 24.0;
     let mut pos: std::collections::HashMap<u32, (f32, f32)> = std::collections::HashMap::new();
-    for (d, ids) in by_layer.iter().enumerate() { if ids.is_empty() { continue; } let t = if max_depth == 0 { 0.0 } else { d as f32 / (max_depth as f32) }; let x = left_x * (1.0 - t) + right_x * t; let n = ids.len().max(1) as f32; for (i, id) in ids.iter().enumerate() { let ty = if n <= 1.0 { 0.5 } else { i as f32 / (n - 1.0) }; let y = top_y * (1.0 - ty) + bot_y * ty; pos.insert(*id, (x, y)); } }
+    for (d, ids) in by_layer.iter().enumerate() {
+        if ids.is_empty() { continue; }
+        let t = if max_depth == 0 { 0.0 } else { d as f32 / (max_depth as f32) };
+        let x = left_x * (1.0 - t) + right_x * t;
+
+        if d == 0 {
+            let r = sensing::input_ranges();
+            let visible: Vec<u32> = ids.iter().copied().filter(|id| !hidden_inputs.contains(id)).collect();
+            let mut y_cursor = top_y;
+            let base_spacing = 12.0;
+            let group_gap = 4.0;
+            for (i, id) in visible.iter().enumerate() {
+                let idx = *id as usize;
+                if i > 0 {
+                    let prev_idx = visible[i-1] as usize;
+                    let crosses_boundary =
+                        (prev_idx < r.vision.end && idx >= r.vision.end) ||
+                        (prev_idx < r.energy + 1 && idx >= r.energy + 1) ||
+                        (prev_idx < r.memory.end && idx >= r.memory.end) ||
+                        (prev_idx < r.hearing.end && idx >= r.hearing.end) ||
+                        (prev_idx < r.position.end && idx >= r.position.end);
+                    if crosses_boundary { y_cursor += group_gap; }
+                }
+                pos.insert(*id, (x, y_cursor));
+                y_cursor += base_spacing;
+            }
+        } else {
+            let n = ids.len().max(1) as f32;
+            for (i, id) in ids.iter().enumerate() {
+                let ty = if n <= 1.0 { 0.5 } else { i as f32 / (n - 1.0) };
+                let y = top_y * (1.0 - ty) + bot_y * ty;
+                pos.insert(*id, (x, y));
+            }
+        }
+    }
 
     // Draw connections (by weight only for simplicity)
     for conn in &genome.connections {
@@ -306,77 +374,65 @@ pub fn draw_network_panel_activations(area: Rect, genome: &Genome, activations: 
             Color::new(0.4 - 0.3*t, 0.4 - 0.2*t, 0.4 + 0.6*t, 1.0)
         }
     };
+    // Threshold for considering a node "activated" (absolute value)
+    let active_thresh: f32 = 0.45;
+    // Radius mapping: size grows with |activation|
+    // Return radius in [min_r, max_r] based on |v|
+    let radius_for = |v: f32, min_r: f32, max_r: f32| -> f32 {
+        let t = v.abs().clamp(0.0, 1.0);
+        min_r + (max_r - min_r) * t
+    };
 
     // Draw nodes with activation fill; outline by type
-    // Inputs: place numeric label to the right of the node to avoid overlap, larger font with shadow
-    let draw_input_nodes = |ids: &Vec<u32>, outline: Color| {
+    // Inputs: no numeric labels; use thicker/colored outline when |activation| >= threshold
+    let draw_input_nodes = |ids: &Vec<u32>, _outline: Color| {
         for id in ids {
             if hidden_inputs.contains(id) { continue; }
             if let Some(&(x, y)) = pos.get(id) {
                 let v = *activations.get(id).unwrap_or(&0.0);
                 let col = act_color(v);
-                // Numeric label to the left of the node ("before" the circle)
-                let txt = format!("{:.2}", v);
-                let fs_px: f32 = 12.0; let fs: u16 = 12;
-                let tw = measure_text(&txt, None, fs, 1.0).width;
-                let tx = x - 9.0 - tw; // just to the left of the circle
-                let ty = y + fs_px * 0.35; // vertically centered-ish
-                // Shadow first, then foreground
-                draw_text(&txt, tx + 1.0, ty + 1.0, fs_px, BLACK);
-                draw_text(&txt, tx, ty, fs_px, LIGHTGRAY);
-                // Draw node on top of the label
-                draw_circle(x, y, 6.0, col);
-                draw_circle_lines(x, y, 6.0, 1.5, outline);
+                let r = radius_for(v, 2.4, 4.8);
+                // subtle halo when active
+                let is_active = v.abs() >= active_thresh;
+                if is_active { draw_circle(x, y, r + 1.0, Color::new(1.0, 1.0, 1.0, 0.08)); }
+                draw_circle(x, y, r, col);
             }
         }
     };
-    // Hidden/other nodes: keep centered but make slightly larger with shadow for readability
-    let draw_other_nodes = |ids: &Vec<u32>, outline: Color| {
+    // Hidden/other nodes: no numeric labels; highlight when active
+    let draw_other_nodes = |ids: &Vec<u32>, _outline: Color| {
         for id in ids {
             if hidden_outputs.contains(id) { continue; }
             if let Some(&(x, y)) = pos.get(id) {
                 let v = *activations.get(id).unwrap_or(&0.0);
                 let col = act_color(v);
-                draw_circle(x, y, 6.0, col);
-                draw_circle_lines(x, y, 6.0, 1.5, outline);
-                let txt = format!("{:.2}", v);
-                let fs_px: f32 = 12.0; let fs: u16 = 12;
-                let tw = measure_text(&txt, None, fs, 1.0).width;
-                let tx = x - tw * 0.5;
-                let ty = y - 8.0;
-                // Shadow
-                draw_text(&txt, tx + 1.0, ty + 1.0, fs_px, BLACK);
-                // Foreground
-                draw_text(&txt, tx, ty, fs_px, LIGHTGRAY);
+                let r = radius_for(v, 2.4, 4.8);
+                let is_active = v.abs() >= active_thresh;
+                if is_active { draw_circle(x, y, r + 1.0, Color::new(1.0, 1.0, 1.0, 0.08)); }
+                draw_circle(x, y, r, col);
             }
         }
     };
     draw_input_nodes(&inputs, BLACK);
     draw_other_nodes(&hiddens, BLACK);
-    // For outputs, use orange outline
+    // For outputs, use orange outline; thicken and brighten when active
     for id in outputs.iter() {
         if hidden_outputs.contains(id) { continue; }
         if let Some(&(x,y)) = pos.get(id) {
             let v = *activations.get(id).unwrap_or(&0.0);
             let col = act_color(v);
-            draw_circle(x, y, 7.0, col);
-            draw_circle_lines(x, y, 7.0, 2.0, Color::new(1.0, 0.6, 0.2, 1.0));
-            let txt = format!("{:.2}", v);
-            let fs_px: f32 = 12.0; let fs: u16 = 12;
-            let tw = measure_text(&txt, None, fs, 1.0).width;
-            let tx = x - tw*0.5;
-            let ty = y - 9.0;
-            // Shadow
-            draw_text(&txt, tx + 1.0, ty + 1.0, fs_px, BLACK);
-            // Foreground
-            draw_text(&txt, tx, ty, fs_px, LIGHTGRAY);
+            let r = radius_for(v, 2.8, 5.2);
+            let is_active = v.abs() >= active_thresh;
+            if is_active { draw_circle(x, y, r + 1.2, Color::new(1.0, 0.9, 0.4, 0.10)); }
+            draw_circle(x, y, r, col);
         }
     }
 
-    // Legend for activations
+    // Legend for activations (color only, no numbers)
     let legend_y = area.y + 14.0;
-    // Negative sample
-    let neg = act_color(-1.0); draw_circle(area.x + 10.0, legend_y, 6.0, neg); draw_text("-1", area.x + 20.0, legend_y + 4.0, 12.0, LIGHTGRAY);
-    let zero = act_color(0.0); draw_circle(area.x + 60.0, legend_y, 6.0, zero); draw_text("0", area.x + 70.0, legend_y + 4.0, 12.0, LIGHTGRAY);
-    let pos = act_color(1.0); draw_circle(area.x + 100.0, legend_y, 6.0, pos); draw_text("+1", area.x + 110.0, legend_y + 4.0, 12.0, LIGHTGRAY);
+    let neg = act_color(-1.0); draw_circle(area.x + 10.0, legend_y, 4.0, neg); draw_text("neg", area.x + 20.0, legend_y + 4.0, 12.0, LIGHTGRAY);
+    let zero = act_color(0.0); draw_circle(area.x + 60.0, legend_y, 4.0, zero); draw_text("zero", area.x + 70.0, legend_y + 4.0, 12.0, LIGHTGRAY);
+    let pos = act_color(1.0); draw_circle(area.x + 110.0, legend_y, 4.0, pos); draw_text("pos", area.x + 120.0, legend_y + 4.0, 12.0, LIGHTGRAY);
+    // Note: node size ∝ |activation|
+    draw_text("size ∝ |act|", area.x + 160.0, legend_y + 4.0, 12.0, GRAY);
 }

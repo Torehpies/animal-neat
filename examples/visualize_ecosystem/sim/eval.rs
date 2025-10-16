@@ -8,6 +8,7 @@ use crate::{body::Body, params::{AGENT_RADIUS, *}, sim::{CommSignal, Agent, Agen
 pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
     let mut rng = ::rand::rng();
     let mut food = world::build_world(&mut rng);
+    let mut food_lifetime = world::init_food_lifetimes(&food, &mut rng);
     // Lightweight speciation for evaluation to provide species differentiation signal
     let mut temp_speciator = Speciator::new(1.0);
     temp_speciator.speciate(population);
@@ -41,7 +42,14 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         kills_caused: 0,
         idle_anchor: world::rand_pos(&mut rng),
         idle_steps: 0,
+    total_idle_steps: 0,
         total_idle_penalty: 0.0,
+        input_buf: vec![0.0; crate::params::INPUTS],
+        energy_accum: 0.0,
+        herding_units: 0.0,
+        approach_food_units: 0.0,
+        chase_other_units: 0.0,
+        chase_same_units: 0.0,
     }).collect();
     // Track exploration (unique grid cells)
     let mut visited: Vec<HashSet<u32>> = vec![HashSet::new(); agents.len()];
@@ -58,6 +66,7 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         let _stats = tick_step(
             population,
             &mut food,
+            &mut food_lifetime,
             &mut agents,
             &species_map,
             Some(&mut visited),
@@ -74,25 +83,57 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         steps += 1;
     }
 
-    // Compose final fitness with optional normalized exploration and sublinear eaten term
-    let total_cells = ((WORLD_W / EXPL_CELL_SIZE).ceil() * (WORLD_H / EXPL_CELL_SIZE).ceil()) as f32;
+    // Configurable fitness: lifetime, avg energy, offspring, comm reward, and idle penalty
+    let w_life = crate::params::get_fit_lifetime_weight();
+    let w_energy = crate::params::get_fit_energy_weight();
+    let w_off = crate::params::get_fit_offspring_weight();
+    let w_comm = crate::params::get_fit_comm_weight();
+    let w_idle = crate::params::get_fit_idle_penalty_weight();
+    let w_plant = crate::params::get_fit_plant_weight();
+    let w_meat = crate::params::get_fit_meat_weight();
+    let w_att = crate::params::get_fit_attacks_weight();
+    let w_kill = crate::params::get_fit_kills_weight();
+    let w_herd = crate::params::get_fit_herding_weight();
+    let w_approach = crate::params::get_fit_approach_food_weight();
+    let w_chase = crate::params::get_fit_chase_other_weight();
+    let w_chase_same = crate::params::get_fit_chase_same_weight();
+    let complexity_penalty = crate::params::COMPLEXITY_PENALTY_PER_CONN;
     agents.iter().enumerate().map(|(i, a)| {
-        let eaten_plants = a.eaten.saturating_sub(a.kills) as f32;
-        let eaten_meat = a.kills as f32;
-        let intake_events = a.eaten as usize; // total edible events (plants + meat)
-        let missing = INTAKE_MIN_EVENTS.saturating_sub(intake_events) as f32;
-        let intake_penalty = missing * INTAKE_MISS_PENALTY;
-        let intake = eaten_plants * PLANT_FITNESS + eaten_meat * MEAT_FITNESS - intake_penalty;
-        let frac = if total_cells > 0.0 { (visited[i].len() as f32) / total_cells } else { 0.0 };
-        let exploration = frac * EXPL_WEIGHT;
-        let survival = (a.alive_steps as f32).powf(SURVIVAL_TIME_EXP) * SURVIVAL_STEP_FITNESS;
-        let predation_reward = (a.attack_hits as f32) * ATTACK_HIT_FITNESS + (a.kills_caused as f32) * KILL_CAUSED_FITNESS;
-        // Average energy while alive (normalized 0..1)
+        let lifetime_score = (a.alive_steps as f32) / (MAX_STEPS as f32);
         let avg_energy_norm = if a.alive_steps > 0 { (energy_accum[i] / a.alive_steps as f32) / crate::params::get_max_energy() } else { 0.0 };
-        let energy_term = avg_energy_norm * ENERGY_AVG_WEIGHT;
-        // Subtract idle penalty
-        let idle_penalty = a.total_idle_penalty;
-        intake + exploration + survival + predation_reward + energy_term + comm_fit[i] - idle_penalty
+        let offspring_score = a.offspring_count as f32;
+        let comm_score = comm_fit.get(i).copied().unwrap_or(0.0);
+        // Normalize idle penalty to [0,1] fraction of maximum possible idle accumulation this episode
+        let max_idle_steps = (MAX_STEPS.saturating_sub(IDLENESS_THRESHOLD_STEPS)) as f32;
+        let max_idle_penalty = max_idle_steps * IDLENESS_PENALTY_PER_STEP;
+        let idle_penalty = if max_idle_penalty > 0.0 {
+            (a.total_idle_penalty / max_idle_penalty).clamp(0.0, 1.0)
+        } else { 0.0 };
+        let plants = a.eaten.saturating_sub(a.kills) as f32;
+        let meat = a.kills as f32;
+        let herd_units = a.herding_units;
+        let approach_units = a.approach_food_units;
+    let chase_units = a.chase_other_units;
+    let chase_same_units = a.chase_same_units;
+        let mut s = w_life * lifetime_score
+            + w_energy * avg_energy_norm
+            + w_off * offspring_score
+            + w_comm * comm_score
+            - if IDLENESS_PENALTY_ENABLED { w_idle * idle_penalty } else { 0.0 }
+            + w_plant * plants
+            + w_meat * meat
+            + w_att * (a.attack_hits as f32)
+            + w_kill * (a.kills_caused as f32)
+            + w_herd * herd_units
+            + w_approach * approach_units
+            + w_chase * chase_units
+            + w_chase_same * chase_same_units;
+        if complexity_penalty > 0.0 {
+            // Penalize number of enabled connections in the genome
+            let enabled = population[i].connections.iter().filter(|c| c.enabled).count() as f32;
+            s -= complexity_penalty * enabled;
+        }
+        s
     }).collect()
 }
 

@@ -41,7 +41,18 @@ pub struct Agent {
     // Idleness tracking
     pub idle_anchor: Vec2,           // position where idleness check started
     pub idle_steps: usize,           // consecutive steps at roughly the same position
+    pub total_idle_steps: usize,     // accumulated steps considered idle (within distance threshold)
     pub total_idle_penalty: f32,     // accumulated idle penalty for fitness
+    // Scratch neural input buffer (length = params::INPUTS) reused each step to avoid allocation
+    pub input_buf: Vec<f32>,
+    // Accumulated energy while alive (for eco-mode live fitness computation to avoid extra evaluation pass)
+    pub energy_accum: f32,
+    // Accumulated herding units (time spent near same-species peers)
+    pub herding_units: f32,
+    // New: accumulated approach rewards
+    pub approach_food_units: f32,   // closing distance towards plant/carcass
+    pub chase_other_units: f32,     // closing distance towards other-species agents
+    pub chase_same_units: f32,      // closing distance towards same-species agents
 }
 
 #[derive(Clone, Copy, Debug)]

@@ -12,6 +12,20 @@ pub struct SimConfig {
     pub initial_energy: f32,
     pub max_energy: f32,
     pub energy_drain_per_step: f32,
+    // Fitness weights
+    pub w_lifetime: f32,
+    pub w_energy: f32,
+    pub w_offspring: f32,
+    pub w_comm: f32,
+    pub w_idle_penalty: f32,
+    pub w_plant: f32,
+    pub w_meat: f32,
+    pub w_attacks: f32,
+    pub w_kills: f32,
+    pub w_herding: f32,
+    pub w_approach: f32,
+    pub w_chase: f32,
+    pub w_chase_same: f32,
 }
 
 impl Default for SimConfig {
@@ -25,6 +39,19 @@ impl Default for SimConfig {
             initial_energy: 500.0,
             max_energy: 5000.0,
             energy_drain_per_step: 0.05,
+            w_lifetime: 0.05,
+            w_energy: 5.0,
+            w_offspring: 10.0,
+            w_comm: 0.0,
+            w_idle_penalty: 0.6,
+            w_plant: 2.0,
+            w_meat: 20.0,
+            w_attacks: 10.0,
+            w_kills: 20.0,
+            w_herding: 0.5,
+            w_approach: 0.1,
+            w_chase: 0.3,
+            w_chase_same: 0.4,
         }
     }
 }
@@ -45,6 +72,19 @@ enum EditField {
     InitialEnergy,
     MaxEnergy,
     EnergyDrain,
+    WLifetime,
+    WEnergy,
+    WOffspring,
+    WComm,
+    WIdle,
+    WPlant,
+    WMeat,
+    WAttacks,
+    WKills,
+    WHerd,
+    WApproach,
+    WChase,
+    WChaseSame,
 }
 
 impl MenuState {
@@ -63,8 +103,8 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
     
     let w = screen_width();
     let h = screen_height();
-    let panel_w = 600.0;
-    let panel_h = 620.0;
+    let panel_w = (w * 0.65).clamp(700.0, 1000.0);
+    let panel_h = (h * 0.8).clamp(720.0, 1000.0);
     let panel_x = (w - panel_w) / 2.0;
     let panel_y = (h - panel_h) / 2.0;
     
@@ -77,189 +117,102 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
     let x = panel_x + padding;
     let line_h = 35.0;
     let title_size = 32.0;
-    let label_size = 20.0;
-    let value_size = 20.0;
+    let label_size = 18.0;
+    let value_size = 18.0;
     
     // Title
     draw_text("Simulation Configuration", x, y, title_size, WHITE);
     y += line_h + 20.0;
     
-    // World dimensions
-    draw_text("World Size:", x, y, label_size, LIGHTGRAY);
+    // Core parameters header
+    draw_text("Core Parameters:", x, y, label_size, LIGHTGRAY);
     y += line_h;
     
-    let field_x = x + 20.0;
-    let value_x = field_x + 200.0;
-    
-    // World Width
-    draw_text("Width:", field_x, y, label_size, WHITE);
-    let is_editing_width = state.editing_field == Some(EditField::WorldWidth);
-    let width_text = if is_editing_width {
-        format!("{}_", state.input_buffer)
-    } else {
-        format!("{:.0}", state.config.world_width)
-    };
-    let width_color = if is_editing_width { YELLOW } else { Color::new(0.5, 0.9, 0.5, 1.0) };
-    draw_text(&width_text, value_x, y, value_size, width_color);
-    if is_mouse_button_pressed(MouseButton::Left) {
-        let mx = mouse_position().0;
-        let my = mouse_position().1;
-        if mx >= value_x && mx <= value_x + 150.0 && my >= y - 20.0 && my <= y + 5.0 {
-            state.editing_field = Some(EditField::WorldWidth);
-            state.input_buffer = format!("{:.0}", state.config.world_width);
+    // Two-column layout for core parameters
+    let inner_w = panel_w - 2.0 * padding;
+    let field_x1 = x + 20.0;
+    let value_x1 = field_x1 + 180.0;
+    let field_x2 = x + inner_w * 0.52;
+    let value_x2 = field_x2 + 180.0;
+
+    let mut y1 = y;
+    let mut y2 = y;
+
+    // Helper to draw a numeric field with editing support
+    let mut draw_field = |label: &str, field: EditField, text: String, fx: f32, vx: f32, yref: &mut f32| {
+        draw_text(label, fx, *yref, label_size, WHITE);
+        let editing = state.editing_field == Some(field);
+        let show = if editing { format!("{}_", state.input_buffer) } else { text };
+        let color = if editing { YELLOW } else { Color::new(0.5, 0.9, 0.5, 1.0) };
+        draw_text(&show, vx, *yref, value_size, color);
+        if is_mouse_button_pressed(MouseButton::Left) {
+            let (mx, my) = mouse_position();
+            if mx >= vx && mx <= vx + 200.0 && my >= *yref - 20.0 && my <= *yref + 5.0 {
+                state.editing_field = Some(field);
+                state.input_buffer = show.trim_end_matches('_').to_string();
+            }
         }
-    }
+        *yref += line_h;
+    };
+
+    // Left column
+    draw_field("World Width:", EditField::WorldWidth, format!("{:.0}", state.config.world_width), field_x1, value_x1, &mut y1);
+    draw_field("World Height:", EditField::WorldHeight, format!("{:.0}", state.config.world_height), field_x1, value_x1, &mut y1);
+    draw_field("Agents:", EditField::PopSize, format!("{}", state.config.population_size), field_x1, value_x1, &mut y1);
+    draw_field("Initial Energy:", EditField::InitialEnergy, format!("{:.1}", state.config.initial_energy), field_x1, value_x1, &mut y1);
+    draw_field("Max Energy:", EditField::MaxEnergy, format!("{:.1}", state.config.max_energy), field_x1, value_x1, &mut y1);
+    draw_field("Drain/Step:", EditField::EnergyDrain, format!("{:.3}", state.config.energy_drain_per_step), field_x1, value_x1, &mut y1);
+
+    // Right column
+    draw_field("Max Food:", EditField::MaxFood, format!("{}", state.config.max_food), field_x2, value_x2, &mut y2);
+    draw_field("Spawn Rate:", EditField::FoodRespawnRate, format!("{:.4}", state.config.food_respawn_prob), field_x2, value_x2, &mut y2);
+
+    y = y1.max(y2) + 20.0;
+
+    // Fitness Weights section (two columns)
+    draw_text("Fitness Weights:", x, y, label_size, LIGHTGRAY);
     y += line_h;
-    
-    // World Height
-    draw_text("Height:", field_x, y, label_size, WHITE);
-    let is_editing_height = state.editing_field == Some(EditField::WorldHeight);
-    let height_text = if is_editing_height {
-        format!("{}_", state.input_buffer)
-    } else {
-        format!("{:.0}", state.config.world_height)
-    };
-    let height_color = if is_editing_height { YELLOW } else { Color::new(0.5, 0.9, 0.5, 1.0) };
-    draw_text(&height_text, value_x, y, value_size, height_color);
-    if is_mouse_button_pressed(MouseButton::Left) {
-        let mx = mouse_position().0;
-        let my = mouse_position().1;
-        if mx >= value_x && mx <= value_x + 150.0 && my >= y - 20.0 && my <= y + 5.0 {
-            state.editing_field = Some(EditField::WorldHeight);
-            state.input_buffer = format!("{:.0}", state.config.world_height);
+
+    let mut draw_weight = |label: &str, field: EditField, val: f32, col_x: f32, wy: &mut f32| {
+        draw_text(label, col_x, *wy, label_size, WHITE);
+        let editing = state.editing_field == Some(field);
+        let text = if editing { format!("{}_", state.input_buffer) } else { format!("{:.3}", val) };
+        let color = if editing { YELLOW } else { Color::new(0.5, 0.9, 0.5, 1.0) };
+        let vx = col_x + 170.0;
+        draw_text(&text, vx, *wy, value_size, color);
+        if is_mouse_button_pressed(MouseButton::Left) {
+            let (mx, my) = mouse_position();
+            if mx >= vx && mx <= vx + 200.0 && my >= *wy - 20.0 && my <= *wy + 5.0 {
+                state.editing_field = Some(field);
+                state.input_buffer = format!("{:.3}", val);
+            }
         }
-    }
-    y += line_h + 15.0;
-    
-    // Population
-    draw_text("Population:", x, y, label_size, LIGHTGRAY);
-    y += line_h;
-    
-    draw_text("Agents:", field_x, y, label_size, WHITE);
-    let is_editing_pop = state.editing_field == Some(EditField::PopSize);
-    let pop_text = if is_editing_pop {
-        format!("{}_", state.input_buffer)
-    } else {
-        format!("{}", state.config.population_size)
+        *wy += line_h;
     };
-    let pop_color = if is_editing_pop { YELLOW } else { Color::new(0.5, 0.9, 0.5, 1.0) };
-    draw_text(&pop_text, value_x, y, value_size, pop_color);
-    if is_mouse_button_pressed(MouseButton::Left) {
-        let mx = mouse_position().0;
-        let my = mouse_position().1;
-        if mx >= value_x && mx <= value_x + 150.0 && my >= y - 20.0 && my <= y + 5.0 {
-            state.editing_field = Some(EditField::PopSize);
-            state.input_buffer = format!("{}", state.config.population_size);
-        }
-    }
-    y += line_h + 15.0;
-    
-    // Food settings
-    draw_text("Vegetation:", x, y, label_size, LIGHTGRAY);
-    y += line_h;
-    
-    draw_text("Max Count:", field_x, y, label_size, WHITE);
-    let is_editing_food = state.editing_field == Some(EditField::MaxFood);
-    let food_text = if is_editing_food {
-        format!("{}_", state.input_buffer)
-    } else {
-        format!("{}", state.config.max_food)
-    };
-    let food_color = if is_editing_food { YELLOW } else { Color::new(0.5, 0.9, 0.5, 1.0) };
-    draw_text(&food_text, value_x, y, value_size, food_color);
-    if is_mouse_button_pressed(MouseButton::Left) {
-        let mx = mouse_position().0;
-        let my = mouse_position().1;
-        if mx >= value_x && mx <= value_x + 150.0 && my >= y - 20.0 && my <= y + 5.0 {
-            state.editing_field = Some(EditField::MaxFood);
-            state.input_buffer = format!("{}", state.config.max_food);
-        }
-    }
-    y += line_h;
-    
-    draw_text("Spawn Rate:", field_x, y, label_size, WHITE);
-    let is_editing_rate = state.editing_field == Some(EditField::FoodRespawnRate);
-    let rate_text = if is_editing_rate {
-        format!("{}_", state.input_buffer)
-    } else {
-        format!("{:.4}", state.config.food_respawn_prob)
-    };
-    let rate_color = if is_editing_rate { YELLOW } else { Color::new(0.5, 0.9, 0.5, 1.0) };
-    draw_text(&rate_text, value_x, y, value_size, rate_color);
-    if is_mouse_button_pressed(MouseButton::Left) {
-        let mx = mouse_position().0;
-        let my = mouse_position().1;
-        if mx >= value_x && mx <= value_x + 150.0 && my >= y - 20.0 && my <= y + 5.0 {
-            state.editing_field = Some(EditField::FoodRespawnRate);
-            state.input_buffer = format!("{:.4}", state.config.food_respawn_prob);
-        }
-    }
-    y += line_h + 15.0;
-    
-    // Energy settings
-    draw_text("Energy:", x, y, label_size, LIGHTGRAY);
-    y += line_h;
-    
-    draw_text("Initial:", field_x, y, label_size, WHITE);
-    let is_editing_init_energy = state.editing_field == Some(EditField::InitialEnergy);
-    let init_energy_text = if is_editing_init_energy {
-        format!("{}_", state.input_buffer)
-    } else {
-        format!("{:.1}", state.config.initial_energy)
-    };
-    let init_energy_color = if is_editing_init_energy { YELLOW } else { Color::new(0.5, 0.9, 0.5, 1.0) };
-    draw_text(&init_energy_text, value_x, y, value_size, init_energy_color);
-    if is_mouse_button_pressed(MouseButton::Left) {
-        let mx = mouse_position().0;
-        let my = mouse_position().1;
-        if mx >= value_x && mx <= value_x + 150.0 && my >= y - 20.0 && my <= y + 5.0 {
-            state.editing_field = Some(EditField::InitialEnergy);
-            state.input_buffer = format!("{:.1}", state.config.initial_energy);
-        }
-    }
-    y += line_h;
-    
-    draw_text("Maximum:", field_x, y, label_size, WHITE);
-    let is_editing_max_energy = state.editing_field == Some(EditField::MaxEnergy);
-    let max_energy_text = if is_editing_max_energy {
-        format!("{}_", state.input_buffer)
-    } else {
-        format!("{:.1}", state.config.max_energy)
-    };
-    let max_energy_color = if is_editing_max_energy { YELLOW } else { Color::new(0.5, 0.9, 0.5, 1.0) };
-    draw_text(&max_energy_text, value_x, y, value_size, max_energy_color);
-    if is_mouse_button_pressed(MouseButton::Left) {
-        let mx = mouse_position().0;
-        let my = mouse_position().1;
-        if mx >= value_x && mx <= value_x + 150.0 && my >= y - 20.0 && my <= y + 5.0 {
-            state.editing_field = Some(EditField::MaxEnergy);
-            state.input_buffer = format!("{:.1}", state.config.max_energy);
-        }
-    }
-    y += line_h;
-    
-    draw_text("Drain/Step:", field_x, y, label_size, WHITE);
-    let is_editing_drain = state.editing_field == Some(EditField::EnergyDrain);
-    let drain_text = if is_editing_drain {
-        format!("{}_", state.input_buffer)
-    } else {
-        format!("{:.3}", state.config.energy_drain_per_step)
-    };
-    let drain_color = if is_editing_drain { YELLOW } else { Color::new(0.5, 0.9, 0.5, 1.0) };
-    draw_text(&drain_text, value_x, y, value_size, drain_color);
-    if is_mouse_button_pressed(MouseButton::Left) {
-        let mx = mouse_position().0;
-        let my = mouse_position().1;
-        if mx >= value_x && mx <= value_x + 150.0 && my >= y - 20.0 && my <= y + 5.0 {
-            state.editing_field = Some(EditField::EnergyDrain);
-            state.input_buffer = format!("{:.3}", state.config.energy_drain_per_step);
-        }
-    }
-    y += line_h + 30.0;
-    
+
+    let mut wyl = y;
+    let mut wyr = y;
+    // Left column weights
+    draw_weight("Lifetime:", EditField::WLifetime, state.config.w_lifetime, field_x1, &mut wyl);
+    draw_weight("Energy:", EditField::WEnergy, state.config.w_energy, field_x1, &mut wyl);
+    draw_weight("Offspring:", EditField::WOffspring, state.config.w_offspring, field_x1, &mut wyl);
+    draw_weight("Comm:", EditField::WComm, state.config.w_comm, field_x1, &mut wyl);
+    draw_weight("Idle Penalty:", EditField::WIdle, state.config.w_idle_penalty, field_x1, &mut wyl);
+    draw_weight("Plants:", EditField::WPlant, state.config.w_plant, field_x1, &mut wyl);
+
+    // Right column weights
+    draw_weight("Meat:", EditField::WMeat, state.config.w_meat, field_x2, &mut wyr);
+    draw_weight("Attacks:", EditField::WAttacks, state.config.w_attacks, field_x2, &mut wyr);
+    draw_weight("Kills:", EditField::WKills, state.config.w_kills, field_x2, &mut wyr);
+    draw_weight("Herding:", EditField::WHerd, state.config.w_herding, field_x2, &mut wyr);
+    draw_weight("Approach:", EditField::WApproach, state.config.w_approach, field_x2, &mut wyr);
+    draw_weight("Chase:", EditField::WChase, state.config.w_chase, field_x2, &mut wyr);
+    draw_weight("Chase Same:", EditField::WChaseSame, state.config.w_chase_same, field_x2, &mut wyr);
+
+    //y = wyl.max(wyr) + 10.0;
+
     // Handle keyboard input for editing
     if let Some(field) = state.editing_field {
-        // Handle special keys
         if is_key_pressed(KeyCode::Backspace) {
             state.input_buffer.pop();
         }
@@ -275,10 +228,12 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
                         state.config.world_height = val.max(100.0).min(2000.0);
                     }
                     EditField::PopSize => {
-                        state.config.population_size = (val as usize).max(1).min(500);
+                        // Allow much larger populations for stress-testing; clamp to 999,999
+                        state.config.population_size = (val as usize).max(1).min(999_999);
                     }
                     EditField::MaxFood => {
-                        state.config.max_food = (val as usize).max(10).min(2000);
+                        // Allow a very large vegetation count; clamp to 999,999
+                        state.config.max_food = (val as usize).max(10).min(999_999);
                     }
                     EditField::FoodRespawnRate => {
                         state.config.food_respawn_prob = val.max(0.0001).min(0.1);
@@ -292,6 +247,19 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
                     EditField::EnergyDrain => {
                         state.config.energy_drain_per_step = val.max(0.0).min(10.0);
                     }
+                    EditField::WLifetime => { state.config.w_lifetime = val; }
+                    EditField::WEnergy => { state.config.w_energy = val; }
+                    EditField::WOffspring => { state.config.w_offspring = val; }
+                    EditField::WComm => { state.config.w_comm = val; }
+                    EditField::WIdle => { state.config.w_idle_penalty = val.max(0.0); }
+                    EditField::WPlant => { state.config.w_plant = val; }
+                    EditField::WMeat => { state.config.w_meat = val; }
+                    EditField::WAttacks => { state.config.w_attacks = val; }
+                    EditField::WKills => { state.config.w_kills = val; }
+                    EditField::WHerd => { state.config.w_herding = val; }
+                    EditField::WApproach => { state.config.w_approach = val; }
+                    EditField::WChase => { state.config.w_chase = val; }
+                    EditField::WChaseSame => { state.config.w_chase_same = val; }
                 }
             }
             state.editing_field = None;
@@ -305,7 +273,7 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
         
         // Collect typed characters using macroquad's get_char_pressed
         while let Some(ch) = get_char_pressed() {
-            if ch.is_ascii_digit() || ch == '.' {
+            if ch.is_ascii_digit() || ch == '.' || ch == '-' {
                 state.input_buffer.push(ch);
             }
         }

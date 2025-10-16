@@ -1,10 +1,63 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
+use serde::de::Error as DeError;
+
+// Helper to serialize/deserialize HashMap<(u32,u32), u32> as a Vec of ((u32,u32), u32)
+mod conn_map_serde {
+    use super::*;
+
+    pub fn serialize<S>(map: &HashMap<(u32, u32), u32>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let vec: Vec<((u32, u32), u32)> = map.iter().map(|(k, v)| (*k, *v)).collect();
+        vec.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<HashMap<(u32, u32), u32>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let vec: Vec<((u32, u32), u32)> = Vec::deserialize(deserializer)?;
+        let mut map = HashMap::new();
+        for (k, v) in vec {
+            map.insert(k, v);
+        }
+        Ok(map)
+    }
+}
+
+// Helper to serialize/deserialize HashMap<u32, (u32,u32,u32)> as Vec of (u32, (u32,u32,u32))
+mod node_map_serde {
+    use super::*;
+
+    pub fn serialize<S>(map: &HashMap<u32, (u32, u32, u32)>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let vec: Vec<(u32, (u32, u32, u32))> = map.iter().map(|(k, v)| (*k, *v)).collect();
+        vec.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<HashMap<u32, (u32, u32, u32)>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let vec: Vec<(u32, (u32, u32, u32))> = Vec::deserialize(deserializer)?;
+        let mut map = HashMap::new();
+        for (k, v) in vec {
+            map.insert(k, v);
+        }
+        Ok(map)
+    }
+}
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct InnovationTracker {
     pub current_innovation: u32,
+    #[serde(with = "conn_map_serde")]
     pub connection_innovations: HashMap<(u32, u32), u32>,
+    #[serde(with = "node_map_serde")]
     pub node_innovations: HashMap<u32, (u32, u32, u32)>,
     pub node_id_counter: u32,
 }
