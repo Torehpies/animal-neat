@@ -78,9 +78,7 @@ pub fn nearest_food_along_ray(p: Vec2, dir: Vec2, food: &[Vec2]) -> Option<f32> 
     best
 }
 
-
-// Removed unused nearest_food_vector_local (legacy shaping vector) to reduce warnings.
-
+#[allow(dead_code)]
 pub fn nearest_agent_vector_local(pos: Vec2, theta: f32, snapshot: &[(Vec2, bool, bool, usize, bool)], self_idx: usize) -> (f32, f32) {
     let mut best_d2 = f32::INFINITY;
     let mut best_v = Vec2 { x: 0.0, y: 0.0 };
@@ -167,11 +165,6 @@ pub fn food_vector_from_rays(pos: Vec2, theta: f32, food: &[Vec2]) -> (f32, f32)
     }
     aggregate_vector_from_rays(theta, &hits)
 }
-
-
-// density sectors removed
-
-// Removed unused nearest_food_distance (legacy diagnostic) to reduce warnings.
 
 pub fn build_inputs_inplace(
     out: &mut [f32],
@@ -294,5 +287,3 @@ pub fn update_hearing(agents: &mut [Agent]) {
         for si in 0..3 { let v = accum[si].min(1.0); agents[i].heard_sectors[si] = agents[i].heard_sectors[si] + HEARING_EMA_ALPHA * (v - agents[i].heard_sectors[si]); }
     }
 }
-
-// Sector pooling removed.

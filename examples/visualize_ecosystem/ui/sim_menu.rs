@@ -97,11 +97,11 @@ pub async fn run_sim_menu(state: &mut crate::AppState) -> SimMenuResult {
         // Input handling
         if is_mouse_button_pressed(MouseButton::Left) && click_cooldown <= 0.0 {
             if hovering_resume {
-                click_cooldown = 0.15;
+                //click_cooldown = 0.15;
                 return SimMenuResult::Resume;
             } else if hovering_save && click_cooldown <= 0.0 {
                 // Handle Save: show save picker
-                click_cooldown = 0.20;
+                //click_cooldown = 0.20;
                 // Wait for cooldown
                 let cooldown_start = get_time();
                 while get_time() - cooldown_start < 0.20 {
@@ -127,7 +127,7 @@ pub async fn run_sim_menu(state: &mut crate::AppState) -> SimMenuResult {
                 click_cooldown = 0.15;
             } else if hovering_load && click_cooldown <= 0.0 {
                 // Handle Load: show load picker
-                click_cooldown = 0.20;
+                //click_cooldown = 0.20;
                 // Wait for cooldown
                 let cooldown_start = get_time();
                 while get_time() - cooldown_start < 0.20 {
@@ -211,7 +211,7 @@ pub async fn run_sim_menu(state: &mut crate::AppState) -> SimMenuResult {
                 // Reset cooldown after picker closes
                 click_cooldown = 0.15;
             } else if hovering_back {
-                click_cooldown = 0.20;
+                //click_cooldown = 0.20;
                 // Wait for cooldown
                 let cooldown_start = get_time();
                 while get_time() - cooldown_start < 0.20 {

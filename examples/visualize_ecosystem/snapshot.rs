@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::io;
 
-use crate::sim::{Agent, DigestEvent};
+use crate::sim::Agent;
 use macroquad::prelude::Vec2;
 use neat::neat::{genome::Genome, innovation_tracker::InnovationTracker};
 

@@ -209,7 +209,7 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
     draw_weight("Chase:", EditField::WChase, state.config.w_chase, field_x2, &mut wyr);
     draw_weight("Chase Same:", EditField::WChaseSame, state.config.w_chase_same, field_x2, &mut wyr);
 
-    y = wyl.max(wyr) + 10.0;
+    //y = wyl.max(wyr) + 10.0;
 
     // Handle keyboard input for editing
     if let Some(field) = state.editing_field {

@@ -119,8 +119,8 @@ pub async fn run_main_menu() -> MenuResult {
                 let (mx, my) = mouse_position();
 
                 // 🌈 Gentle parallax effect based on mouse movement
-                let parallax_x = (mx / w - 0.5) * 10.0;
-                let parallax_y = (my / h - 0.5) * 10.0;
+                //let parallax_x = (mx / w - 0.5) * 10.0;
+                //let parallax_y = (my / h - 0.5) * 10.0;
 
                 // --- Animated background particles ---
                 for p in &mut particles {
@@ -283,7 +283,7 @@ pub async fn run_main_menu() -> MenuResult {
                         pull_target = target_center;
                         particle_pull_active = true;
                         pull_timer = 0.5;
-                        click_cooldown = 0.20;
+                        //click_cooldown = 0.20;
 
                         // Duration for the pull + fade effect
                         let effect_duration = 0.8;
@@ -569,7 +569,7 @@ pub async fn run_main_menu() -> MenuResult {
                     }
 
                     if load_hover {
-                        click_cooldown = 0.20;
+                        //click_cooldown = 0.20;
                         // Wait for cooldown
                         let cooldown_start = get_time();
                         while get_time() - cooldown_start < 0.20 {
@@ -584,7 +584,7 @@ pub async fn run_main_menu() -> MenuResult {
                     }
 
                     if back_hover {
-                        click_cooldown = 0.20;
+                        //click_cooldown = 0.20;
                         let cooldown_start = get_time();
                         while get_time() - cooldown_start < 0.20 {
                             next_frame().await;
