@@ -9,7 +9,7 @@ use crate::ui_network::{draw_network_panel, draw_network_panel_activations};
 use crate::ui_graphs::draw_graphs_panel;
 
 // Compact HUD with essential stats; best-network panel retained.
-pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _member_species: &[usize]) {
+pub fn draw_hud(area: Rect, state: &mut AppState, running: bool, fast_mode: bool) {
     // Main panel
     draw_panel(area, PANEL_BG, PANEL_BORDER, 2.0);
 
@@ -60,6 +60,42 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
             draw_rectangle(px2, py2, pill_w2, pill_h2, Color::new(0.15, 0.18, 0.22, 0.25));
             draw_rectangle_lines(px2, py2, pill_w2, pill_h2, 1.0, Color::new(0.45, 0.55, 0.70, 0.55));
             draw_text(&fps_txt, px2 + pad_x, py2 + fs, fs, Color::new(0.85, 0.9, 0.95, 1.0));
+        }
+
+        // Quick Save button under FPS pill
+        let btn_w = 80.0;
+        let btn_h = 26.0;
+        let bpx = px - btn_w - 8.0;
+        let bpy = py;
+        let (mx, my) = mouse_position();
+        let hovering = mx >= bpx && mx <= bpx + btn_w && my >= bpy && my <= bpy + btn_h;
+        let col = if hovering { Color::new(0.2, 0.6, 0.9, 1.0) } else { Color::new(0.15, 0.45, 0.75, 1.0) };
+        draw_rectangle(bpx, bpy, btn_w, btn_h, col);
+        draw_rectangle_lines(bpx, bpy, btn_w, btn_h, 1.0, WHITE);
+        let label = "Save";
+        let tw = measure_text(label, None, fs as u16, 1.0).width;
+        draw_text(label, bpx + (btn_w - tw) * 0.5, bpy + fs + (btn_h - fs) * 0.5 - 4.0, fs, WHITE);
+
+        if state.hud_save_cooldown > 0.0 { state.hud_save_cooldown = (state.hud_save_cooldown - get_frame_time()).max(0.0); }
+        if hovering && is_mouse_button_pressed(MouseButton::Left) && state.hud_save_cooldown <= 0.0 {
+            state.hud_save_cooldown = 0.2;
+            // Generate a quick name: prefix + __quicksave.json
+            let filename = format!("{}__quicksave.json", state.save_prefix);
+            match crate::snapshot::save_sim_snapshot(
+                &filename,
+                state.generation,
+                &state.population,
+                &state.innov,
+                &state.episode,
+                &state.member_species,
+            ) {
+                Ok(_) => {
+                    state.hud_toast = Some((format!("Saved: {}", filename), 2.5));
+                }
+                Err(e) => {
+                    state.hud_toast = Some((format!("Save failed: {}", e), 3.5));
+                }
+            }
         }
     }
 
@@ -173,6 +209,8 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
                 ("[G]", "Exploration Grid", state.show_grid),
                 ("[Z]", "Graphs Panel", state.show_graphs_panel),
                 ("[O]", "FPS Counter", state.show_fps),
+                ("[S]", "Quick Save (HUD)", false),
+                ("[L]", "Load Latest", false),
                 ("[K]", "Color by Species", state.color_by_species),
             ];
             // Compute dynamic key slot width for right column
@@ -281,5 +319,25 @@ pub fn draw_hud(area: Rect, state: &AppState, running: bool, fast_mode: bool, _m
                 }
             }
         }
+    }
+
+    // HUD toast (bottom-right)
+    if let Some((ref msg, ref mut secs)) = state.hud_toast {
+        let dt = get_frame_time();
+        let w = screen_width();
+        let h = screen_height();
+        *secs -= dt;
+        let alpha = secs.clamp(0.0, 2.0) / 2.0; // 0..1
+        let bg = Color::new(0.0, 0.0, 0.0, 0.7 * alpha);
+        let fs = 18.0;
+        let pad = 10.0;
+        let tw = measure_text(msg, None, fs as u16, 1.0).width + 2.0 * pad;
+        let th = fs + 2.0 * pad * 0.8;
+        let tx = w - tw - 18.0;
+        let ty = h - th - 18.0;
+        draw_rectangle(tx, ty, tw, th, bg);
+        draw_rectangle_lines(tx, ty, tw, th, 1.0, WHITE);
+        draw_text(msg, tx + pad, ty + fs + (th - fs) * 0.5 - 6.0, fs, WHITE);
+        if *secs <= 0.0 { state.hud_toast = None; }
     }
 }

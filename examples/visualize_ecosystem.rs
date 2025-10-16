@@ -108,6 +108,9 @@ struct AppState {
     show_scoreboard_panel: bool,  // user toggle (T): enable/disable pause + scoreboard at episode end, default off
     scoreboard_pending: bool,     // scoreboard is currently open (episode ended and we're paused)
     scoreboard_rows: Vec<ScoreEntry>,
+    // HUD quick-save feedback
+    hud_toast: Option<(String, f32)>, // (message, remaining_secs)
+    hud_save_cooldown: f32,
 }
 
 #[derive(Clone, Debug)]
@@ -185,6 +188,8 @@ impl AppState {
             show_scoreboard_panel: false, // default: autoplay between episodes (no pause)
             scoreboard_pending: false,    // no scoreboard open
             scoreboard_rows: Vec::new(),
+            hud_toast: None,
+            hud_save_cooldown: 0.0,
         }
     }
 
@@ -414,8 +419,10 @@ async fn main() {
             let filename = format!("{}__quicksave.json", state.save_prefix);
             if let Err(e) = snapshot::save_sim_snapshot(&filename, state.generation, &state.population, &state.innov, &state.episode, &state.member_species) {
                 eprintln!("Failed to quick-save sim snapshot: {}", e);
+                state.hud_toast = Some((format!("Save failed: {}", e), 3.5));
             } else {
                 println!("Quick-saved sim snapshot to {}", filename);
+                state.hud_toast = Some((format!("Saved: {}", filename), 2.5));
             }
         }
         if is_key_pressed(KeyCode::L) {
@@ -494,6 +501,7 @@ async fn main() {
                         state.speciator.speciate(&state.population);
                         state.member_species = snap.member_species;
                         println!("Loaded sim snapshot from {}", path.display());
+                        state.hud_toast = Some((format!("Loaded: {}", path.display()), 2.5));
                     }
                     Err(_) => {
                         // fallback: try legacy population-only snapshot
@@ -515,13 +523,18 @@ async fn main() {
                                 let mut rng = ::rand::rng();
                                 state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
                                 println!("Loaded population snapshot from {}", path.display());
+                                state.hud_toast = Some((format!("Loaded population: {}", path.display()), 2.5));
                             }
-                            Err(e) => eprintln!("Failed to load snapshot {}: {}", path.display(), e),
+                            Err(e) => {
+                                eprintln!("Failed to load snapshot {}: {}", path.display(), e);
+                                state.hud_toast = Some((format!("Load failed: {}", e), 3.5));
+                            }
                         }
                     }
                 }
             } else {
                 eprintln!("No snapshot files found in snapshots/");
+                state.hud_toast = Some(("No snapshots found".to_string(), 2.5));
             }
         }
     // 'O' key: toggle FPS pill in HUD
@@ -709,7 +722,7 @@ async fn main() {
             true,  // memory vectors
             state.color_by_species,
         );
-        ui_hud::draw_hud(hud_area, &state, running, fast_mode, &state.member_species);
+    ui_hud::draw_hud(hud_area, &mut state, running, fast_mode);
         // Scoreboard panel: shown after episodes only when toggle is ON
         if state.scoreboard_pending && state.show_scoreboard_panel {
             let fullscreen = Rect { x: 0.0, y: 0.0, w, h };
