@@ -275,10 +275,12 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
                         state.config.world_height = val.max(100.0).min(2000.0);
                     }
                     EditField::PopSize => {
-                        state.config.population_size = (val as usize).max(1).min(500);
+                        // Allow much larger populations for stress-testing; clamp to 999,999
+                        state.config.population_size = (val as usize).max(1).min(999_999);
                     }
                     EditField::MaxFood => {
-                        state.config.max_food = (val as usize).max(10).min(2000);
+                        // Allow a very large vegetation count; clamp to 999,999
+                        state.config.max_food = (val as usize).max(10).min(999_999);
                     }
                     EditField::FoodRespawnRate => {
                         state.config.food_respawn_prob = val.max(0.0001).min(0.1);
