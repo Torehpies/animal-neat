@@ -258,7 +258,17 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
     // Fitness subpanel outline
     let fit_top = fit_header_y - 6.0;
     let fit_bottom = wyl.max(wyr);
-    let fit_h = (fit_bottom - fit_top) + 12.0;
+    // Prevent the fitness outline from overlapping the bottom buttons. We compute
+    // an available bottom using the same `padding` and the button height used
+    // later (50.0). If the computed fit_bottom would extend below that we
+    // clamp it so the outline stops above the buttons.
+    let button_h_for_clamp = 50.0; // matches the button_h value below
+    let available_bottom = panel_y + panel_h - (button_h_for_clamp + padding);
+    // keep a small margin above the buttons
+    let available_bottom = available_bottom - 8.0;
+    let fit_bottom = fit_bottom.min(available_bottom);
+    // ensure a sensible minimum height so the outline doesn't collapse
+    let fit_h = ((fit_bottom - fit_top) + 12.0).max(40.0);
     let fit_panel_x = x - 14.0;
     let fit_panel_w = (panel_w - 2.0 * padding) + 28.0;
     draw_rectangle_lines(fit_panel_x, fit_top, fit_panel_w, fit_h, 1.0, Color::new(0.3, 0.6, 0.8, 0.35));
