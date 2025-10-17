@@ -2,100 +2,9 @@
 
 use macroquad::prelude::*;
 
-#[derive(Clone, Debug)]
-pub struct SimConfig {
-    pub world_width: f32,
-    pub world_height: f32,
-    pub population_size: usize,
-    pub max_food: usize,
-    pub food_respawn_prob: f32,
-    pub initial_energy: f32,
-    pub max_energy: f32,
-    pub energy_drain_per_step: f32,
-    // Fitness weights
-    pub w_lifetime: f32,
-    pub w_energy: f32,
-    pub w_offspring: f32,
-    pub w_comm: f32,
-    pub w_idle_penalty: f32,
-    pub w_plant: f32,
-    pub w_meat: f32,
-    pub w_attacks: f32,
-    pub w_kills: f32,
-    pub w_herding: f32,
-    pub w_approach: f32,
-    pub w_chase: f32,
-    pub w_chase_same: f32,
-}
-
-impl Default for SimConfig {
-    fn default() -> Self {
-        Self {
-            world_width: 750.0,
-            world_height: 750.0,
-            population_size: 50,
-            max_food: 300,
-            food_respawn_prob: 0.006,
-            initial_energy: 500.0,
-            max_energy: 5000.0,
-            energy_drain_per_step: 0.05,
-            w_lifetime: 0.05,
-            w_energy: 5.0,
-            w_offspring: 10.0,
-            w_comm: 0.0,
-            w_idle_penalty: 0.6,
-            w_plant: 2.0,
-            w_meat: 20.0,
-            w_attacks: 10.0,
-            w_kills: 20.0,
-            w_herding: 0.5,
-            w_approach: 0.1,
-            w_chase: 0.3,
-            w_chase_same: 0.4,
-        }
-    }
-}
-
-pub struct MenuState {
-    pub config: SimConfig,
-    editing_field: Option<EditField>,
-    input_buffer: String,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum EditField {
-    WorldWidth,
-    WorldHeight,
-    PopSize,
-    MaxFood,
-    FoodRespawnRate,
-    InitialEnergy,
-    MaxEnergy,
-    EnergyDrain,
-    WLifetime,
-    WEnergy,
-    WOffspring,
-    WComm,
-    WIdle,
-    WPlant,
-    WMeat,
-    WAttacks,
-    WKills,
-    WHerd,
-    WApproach,
-    WChase,
-    WChaseSame,
-}
-
-impl MenuState {
-    pub fn new() -> Self {
-        Self {
-            config: SimConfig::default(),
-            editing_field: None,
-            input_buffer: String::new(),
-        }
-    }
-}
+// Pull in backend types/logic and re-export so external modules can continue using ui_menu::SimConfig
+pub use crate::menu_backend::{SimConfig, MenuState};
+use crate::menu_backend::{EditField, apply_field_value};
 
 /// Draw the menu and handle input. Returns Some(config) when user confirms, None while still editing
 pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
@@ -220,47 +129,7 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
         if is_key_pressed(KeyCode::Enter) {
             // Apply the edited value
             if let Ok(val) = state.input_buffer.parse::<f32>() {
-                match field {
-                    EditField::WorldWidth => {
-                        state.config.world_width = val.max(100.0).min(2000.0);
-                    }
-                    EditField::WorldHeight => {
-                        state.config.world_height = val.max(100.0).min(2000.0);
-                    }
-                    EditField::PopSize => {
-                        // Allow much larger populations for stress-testing; clamp to 999,999
-                        state.config.population_size = (val as usize).max(1).min(999_999);
-                    }
-                    EditField::MaxFood => {
-                        // Allow a very large vegetation count; clamp to 999,999
-                        state.config.max_food = (val as usize).max(10).min(999_999);
-                    }
-                    EditField::FoodRespawnRate => {
-                        state.config.food_respawn_prob = val.max(0.0001).min(0.1);
-                    }
-                    EditField::InitialEnergy => {
-                        state.config.initial_energy = val.max(10.0).min(10000.0);
-                    }
-                    EditField::MaxEnergy => {
-                        state.config.max_energy = val.max(100.0).min(50000.0);
-                    }
-                    EditField::EnergyDrain => {
-                        state.config.energy_drain_per_step = val.max(0.0).min(10.0);
-                    }
-                    EditField::WLifetime => { state.config.w_lifetime = val; }
-                    EditField::WEnergy => { state.config.w_energy = val; }
-                    EditField::WOffspring => { state.config.w_offspring = val; }
-                    EditField::WComm => { state.config.w_comm = val; }
-                    EditField::WIdle => { state.config.w_idle_penalty = val.max(0.0); }
-                    EditField::WPlant => { state.config.w_plant = val; }
-                    EditField::WMeat => { state.config.w_meat = val; }
-                    EditField::WAttacks => { state.config.w_attacks = val; }
-                    EditField::WKills => { state.config.w_kills = val; }
-                    EditField::WHerd => { state.config.w_herding = val; }
-                    EditField::WApproach => { state.config.w_approach = val; }
-                    EditField::WChase => { state.config.w_chase = val; }
-                    EditField::WChaseSame => { state.config.w_chase_same = val; }
-                }
+                apply_field_value(&mut state.config, field, val);
             }
             state.editing_field = None;
             state.input_buffer.clear();

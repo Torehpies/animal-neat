@@ -37,6 +37,8 @@ mod ui_world_view;
 mod ui_hud;
 #[path = "visualize_ecosystem/ui/network.rs"]
 mod ui_network;
+#[path = "visualize_ecosystem/ui/menu_backend.rs"]
+mod menu_backend;
 #[path = "visualize_ecosystem/ui/menu.rs"]
 mod ui_menu;
 #[path = "visualize_ecosystem/ui/main_menu.rs"]
