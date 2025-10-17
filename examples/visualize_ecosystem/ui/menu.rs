@@ -262,7 +262,7 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
     // an available bottom using the same `padding` and the button height used
     // later (50.0). If the computed fit_bottom would extend below that we
     // clamp it so the outline stops above the buttons.
-    let button_h_for_clamp = 50.0; // matches the button_h value below
+    let button_h_for_clamp = 40.0; // matches the button_h value below
     let available_bottom = panel_y + panel_h - (button_h_for_clamp + padding);
     // keep a small margin above the buttons
     let available_bottom = available_bottom - 8.0;
@@ -304,9 +304,10 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
     // Start + Reset buttons row
     let button_w = 200.0;
     let button_h = 50.0;
-    let button_y = panel_y + panel_h - button_h - padding;
+    let button_y_offset = 20.0;
     let button_gap = 20.0;
     let button_x = panel_x + (panel_w - (button_w * 2.0 + button_gap)) / 2.0;
+    let button_y = panel_y + panel_h - button_h - padding + button_y_offset;
     let reset_x = button_x;
     let start_x = reset_x + button_w + button_gap;
     
