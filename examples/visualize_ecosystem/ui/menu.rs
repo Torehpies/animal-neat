@@ -77,15 +77,13 @@ fn draw_field_row(
     label_size: f32,
     value_size: f32,
     line_h: f32,
-) {
+) -> Option<(String, f32, f32)> {
     let (mx, my) = mouse_position();
-    // Label + hover tooltip
+    // Label + hover detection (tooltip drawn at end of frame)
     draw_text(label, fx, *yref, label_size, WHITE);
     let label_w = measure_text(label, None, label_size as u16, 1.0).width;
     let label_hover = mx >= fx && mx <= fx + label_w + 4.0 && my >= *yref - 20.0 && my <= *yref + 8.0;
-    if label_hover {
-        draw_tooltip(field_help(field), mx, my);
-    }
+    let tooltip = if label_hover { Some((field_help(field).to_string(), mx, my)) } else { None };
 
     // Value input box
     let box_w = 190.0;
@@ -153,6 +151,7 @@ fn draw_field_row(
     }
 
     *yref += line_h;
+    tooltip
 }
 
 /// Draw the menu and handle input. Returns Some(config) when user confirms, None while still editing
@@ -190,10 +189,10 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
     );
     y += line_h + 10.0;
     
-    // Core parameters header with a subtle subpanel background
-    let core_panel_y = y - 10.0;
-    draw_text("Core Parameters", x, y, label_size, LIGHTGRAY);
-    y += line_h;
+    // Core parameters header with a subtle subpanel outline
+    let core_header_y = y;
+    draw_text("Core Parameters", x, core_header_y, label_size, LIGHTGRAY);
+    y = core_header_y + line_h;
     
     // Two-column layout for core parameters
     let inner_w = panel_w - 2.0 * padding;
@@ -207,56 +206,62 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
 
     // (Helper moved to draw_field_row function above)
 
+    // Collect tooltips to render on top at end
+    let mut deferred_tooltips: Vec<(String, f32, f32)> = Vec::new();
+
     // Left column
-    draw_field_row(state, "World Width", EditField::WorldWidth, format!("{:.0}", state.config.world_width), state.config.world_width, field_x1, value_x1, &mut y1, label_size, value_size, line_h);
-    draw_field_row(state, "World Height", EditField::WorldHeight, format!("{:.0}", state.config.world_height), state.config.world_height, field_x1, value_x1, &mut y1, label_size, value_size, line_h);
-    draw_field_row(state, "Agents", EditField::PopSize, format!("{}", state.config.population_size), state.config.population_size as f32, field_x1, value_x1, &mut y1, label_size, value_size, line_h);
-    draw_field_row(state, "Initial Energy", EditField::InitialEnergy, format!("{:.1}", state.config.initial_energy), state.config.initial_energy, field_x1, value_x1, &mut y1, label_size, value_size, line_h);
-    draw_field_row(state, "Max Energy", EditField::MaxEnergy, format!("{:.1}", state.config.max_energy), state.config.max_energy, field_x1, value_x1, &mut y1, label_size, value_size, line_h);
-    draw_field_row(state, "Drain/Step", EditField::EnergyDrain, format!("{:.3}", state.config.energy_drain_per_step), state.config.energy_drain_per_step, field_x1, value_x1, &mut y1, label_size, value_size, line_h);
+    if let Some(t) = draw_field_row(state, "World Width", EditField::WorldWidth, format!("{:.0}", state.config.world_width), state.config.world_width, field_x1, value_x1, &mut y1, label_size, value_size, line_h) { deferred_tooltips.push(t); }
+    if let Some(t) = draw_field_row(state, "World Height", EditField::WorldHeight, format!("{:.0}", state.config.world_height), state.config.world_height, field_x1, value_x1, &mut y1, label_size, value_size, line_h) { deferred_tooltips.push(t); }
+    if let Some(t) = draw_field_row(state, "Agents", EditField::PopSize, format!("{}", state.config.population_size), state.config.population_size as f32, field_x1, value_x1, &mut y1, label_size, value_size, line_h) { deferred_tooltips.push(t); }
+    if let Some(t) = draw_field_row(state, "Initial Energy", EditField::InitialEnergy, format!("{:.1}", state.config.initial_energy), state.config.initial_energy, field_x1, value_x1, &mut y1, label_size, value_size, line_h) { deferred_tooltips.push(t); }
+    if let Some(t) = draw_field_row(state, "Max Energy", EditField::MaxEnergy, format!("{:.1}", state.config.max_energy), state.config.max_energy, field_x1, value_x1, &mut y1, label_size, value_size, line_h) { deferred_tooltips.push(t); }
+    if let Some(t) = draw_field_row(state, "Drain/Step", EditField::EnergyDrain, format!("{:.3}", state.config.energy_drain_per_step), state.config.energy_drain_per_step, field_x1, value_x1, &mut y1, label_size, value_size, line_h) { deferred_tooltips.push(t); }
 
     // Right column
-    draw_field_row(state, "Max Food", EditField::MaxFood, format!("{}", state.config.max_food), state.config.max_food as f32, field_x2, value_x2, &mut y2, label_size, value_size, line_h);
-    draw_field_row(state, "Spawn Rate", EditField::FoodRespawnRate, format!("{:.4}", state.config.food_respawn_prob), state.config.food_respawn_prob, field_x2, value_x2, &mut y2, label_size, value_size, line_h);
+    if let Some(t) = draw_field_row(state, "Max Food", EditField::MaxFood, format!("{}", state.config.max_food), state.config.max_food as f32, field_x2, value_x2, &mut y2, label_size, value_size, line_h) { deferred_tooltips.push(t); }
+    if let Some(t) = draw_field_row(state, "Spawn Rate", EditField::FoodRespawnRate, format!("{:.4}", state.config.food_respawn_prob), state.config.food_respawn_prob, field_x2, value_x2, &mut y2, label_size, value_size, line_h) { deferred_tooltips.push(t); }
 
-    // Core subpanel backdrop bounds
-    let core_h = y1.max(y2) + 12.0 - core_panel_y;
+    // Core subpanel outline bounds (from header to last field)
+    let core_top = core_header_y - 6.0;
+    let core_bottom = y1.max(y2);
+    let core_h = (core_bottom - core_top) + 12.0;
     let core_panel_x = x - 14.0;
     let core_panel_w = (panel_w - 2.0 * padding) + 28.0;
-    // Border-only so we don't overdraw inputs that were rendered before
-    draw_rectangle_lines(core_panel_x, core_panel_y, core_panel_w, core_h, 1.0, Color::new(0.3, 0.6, 0.8, 0.35));
+    draw_rectangle_lines(core_panel_x, core_top, core_panel_w, core_h, 1.0, Color::new(0.3, 0.6, 0.8, 0.35));
 
     y = y1.max(y2) + 28.0;
 
     // Fitness Weights section (two columns)
-    let fit_panel_y = y - 10.0;
-    draw_text("Fitness Weights", x, y, label_size, LIGHTGRAY);
-    y += line_h;
+    let fit_header_y = y;
+    draw_text("Fitness Weights", x, fit_header_y, label_size, LIGHTGRAY);
+    y = fit_header_y + line_h;
 
     let mut wyl = y;
     let mut wyr = y;
     // Left column weights
-    draw_field_row(state, "Lifetime", EditField::WLifetime, format!("{:.3}", state.config.w_lifetime), state.config.w_lifetime, field_x1, field_x1 + 170.0, &mut wyl, label_size, value_size, line_h);
-    draw_field_row(state, "Energy", EditField::WEnergy, format!("{:.3}", state.config.w_energy), state.config.w_energy, field_x1, field_x1 + 170.0, &mut wyl, label_size, value_size, line_h);
-    draw_field_row(state, "Offspring", EditField::WOffspring, format!("{:.3}", state.config.w_offspring), state.config.w_offspring, field_x1, field_x1 + 170.0, &mut wyl, label_size, value_size, line_h);
-    draw_field_row(state, "Comm", EditField::WComm, format!("{:.3}", state.config.w_comm), state.config.w_comm, field_x1, field_x1 + 170.0, &mut wyl, label_size, value_size, line_h);
-    draw_field_row(state, "Idle Penalty", EditField::WIdle, format!("{:.3}", state.config.w_idle_penalty), state.config.w_idle_penalty, field_x1, field_x1 + 170.0, &mut wyl, label_size, value_size, line_h);
-    draw_field_row(state, "Plants", EditField::WPlant, format!("{:.3}", state.config.w_plant), state.config.w_plant, field_x1, field_x1 + 170.0, &mut wyl, label_size, value_size, line_h);
+    if let Some(t) = draw_field_row(state, "Lifetime", EditField::WLifetime, format!("{:.3}", state.config.w_lifetime), state.config.w_lifetime, field_x1, field_x1 + 170.0, &mut wyl, label_size, value_size, line_h) { deferred_tooltips.push(t); }
+    if let Some(t) = draw_field_row(state, "Energy", EditField::WEnergy, format!("{:.3}", state.config.w_energy), state.config.w_energy, field_x1, field_x1 + 170.0, &mut wyl, label_size, value_size, line_h) { deferred_tooltips.push(t); }
+    if let Some(t) = draw_field_row(state, "Offspring", EditField::WOffspring, format!("{:.3}", state.config.w_offspring), state.config.w_offspring, field_x1, field_x1 + 170.0, &mut wyl, label_size, value_size, line_h) { deferred_tooltips.push(t); }
+    if let Some(t) = draw_field_row(state, "Comm", EditField::WComm, format!("{:.3}", state.config.w_comm), state.config.w_comm, field_x1, field_x1 + 170.0, &mut wyl, label_size, value_size, line_h) { deferred_tooltips.push(t); }
+    if let Some(t) = draw_field_row(state, "Idle Penalty", EditField::WIdle, format!("{:.3}", state.config.w_idle_penalty), state.config.w_idle_penalty, field_x1, field_x1 + 170.0, &mut wyl, label_size, value_size, line_h) { deferred_tooltips.push(t); }
+    if let Some(t) = draw_field_row(state, "Plants", EditField::WPlant, format!("{:.3}", state.config.w_plant), state.config.w_plant, field_x1, field_x1 + 170.0, &mut wyl, label_size, value_size, line_h) { deferred_tooltips.push(t); }
 
     // Right column weights
-    draw_field_row(state, "Meat", EditField::WMeat, format!("{:.3}", state.config.w_meat), state.config.w_meat, field_x2, field_x2 + 170.0, &mut wyr, label_size, value_size, line_h);
-    draw_field_row(state, "Attacks", EditField::WAttacks, format!("{:.3}", state.config.w_attacks), state.config.w_attacks, field_x2, field_x2 + 170.0, &mut wyr, label_size, value_size, line_h);
-    draw_field_row(state, "Kills", EditField::WKills, format!("{:.3}", state.config.w_kills), state.config.w_kills, field_x2, field_x2 + 170.0, &mut wyr, label_size, value_size, line_h);
-    draw_field_row(state, "Herding", EditField::WHerd, format!("{:.3}", state.config.w_herding), state.config.w_herding, field_x2, field_x2 + 170.0, &mut wyr, label_size, value_size, line_h);
-    draw_field_row(state, "Approach", EditField::WApproach, format!("{:.3}", state.config.w_approach), state.config.w_approach, field_x2, field_x2 + 170.0, &mut wyr, label_size, value_size, line_h);
-    draw_field_row(state, "Chase", EditField::WChase, format!("{:.3}", state.config.w_chase), state.config.w_chase, field_x2, field_x2 + 170.0, &mut wyr, label_size, value_size, line_h);
-    draw_field_row(state, "Chase Same", EditField::WChaseSame, format!("{:.3}", state.config.w_chase_same), state.config.w_chase_same, field_x2, field_x2 + 170.0, &mut wyr, label_size, value_size, line_h);
+    if let Some(t) = draw_field_row(state, "Meat", EditField::WMeat, format!("{:.3}", state.config.w_meat), state.config.w_meat, field_x2, field_x2 + 170.0, &mut wyr, label_size, value_size, line_h) { deferred_tooltips.push(t); }
+    if let Some(t) = draw_field_row(state, "Attacks", EditField::WAttacks, format!("{:.3}", state.config.w_attacks), state.config.w_attacks, field_x2, field_x2 + 170.0, &mut wyr, label_size, value_size, line_h) { deferred_tooltips.push(t); }
+    if let Some(t) = draw_field_row(state, "Kills", EditField::WKills, format!("{:.3}", state.config.w_kills), state.config.w_kills, field_x2, field_x2 + 170.0, &mut wyr, label_size, value_size, line_h) { deferred_tooltips.push(t); }
+    if let Some(t) = draw_field_row(state, "Herding", EditField::WHerd, format!("{:.3}", state.config.w_herding), state.config.w_herding, field_x2, field_x2 + 170.0, &mut wyr, label_size, value_size, line_h) { deferred_tooltips.push(t); }
+    if let Some(t) = draw_field_row(state, "Approach", EditField::WApproach, format!("{:.3}", state.config.w_approach), state.config.w_approach, field_x2, field_x2 + 170.0, &mut wyr, label_size, value_size, line_h) { deferred_tooltips.push(t); }
+    if let Some(t) = draw_field_row(state, "Chase", EditField::WChase, format!("{:.3}", state.config.w_chase), state.config.w_chase, field_x2, field_x2 + 170.0, &mut wyr, label_size, value_size, line_h) { deferred_tooltips.push(t); }
+    if let Some(t) = draw_field_row(state, "Chase Same", EditField::WChaseSame, format!("{:.3}", state.config.w_chase_same), state.config.w_chase_same, field_x2, field_x2 + 170.0, &mut wyr, label_size, value_size, line_h) { deferred_tooltips.push(t); }
 
-    // Fitness subpanel backdrop
-    let fit_h = wyl.max(wyr) + 12.0 - fit_panel_y;
+    // Fitness subpanel outline
+    let fit_top = fit_header_y - 6.0;
+    let fit_bottom = wyl.max(wyr);
+    let fit_h = (fit_bottom - fit_top) + 12.0;
     let fit_panel_x = x - 14.0;
     let fit_panel_w = (panel_w - 2.0 * padding) + 28.0;
-    draw_rectangle_lines(fit_panel_x, fit_panel_y, fit_panel_w, fit_h, 1.0, Color::new(0.3, 0.6, 0.8, 0.35));
+    draw_rectangle_lines(fit_panel_x, fit_top, fit_panel_w, fit_h, 1.0, Color::new(0.3, 0.6, 0.8, 0.35));
 
     // Handle keyboard input for editing
     if let Some(field) = state.editing_field {
@@ -290,15 +295,16 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
     let button_w = 200.0;
     let button_h = 50.0;
     let button_y = panel_y + panel_h - button_h - padding;
-    let button_x = panel_x + (panel_w - (button_w * 2.0 + 16.0)) / 2.0;
+    let button_gap = 20.0;
+    let button_x = panel_x + (panel_w - (button_w * 2.0 + button_gap)) / 2.0;
     let reset_x = button_x;
-    let start_x = reset_x + button_w + 16.0;
+    let start_x = reset_x + button_w + button_gap;
     
     // Instructions (draw after calculating button position to avoid overlap)
     draw_text(
         "Enter to confirm edit; Esc to cancel.",
         x,
-        button_y - 10.0,
+        button_y - 18.0,
         16.0,
         Color::new(0.7, 0.7, 0.7, 1.0),
     );
@@ -327,6 +333,10 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
     draw_text(text, start_x + (button_w - text_w) / 2.0, button_y + 32.0, 24.0, WHITE);
     if hover_start && is_mouse_button_pressed(MouseButton::Left) && state.editing_field.is_none() {
         return Some(state.config.clone());
+    }
+    // Draw the last tooltip (top-most hovered label) last
+    if let Some((text, tx, ty)) = deferred_tooltips.last() {
+        draw_tooltip(text, *tx, *ty);
     }
     
     None
