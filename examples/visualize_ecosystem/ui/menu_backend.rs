@@ -60,6 +60,8 @@ pub struct MenuState {
     pub config: SimConfig,
     pub editing_field: Option<EditField>,
     pub input_buffer: String,
+    pub show_help: bool,
+    pub help_scroll: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -93,6 +95,8 @@ impl MenuState {
             config: SimConfig::default(),
             editing_field: None,
             input_buffer: String::new(),
+            show_help: false,
+            help_scroll: 0.0,
         }
     }
 }

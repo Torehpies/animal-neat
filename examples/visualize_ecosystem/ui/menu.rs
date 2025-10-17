@@ -6,6 +6,85 @@ use macroquad::prelude::*;
 pub use crate::menu_backend::{SimConfig, MenuState};
 use crate::menu_backend::{EditField, apply_field_value};
 
+// Simple word-wrapping for multi-paragraph help text
+fn draw_text_wrapped(text: &str, mut x: f32, mut y: f32, max_w: f32, font_sz: f32, line_h: f32, color: Color) {
+    for para in text.split('\n') {
+        let words: Vec<&str> = para.split_whitespace().collect();
+        let mut line = String::new();
+        for w in words {
+            let candidate = if line.is_empty() { w.to_string() } else { format!("{} {}", line, w) };
+            let m = measure_text(&candidate, None, font_sz as u16, 1.0);
+            if m.width <= max_w {
+                line = candidate;
+            } else {
+                // draw current line and start a new one
+                draw_text(&line, x, y, font_sz, color);
+                y += line_h;
+                line.clear();
+                line.push_str(w);
+            }
+        }
+        if !line.is_empty() {
+            draw_text(&line, x, y, font_sz, color);
+            y += line_h;
+        }
+        // blank line between paragraphs
+        y += line_h * 0.25;
+    }
+}
+
+fn draw_help_overlay(panel_x: f32, panel_y: f32, panel_w: f32, panel_h: f32, ui_scale: f32) {
+    let scrim = Color::new(0.0, 0.0, 0.0, 0.55);
+    draw_rectangle(0.0, 0.0, screen_width(), screen_height(), scrim);
+
+    let box_w = (panel_w * 0.86).clamp(560.0, 900.0);
+    let box_h = (panel_h * 0.78).clamp(420.0, 800.0);
+    let bx = panel_x + (panel_w - box_w) / 2.0;
+    let by = panel_y + (panel_h - box_h) / 2.0;
+
+    draw_rectangle(bx, by, box_w, box_h, Color::new(0.10, 0.11, 0.14, 1.0));
+    draw_rectangle_lines(bx, by, box_w, box_h, 3.0, Color::new(0.45, 0.75, 1.0, 1.0));
+
+    let pad = 22.0 * ui_scale;
+    let title_sz = 30.0 * ui_scale;
+    let text_sz = 18.0 * ui_scale;
+    let line_h = text_sz * 1.35;
+
+    draw_text("Help", bx + pad, by + pad + title_sz, title_sz, WHITE);
+
+    let content_x = bx + pad;
+    let content_y = by + pad + title_sz + 14.0 * ui_scale;
+    let content_w = box_w - pad * 2.0;
+
+    let help_text = 
+    "Overview\n\
+    - Agents: Simulated creatures that move, eat, communicate, fight and reproduce. The Agents value controls how many exist at the start of each episode. More agents cost more CPU.\n\
+    - Rewards vs Penalties: Fitness weights shape evolution. Positive weights reward behaviors, negative weights penalize them. 'Idle Penalty' is applied when an agent does nothing useful.\n\
+    - Fitness (what evolves): Each agent accumulates fitness during an episode. After the episode, evolution prefers genomes with higher fitness. You can steer learning by changing the weights.\n\
+    Core Concepts\n\
+    Environment\n\
+    - World Size: Larger worlds spread agents and reduce encounters; smaller worlds increase interactions.\n\
+    - Max Food & Spawn Rate: Upper bound on concurrent plants and probability of new plant spawn each step. Higher food supports bigger populations.\n\
+    - Energy: Initial Energy is starting fuel; Max Energy is the cap; Drain/Step is metabolism cost each tick.\n\
+    Tips\n\
+    - Start with modest weights. If behavior is chaotic, lower Attack/Kill and raise Plant or Lifetime slightly.\n\
+    - Use small nudges: 0.05-0.5 often suffices for shaping.\n\
+    - Large populations or worlds will reduce FPS; adjust to your machine.";
+
+    draw_text_wrapped(help_text, content_x, content_y, content_w, text_sz, line_h, LIGHTGRAY);
+
+    // Close hint at the bottom
+    let hint = "Click anywhere to close this help";
+    let m = measure_text(hint, None, (text_sz * 0.95) as u16, 1.0);
+    draw_text(
+        hint,
+        bx + (box_w - m.width) / 2.0,
+        by + box_h - pad * 0.6,
+        text_sz * 0.95,
+        Color::new(0.75, 0.85, 1.0, 0.9),
+    );
+}
+
 // --- Small UI helpers for clearer, discoverable editing ---
 fn field_step(field: EditField) -> f32 {
     match field {
@@ -29,7 +108,7 @@ fn field_help(field: EditField) -> &'static str {
         EditField::WorldHeight => "Vertical world size in units.",
         EditField::PopSize => "Number of agents (population). Higher = heavier CPU load.",
         EditField::MaxFood => "Maximum number of plants present at once.",
-        EditField::FoodRespawnRate => "Per-step probability a new plant appears (0.0001–0.1).",
+    EditField::FoodRespawnRate => "Per-step probability a new plant appears (0.0001-0.1).",
         EditField::InitialEnergy => "Starting energy for each agent.",
         EditField::MaxEnergy => "Energy cap; agents cannot exceed this.",
         EditField::EnergyDrain => "Energy consumed by metabolism each step.",
@@ -178,6 +257,18 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
     // pick a conservative scale so things don't get too big
     let ui_scale = ui_scale_w.min(ui_scale_h).clamp(0.6, 1.6);
 
+    // If help overlay is open, draw it and swallow clicks to close, then early-return
+    if state.show_help {
+        let ui_scale_w = panel_w / 900.0;
+        let ui_scale_h = panel_h / 800.0;
+        let ui_scale = ui_scale_w.min(ui_scale_h).clamp(0.6, 1.6);
+        draw_help_overlay(panel_x, panel_y, panel_w, panel_h, ui_scale);
+        if is_mouse_button_pressed(MouseButton::Left) {
+            state.show_help = false;
+        }
+        return None;
+    }
+
     // Global click-to-confirm: if a field is being edited and the user clicks
     // anywhere, commit the current buffer (if valid) and exit edit mode.
     if is_mouse_button_pressed(MouseButton::Left) {
@@ -200,6 +291,25 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
     
     // Title + quick instructions
     draw_text("Simulation Configuration", x, y, title_size, WHITE);
+
+    // Help button (top-right of panel)
+    let help_size = 32.0 * ui_scale;
+    let help_pad = 14.0 * ui_scale;
+    let hb_x = panel_x + panel_w - help_pad - help_size;
+    let hb_y = panel_y + help_pad;
+    let (mx, my) = mouse_position();
+    let over_help = mx >= hb_x && mx <= hb_x + help_size && my >= hb_y && my <= hb_y + help_size;
+    let help_bg = if over_help { Color::new(0.25, 0.45, 0.65, 1.0) } else { Color::new(0.18, 0.32, 0.48, 1.0) };
+    draw_rectangle(hb_x, hb_y, help_size, help_size, help_bg);
+    draw_rectangle_lines(hb_x, hb_y, help_size, help_size, 2.0, WHITE);
+    let q_sz = 22.0 * ui_scale;
+    let q_w = measure_text("?", None, q_sz as u16, 1.0).width;
+    draw_text("?", hb_x + (help_size - q_w) / 2.0, hb_y + help_size - 8.0 * ui_scale, q_sz, WHITE);
+    if over_help && is_mouse_button_pressed(MouseButton::Left) {
+        state.show_help = true;
+        // prevent other click handlers from firing this frame by returning
+        return None;
+    }
     y += line_h + 6.0;
     draw_text(
         "Tip: Click inside the green boxes to edit; use +/- to nudge. Hover labels for help.",

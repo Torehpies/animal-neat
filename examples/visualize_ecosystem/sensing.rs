@@ -7,7 +7,7 @@
 //!
 //! Removed legacy components:
 //! - Pooled sector proximities (replaced by nearest-distance encoding)
-//! - Density sectors (congestion awareness) – simplified out for now
+//! - Density sectors (congestion awareness) - simplified out for now
 //!
 //! Vision encoding:
 //!   Sectors: Left, Forward, Right (L,F,R)

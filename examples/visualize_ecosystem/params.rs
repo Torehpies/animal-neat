@@ -395,7 +395,7 @@ pub const AGENT_COLLISION_PASSES: usize = 2;
 // ==============================
 // Sensing smoothing
 // ==============================
-// (Removed) POOL_EMA_ALPHA – pooled proximities removed in revised vision model
+// (Removed) POOL_EMA_ALPHA - pooled proximities removed in revised vision model
 // Hearing smoothing (separate in case we want different responsiveness)
 pub const HEARING_EMA_ALPHA: f32 = 0.5;
 // Max range for hearing (sound propagation)

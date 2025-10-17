@@ -286,7 +286,7 @@ fn window_conf() -> Conf {
 async fn main() {
     // Top-level loop so we can return to the main menu (label used by ESC handler)
     loop {
-        // Main menu runner (in separate module) – returns when user chooses to create a sim, load one, or exits
+    // Main menu runner (in separate module) - returns when user chooses to create a sim, load one, or exits
         let menu_res = ui_main_menu::run_main_menu().await;
         let (sim_config, loaded_snapshot_path) = match menu_res {
             ui_main_menu::MenuResult::New(cfg) => (cfg, None),
