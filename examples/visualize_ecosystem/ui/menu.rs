@@ -178,6 +178,18 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
     // pick a conservative scale so things don't get too big
     let ui_scale = ui_scale_w.min(ui_scale_h).clamp(0.6, 1.6);
 
+    // Global click-to-confirm: if a field is being edited and the user clicks
+    // anywhere, commit the current buffer (if valid) and exit edit mode.
+    if is_mouse_button_pressed(MouseButton::Left) {
+        if let Some(field) = state.editing_field {
+            if let Ok(val) = state.input_buffer.parse::<f32>() {
+                apply_field_value(&mut state.config, field, val);
+            }
+            state.editing_field = None;
+            state.input_buffer.clear();
+        }
+    }
+
     let padding = 30.0 * ui_scale;
     let mut y = panel_y + padding;
     let x = panel_x + padding;
