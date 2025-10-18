@@ -301,31 +301,49 @@ async fn main() {
         
         // Apply configuration to global params (via world module)
         world::set_runtime_config(sim_config.world_width, sim_config.world_height, sim_config.max_food, sim_config.food_respawn_prob);
-        params::set_runtime_energy_config(sim_config.initial_energy, sim_config.max_energy, sim_config.energy_drain_per_step);
+        params::set_runtime_energy_config_per_kind(
+            sim_config.initial_energy_herb,
+            sim_config.max_energy_herb,
+            sim_config.energy_drain_per_step_herb,
+            sim_config.initial_energy_carn,
+            sim_config.max_energy_carn,
+            sim_config.energy_drain_per_step_carn,
+        );
         params::set_runtime_population_size(sim_config.population_size);
         // Apply fitness weights before starting
-        params::set_fitness_weights(
-            sim_config.w_lifetime,
-            sim_config.w_energy,
-            sim_config.w_offspring,
-            sim_config.w_comm,
-            sim_config.w_idle_penalty,
-            sim_config.w_plant,
-            sim_config.w_meat,
-            sim_config.w_attacks,
-            sim_config.w_kills,
-            sim_config.w_herding,
+        params::set_fitness_weights_per_kind(
+            // herbivore
+            sim_config.w_lifetime_herb,
+            sim_config.w_energy_herb,
+            sim_config.w_offspring_herb,
+            sim_config.w_comm_herb,
+            sim_config.w_idle_penalty_herb,
+            sim_config.w_plant_herb,
+            sim_config.w_meat_herb,
+            sim_config.w_attacks_herb,
+            sim_config.w_kills_herb,
+            sim_config.w_herding_herb,
+            // carnivore
+            sim_config.w_lifetime_carn,
+            sim_config.w_energy_carn,
+            sim_config.w_offspring_carn,
+            sim_config.w_comm_carn,
+            sim_config.w_idle_penalty_carn,
+            sim_config.w_plant_carn,
+            sim_config.w_meat_carn,
+            sim_config.w_attacks_carn,
+            sim_config.w_kills_carn,
+            sim_config.w_herding_carn,
         );
-        params::set_behavior_weights(
-            sim_config.w_approach,
-            sim_config.w_chase,
-            sim_config.w_chase_same,
-            sim_config.w_herding,
-            sim_config.w_attacks,
-            sim_config.w_kills,
-            sim_config.w_plant,
-            sim_config.w_meat,
-            sim_config.w_idle_penalty,
+        params::set_behavior_weights_per_kind(
+            // herbivore
+            sim_config.w_approach_herb,
+            sim_config.w_chase_herb,
+            sim_config.w_chase_same_herb,
+            // carnivore
+            sim_config.w_approach_carn,
+            sim_config.w_chase_carn,
+            sim_config.w_chase_same_carn,
         );
         
         let mut state = AppState::new(sim_config);
@@ -814,19 +832,20 @@ fn compute_episode_score(a: &crate::sim::Agent, comm_fit: f32) -> (f32, i32, i32
     let max_idle_steps = (MAX_STEPS.saturating_sub(IDLENESS_THRESHOLD_STEPS)) as f32;
     let max_idle_penalty = max_idle_steps * IDLENESS_PENALTY_PER_STEP;
     let idle_penalty = if max_idle_penalty > 0.0 { (a.total_idle_penalty / max_idle_penalty).clamp(0.0, 1.0) } else { 0.0 };
-    let w_life = crate::params::get_fit_lifetime_weight();
-    let w_energy = crate::params::get_fit_energy_weight();
-    let w_off = crate::params::get_fit_offspring_weight();
-    let w_comm = crate::params::get_fit_comm_weight();
-    let w_idle = crate::params::get_fit_idle_penalty_weight();
-    let w_plant = crate::params::get_fit_plant_weight();
-    let w_meat = crate::params::get_fit_meat_weight();
-    let w_att = crate::params::get_fit_attacks_weight();
-    let w_kill = crate::params::get_fit_kills_weight();
-    let w_herd = crate::params::get_fit_herding_weight();
-    let w_approach = crate::params::get_fit_approach_food_weight();
-    let w_chase = crate::params::get_fit_chase_other_weight();
-    let w_chase_same = crate::params::get_fit_chase_same_weight();
+    let kind = match a.kind { crate::sim::AgentKind::Herbivore => Kind::Herb, crate::sim::AgentKind::Carnivore => Kind::Carn };
+    let w_life = crate::params::get_fit_lifetime_weight(kind);
+    let w_energy = crate::params::get_fit_energy_weight(kind);
+    let w_off = crate::params::get_fit_offspring_weight(kind);
+    let w_comm = crate::params::get_fit_comm_weight(kind);
+    let w_idle = crate::params::get_fit_idle_penalty_weight(kind);
+    let w_plant = crate::params::get_fit_plant_weight(kind);
+    let w_meat = crate::params::get_fit_meat_weight(kind);
+    let w_att = crate::params::get_fit_attacks_weight(kind);
+    let w_kill = crate::params::get_fit_kills_weight(kind);
+    let w_herd = crate::params::get_fit_herding_weight(kind);
+    let w_approach = crate::params::get_fit_approach_food_weight(kind);
+    let w_chase = crate::params::get_fit_chase_other_weight(kind);
+    let w_chase_same = crate::params::get_fit_chase_same_weight(kind);
     let score = w_life * lifetime_score
         + w_energy * avg_energy_norm
         + w_off * offspring_score
@@ -885,14 +904,16 @@ fn finalize_end_of_episode(state: &mut AppState, rng: &mut impl ::rand::Rng) {
     // Compute intelligence proxy (from the just-finished episode) before resetting
     // Proxy focuses on behavior-shaping components: herding + approach/chase (other/same)
     let (intel_best, intel_mean) = {
-        let w_herd = crate::params::get_fit_herding_weight();
-        let w_approach = crate::params::get_fit_approach_food_weight();
-        let w_chase = crate::params::get_fit_chase_other_weight();
-        let w_chase_same = crate::params::get_fit_chase_same_weight();
+        // Use per-kind behavior shaping weights
         let mut best = f32::NEG_INFINITY;
         let mut sum = 0.0f32;
         let mut count = 0usize;
         for a in &state.episode.agents {
+            let kind = match a.kind { crate::sim::AgentKind::Herbivore => crate::params::Kind::Herb, crate::sim::AgentKind::Carnivore => crate::params::Kind::Carn };
+            let w_approach = crate::params::get_fit_approach_food_weight(kind);
+            let w_chase = crate::params::get_fit_chase_other_weight(kind);
+            let w_chase_same = crate::params::get_fit_chase_same_weight(kind);
+            let w_herd = crate::params::get_fit_herding_weight(kind);
             let v = w_herd * a.herding_units
                 + w_approach * a.approach_food_units
                 + w_chase * a.chase_other_units
@@ -934,22 +955,24 @@ fn eco_cull_population_by_fitness(state: &mut AppState) {
     // Strict NEAT at episode end using live-episode fitness for ALL agents (including newborns).
     // 1) Compute fitness scores from the finished episode
     let mut scores: Vec<f32> = {
-        let w_life = crate::params::get_fit_lifetime_weight();
-        let w_energy = crate::params::get_fit_energy_weight();
-        let w_off = crate::params::get_fit_offspring_weight();
-        let w_comm = crate::params::get_fit_comm_weight();
-        let w_idle = crate::params::get_fit_idle_penalty_weight();
-        let w_plant = crate::params::get_fit_plant_weight();
-        let w_meat = crate::params::get_fit_meat_weight();
-        let w_att = crate::params::get_fit_attacks_weight();
-        let w_kill = crate::params::get_fit_kills_weight();
-    let w_herd = crate::params::get_fit_herding_weight();
-        let w_approach = crate::params::get_fit_approach_food_weight();
-        let w_chase = crate::params::get_fit_chase_other_weight();
-    let complexity_penalty = crate::params::COMPLEXITY_PENALTY_PER_CONN;
+        let complexity_penalty = crate::params::COMPLEXITY_PENALTY_PER_CONN;
         state.episode.agents.iter().enumerate().map(|(i, a)| {
+            let kind = match a.kind { crate::sim::AgentKind::Herbivore => crate::params::Kind::Herb, crate::sim::AgentKind::Carnivore => crate::params::Kind::Carn };
+            let w_life = crate::params::get_fit_lifetime_weight(kind);
+            let w_energy = crate::params::get_fit_energy_weight(kind);
+            let w_off = crate::params::get_fit_offspring_weight(kind);
+            let w_comm = crate::params::get_fit_comm_weight(kind);
+            let w_idle = crate::params::get_fit_idle_penalty_weight(kind);
+            let w_plant = crate::params::get_fit_plant_weight(kind);
+            let w_meat = crate::params::get_fit_meat_weight(kind);
+            let w_att = crate::params::get_fit_attacks_weight(kind);
+            let w_kill = crate::params::get_fit_kills_weight(kind);
+            let w_herd = crate::params::get_fit_herding_weight(kind);
+            let w_approach = crate::params::get_fit_approach_food_weight(kind);
+            let w_chase = crate::params::get_fit_chase_other_weight(kind);
+            let w_chase_same = crate::params::get_fit_chase_same_weight(kind);
             let lifetime_score = (a.alive_steps as f32) / (MAX_STEPS as f32);
-            let avg_energy_norm = if a.alive_steps > 0 { (a.energy_accum / a.alive_steps as f32) / crate::params::get_max_energy() } else { 0.0 };
+            let avg_energy_norm = if a.alive_steps > 0 { (a.energy_accum / a.alive_steps as f32) / crate::params::get_max_energy_for(kind) } else { 0.0 };
             let offspring_score = a.offspring_count as f32;
             let comm_score = state.episode.comm_fitness_accum.get(i).copied().unwrap_or(0.0);
             // Normalize idle penalty to [0,1] of max achievable this episode
@@ -960,6 +983,7 @@ fn eco_cull_population_by_fitness(state: &mut AppState) {
             let meat = a.kills as f32;
             let approach_units = a.approach_food_units;
             let chase_units = a.chase_other_units;
+            let chase_same_units = a.chase_same_units;
             let mut s = w_life * lifetime_score
                 + w_energy * avg_energy_norm
                 + w_off * offspring_score
@@ -971,7 +995,8 @@ fn eco_cull_population_by_fitness(state: &mut AppState) {
                 + w_kill * (a.kills_caused as f32)
                 + w_herd * a.herding_units
                 + w_approach * approach_units
-                + w_chase * chase_units;
+                + w_chase * chase_units
+                + w_chase_same * chase_same_units;
             if complexity_penalty > 0.0 {
                 let enabled = state.population[i].connections.iter().filter(|c| c.enabled).count() as f32;
                 s -= complexity_penalty * enabled;

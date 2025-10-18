@@ -9,54 +9,116 @@ use std::cell::Cell;
 
 // Runtime config storage for energy parameters (thread-local)
 thread_local! {
+    // Global defaults (kept for backward-compat); actual sim uses per-kind values below
     static RUNTIME_INITIAL_ENERGY: Cell<f32> = Cell::new(1000.0);
     static RUNTIME_MAX_ENERGY: Cell<f32> = Cell::new(10000.0);
     static RUNTIME_ENERGY_DRAIN: Cell<f32> = Cell::new(0.05);
     static RUNTIME_POPULATION_SIZE: Cell<usize> = Cell::new(50);
+    static RUNTIME_HERBIVORE_COUNT: Cell<usize> = Cell::new(25);
+    static RUNTIME_CARNIVORE_COUNT: Cell<usize> = Cell::new(25);
+    // Per-kind energy runtime config
+    static RUNTIME_INITIAL_ENERGY_HERB: Cell<f32> = Cell::new(500.0);
+    static RUNTIME_MAX_ENERGY_HERB: Cell<f32> = Cell::new(5000.0);
+    static RUNTIME_ENERGY_DRAIN_HERB: Cell<f32> = Cell::new(0.05);
+    static RUNTIME_INITIAL_ENERGY_CARN: Cell<f32> = Cell::new(500.0);
+    static RUNTIME_MAX_ENERGY_CARN: Cell<f32> = Cell::new(5000.0);
+    static RUNTIME_ENERGY_DRAIN_CARN: Cell<f32> = Cell::new(0.05);
     // Fitness weights (runtime configurable)
     // score = w_lifetime*lifetime + w_energy*avg_energy + w_offspring*offspring + w_comm*comm - w_idle*idle_penalty
-    static RUNTIME_FIT_LIFETIME_WEIGHT: Cell<f32> = Cell::new(0.05);
-    static RUNTIME_FIT_ENERGY_WEIGHT: Cell<f32> = Cell::new(5.0);
-    static RUNTIME_FIT_OFFSPRING_WEIGHT: Cell<f32> = Cell::new(10.0);
-    static RUNTIME_FIT_COMM_WEIGHT: Cell<f32> = Cell::new(0.0);
-    static RUNTIME_FIT_IDLE_PENALTY_WEIGHT: Cell<f32> = Cell::new(0.6);
-    static RUNTIME_FIT_PLANT_WEIGHT: Cell<f32> = Cell::new(2.0);
-    static RUNTIME_FIT_MEAT_WEIGHT: Cell<f32> = Cell::new(20.0);
-    static RUNTIME_FIT_ATTACKS_WEIGHT: Cell<f32> = Cell::new(10.0);
-    static RUNTIME_FIT_KILLS_WEIGHT: Cell<f32> = Cell::new(20.0);
-    static RUNTIME_FIT_HERDING_WEIGHT: Cell<f32> = Cell::new(0.3);
-    static RUNTIME_FIT_APPROACH_FOOD_WEIGHT: Cell<f32> = Cell::new(0.1);
-    static RUNTIME_FIT_CHASE_OTHER_WEIGHT: Cell<f32> = Cell::new(0.3);
-    static RUNTIME_FIT_CHASE_SAME_WEIGHT: Cell<f32> = Cell::new(0.4);
+    // Per-kind fitness weights (defaults are same for both kinds)
+    // Herbivore
+    static RUNTIME_FIT_LIFETIME_WEIGHT_HERB: Cell<f32> = Cell::new(0.05);
+    static RUNTIME_FIT_ENERGY_WEIGHT_HERB: Cell<f32> = Cell::new(5.0);
+    static RUNTIME_FIT_OFFSPRING_WEIGHT_HERB: Cell<f32> = Cell::new(10.0);
+    static RUNTIME_FIT_COMM_WEIGHT_HERB: Cell<f32> = Cell::new(0.0);
+    static RUNTIME_FIT_IDLE_PENALTY_WEIGHT_HERB: Cell<f32> = Cell::new(0.6);
+    static RUNTIME_FIT_PLANT_WEIGHT_HERB: Cell<f32> = Cell::new(2.0);
+    static RUNTIME_FIT_MEAT_WEIGHT_HERB: Cell<f32> = Cell::new(20.0);
+    static RUNTIME_FIT_ATTACKS_WEIGHT_HERB: Cell<f32> = Cell::new(10.0);
+    static RUNTIME_FIT_KILLS_WEIGHT_HERB: Cell<f32> = Cell::new(20.0);
+    static RUNTIME_FIT_HERDING_WEIGHT_HERB: Cell<f32> = Cell::new(0.3);
+    // Carnivore
+    static RUNTIME_FIT_LIFETIME_WEIGHT_CARN: Cell<f32> = Cell::new(0.05);
+    static RUNTIME_FIT_ENERGY_WEIGHT_CARN: Cell<f32> = Cell::new(5.0);
+    static RUNTIME_FIT_OFFSPRING_WEIGHT_CARN: Cell<f32> = Cell::new(10.0);
+    static RUNTIME_FIT_COMM_WEIGHT_CARN: Cell<f32> = Cell::new(0.0);
+    static RUNTIME_FIT_IDLE_PENALTY_WEIGHT_CARN: Cell<f32> = Cell::new(0.6);
+    static RUNTIME_FIT_PLANT_WEIGHT_CARN: Cell<f32> = Cell::new(2.0);
+    static RUNTIME_FIT_MEAT_WEIGHT_CARN: Cell<f32> = Cell::new(20.0);
+    static RUNTIME_FIT_ATTACKS_WEIGHT_CARN: Cell<f32> = Cell::new(10.0);
+    static RUNTIME_FIT_KILLS_WEIGHT_CARN: Cell<f32> = Cell::new(20.0);
+    static RUNTIME_FIT_HERDING_WEIGHT_CARN: Cell<f32> = Cell::new(0.3);
+    // Behavior shaping weights (per kind)
+    static RUNTIME_FIT_APPROACH_FOOD_WEIGHT_HERB: Cell<f32> = Cell::new(0.1);
+    static RUNTIME_FIT_CHASE_OTHER_WEIGHT_HERB: Cell<f32> = Cell::new(0.3);
+    static RUNTIME_FIT_CHASE_SAME_WEIGHT_HERB: Cell<f32> = Cell::new(0.4);
+    static RUNTIME_FIT_APPROACH_FOOD_WEIGHT_CARN: Cell<f32> = Cell::new(0.1);
+    static RUNTIME_FIT_CHASE_OTHER_WEIGHT_CARN: Cell<f32> = Cell::new(0.3);
+    static RUNTIME_FIT_CHASE_SAME_WEIGHT_CARN: Cell<f32> = Cell::new(0.4);
 }
-// Getters for runtime energy config (fallback to these constants if not set)
+// Getters for runtime energy config (global)
 pub fn get_initial_energy() -> f32 { RUNTIME_INITIAL_ENERGY.with(|c| c.get()) }
 pub fn get_max_energy() -> f32 { RUNTIME_MAX_ENERGY.with(|c| c.get()) }
 pub fn get_energy_drain_per_step() -> f32 { RUNTIME_ENERGY_DRAIN.with(|c| c.get()) }
+// Per-kind energy getters
+pub fn get_initial_energy_for(kind: Kind) -> f32 { match kind { Kind::Herb => RUNTIME_INITIAL_ENERGY_HERB.with(|c| c.get()), Kind::Carn => RUNTIME_INITIAL_ENERGY_CARN.with(|c| c.get()) } }
+pub fn get_max_energy_for(kind: Kind) -> f32 { match kind { Kind::Herb => RUNTIME_MAX_ENERGY_HERB.with(|c| c.get()), Kind::Carn => RUNTIME_MAX_ENERGY_CARN.with(|c| c.get()) } }
+pub fn get_energy_drain_per_step_for(kind: Kind) -> f32 { match kind { Kind::Herb => RUNTIME_ENERGY_DRAIN_HERB.with(|c| c.get()), Kind::Carn => RUNTIME_ENERGY_DRAIN_CARN.with(|c| c.get()) } }
 pub fn get_population_size() -> usize { RUNTIME_POPULATION_SIZE.with(|c| c.get()) }
-// Fitness weight getters
-pub fn get_fit_lifetime_weight() -> f32 { RUNTIME_FIT_LIFETIME_WEIGHT.with(|c| c.get()) }
-pub fn get_fit_energy_weight() -> f32 { RUNTIME_FIT_ENERGY_WEIGHT.with(|c| c.get()) }
-pub fn get_fit_offspring_weight() -> f32 { RUNTIME_FIT_OFFSPRING_WEIGHT.with(|c| c.get()) }
-pub fn get_fit_comm_weight() -> f32 { RUNTIME_FIT_COMM_WEIGHT.with(|c| c.get()) }
-pub fn get_fit_idle_penalty_weight() -> f32 { RUNTIME_FIT_IDLE_PENALTY_WEIGHT.with(|c| c.get()) }
-pub fn get_fit_plant_weight() -> f32 { RUNTIME_FIT_PLANT_WEIGHT.with(|c| c.get()) }
-pub fn get_fit_meat_weight() -> f32 { RUNTIME_FIT_MEAT_WEIGHT.with(|c| c.get()) }
-pub fn get_fit_attacks_weight() -> f32 { RUNTIME_FIT_ATTACKS_WEIGHT.with(|c| c.get()) }
-pub fn get_fit_kills_weight() -> f32 { RUNTIME_FIT_KILLS_WEIGHT.with(|c| c.get()) }
-pub fn get_fit_herding_weight() -> f32 { RUNTIME_FIT_HERDING_WEIGHT.with(|c| c.get()) }
-pub fn get_fit_approach_food_weight() -> f32 { RUNTIME_FIT_APPROACH_FOOD_WEIGHT.with(|c| c.get()) }
-pub fn get_fit_chase_other_weight() -> f32 { RUNTIME_FIT_CHASE_OTHER_WEIGHT.with(|c| c.get()) }
-pub fn get_fit_chase_same_weight() -> f32 { RUNTIME_FIT_CHASE_SAME_WEIGHT.with(|c| c.get()) }
+pub fn get_species_counts() -> (usize, usize) {
+    let h = RUNTIME_HERBIVORE_COUNT.with(|c| c.get());
+    let c = RUNTIME_CARNIVORE_COUNT.with(|c| c.get());
+    (h, c)
+}
+// Fitness weight getters (per kind)
+#[derive(Copy, Clone, Debug)]
+pub enum Kind { Herb, Carn }
+pub fn get_fit_lifetime_weight(kind: Kind) -> f32 { match kind { Kind::Herb => RUNTIME_FIT_LIFETIME_WEIGHT_HERB.with(|c| c.get()), Kind::Carn => RUNTIME_FIT_LIFETIME_WEIGHT_CARN.with(|c| c.get()) } }
+pub fn get_fit_energy_weight(kind: Kind) -> f32 { match kind { Kind::Herb => RUNTIME_FIT_ENERGY_WEIGHT_HERB.with(|c| c.get()), Kind::Carn => RUNTIME_FIT_ENERGY_WEIGHT_CARN.with(|c| c.get()) } }
+pub fn get_fit_offspring_weight(kind: Kind) -> f32 { match kind { Kind::Herb => RUNTIME_FIT_OFFSPRING_WEIGHT_HERB.with(|c| c.get()), Kind::Carn => RUNTIME_FIT_OFFSPRING_WEIGHT_CARN.with(|c| c.get()) } }
+pub fn get_fit_comm_weight(kind: Kind) -> f32 { match kind { Kind::Herb => RUNTIME_FIT_COMM_WEIGHT_HERB.with(|c| c.get()), Kind::Carn => RUNTIME_FIT_COMM_WEIGHT_CARN.with(|c| c.get()) } }
+pub fn get_fit_idle_penalty_weight(kind: Kind) -> f32 { match kind { Kind::Herb => RUNTIME_FIT_IDLE_PENALTY_WEIGHT_HERB.with(|c| c.get()), Kind::Carn => RUNTIME_FIT_IDLE_PENALTY_WEIGHT_CARN.with(|c| c.get()) } }
+pub fn get_fit_plant_weight(kind: Kind) -> f32 { match kind { Kind::Herb => RUNTIME_FIT_PLANT_WEIGHT_HERB.with(|c| c.get()), Kind::Carn => RUNTIME_FIT_PLANT_WEIGHT_CARN.with(|c| c.get()) } }
+pub fn get_fit_meat_weight(kind: Kind) -> f32 { match kind { Kind::Herb => RUNTIME_FIT_MEAT_WEIGHT_HERB.with(|c| c.get()), Kind::Carn => RUNTIME_FIT_MEAT_WEIGHT_CARN.with(|c| c.get()) } }
+pub fn get_fit_attacks_weight(kind: Kind) -> f32 { match kind { Kind::Herb => RUNTIME_FIT_ATTACKS_WEIGHT_HERB.with(|c| c.get()), Kind::Carn => RUNTIME_FIT_ATTACKS_WEIGHT_CARN.with(|c| c.get()) } }
+pub fn get_fit_kills_weight(kind: Kind) -> f32 { match kind { Kind::Herb => RUNTIME_FIT_KILLS_WEIGHT_HERB.with(|c| c.get()), Kind::Carn => RUNTIME_FIT_KILLS_WEIGHT_CARN.with(|c| c.get()) } }
+pub fn get_fit_herding_weight(kind: Kind) -> f32 { match kind { Kind::Herb => RUNTIME_FIT_HERDING_WEIGHT_HERB.with(|c| c.get()), Kind::Carn => RUNTIME_FIT_HERDING_WEIGHT_CARN.with(|c| c.get()) } }
+pub fn get_fit_approach_food_weight(kind: Kind) -> f32 { match kind { Kind::Herb => RUNTIME_FIT_APPROACH_FOOD_WEIGHT_HERB.with(|c| c.get()), Kind::Carn => RUNTIME_FIT_APPROACH_FOOD_WEIGHT_CARN.with(|c| c.get()) } }
+pub fn get_fit_chase_other_weight(kind: Kind) -> f32 { match kind { Kind::Herb => RUNTIME_FIT_CHASE_OTHER_WEIGHT_HERB.with(|c| c.get()), Kind::Carn => RUNTIME_FIT_CHASE_OTHER_WEIGHT_CARN.with(|c| c.get()) } }
+pub fn get_fit_chase_same_weight(kind: Kind) -> f32 { match kind { Kind::Herb => RUNTIME_FIT_CHASE_SAME_WEIGHT_HERB.with(|c| c.get()), Kind::Carn => RUNTIME_FIT_CHASE_SAME_WEIGHT_CARN.with(|c| c.get()) } }
 
 
 
 
 // Setter for runtime energy config
 pub fn set_runtime_energy_config(initial: f32, max: f32, drain: f32) {
+    // Maintain legacy setter by setting both global defaults and mirroring to per-kind
     RUNTIME_INITIAL_ENERGY.with(|c| c.set(initial));
     RUNTIME_MAX_ENERGY.with(|c| c.set(max));
     RUNTIME_ENERGY_DRAIN.with(|c| c.set(drain));
+    RUNTIME_INITIAL_ENERGY_HERB.with(|c| c.set(initial));
+    RUNTIME_MAX_ENERGY_HERB.with(|c| c.set(max));
+    RUNTIME_ENERGY_DRAIN_HERB.with(|c| c.set(drain));
+    RUNTIME_INITIAL_ENERGY_CARN.with(|c| c.set(initial));
+    RUNTIME_MAX_ENERGY_CARN.with(|c| c.set(max));
+    RUNTIME_ENERGY_DRAIN_CARN.with(|c| c.set(drain));
+}
+
+// New per-kind energy setter
+pub fn set_runtime_energy_config_per_kind(
+    initial_herb: f32, max_herb: f32, drain_herb: f32,
+    initial_carn: f32, max_carn: f32, drain_carn: f32,
+) {
+    // Keep globals roughly aligned with herbivore values for UI displays that don't have kind context
+    RUNTIME_INITIAL_ENERGY.with(|c| c.set(initial_herb));
+    RUNTIME_MAX_ENERGY.with(|c| c.set(max_herb));
+    RUNTIME_ENERGY_DRAIN.with(|c| c.set(drain_herb));
+    RUNTIME_INITIAL_ENERGY_HERB.with(|c| c.set(initial_herb));
+    RUNTIME_MAX_ENERGY_HERB.with(|c| c.set(max_herb));
+    RUNTIME_ENERGY_DRAIN_HERB.with(|c| c.set(drain_herb));
+    RUNTIME_INITIAL_ENERGY_CARN.with(|c| c.set(initial_carn));
+    RUNTIME_MAX_ENERGY_CARN.with(|c| c.set(max_carn));
+    RUNTIME_ENERGY_DRAIN_CARN.with(|c| c.set(drain_carn));
 }
 
 // Setter for runtime population size
@@ -64,54 +126,78 @@ pub fn set_runtime_population_size(size: usize) {
     RUNTIME_POPULATION_SIZE.with(|c| c.set(size));
 }
 
-// Setter for runtime fitness weights
+pub fn set_runtime_species_counts(h: usize, c: usize) {
+    RUNTIME_HERBIVORE_COUNT.with(|cell| cell.set(h));
+    RUNTIME_CARNIVORE_COUNT.with(|cell| cell.set(c));
+}
+
+// Setter for runtime fitness weights per kind
 #[allow(dead_code)]
-pub fn set_fitness_weights(
-    lifetime: f32,
-    energy: f32,
-    offspring: f32,
-    comm: f32,
-    idle_penalty: f32,
-    plant: f32,
-    meat: f32,
-    attacks: f32,
-    kills: f32,
-    herding: f32,
+pub fn set_fitness_weights_per_kind(
+    // herbivore
+    lifetime_herb: f32,
+    energy_herb: f32,
+    offspring_herb: f32,
+    comm_herb: f32,
+    idle_penalty_herb: f32,
+    plant_herb: f32,
+    meat_herb: f32,
+    attacks_herb: f32,
+    kills_herb: f32,
+    herding_herb: f32,
+    // carnivore
+    lifetime_carn: f32,
+    energy_carn: f32,
+    offspring_carn: f32,
+    comm_carn: f32,
+    idle_penalty_carn: f32,
+    plant_carn: f32,
+    meat_carn: f32,
+    attacks_carn: f32,
+    kills_carn: f32,
+    herding_carn: f32,
 ) {
-    RUNTIME_FIT_LIFETIME_WEIGHT.with(|c| c.set(lifetime));
-    RUNTIME_FIT_ENERGY_WEIGHT.with(|c| c.set(energy));
-    RUNTIME_FIT_OFFSPRING_WEIGHT.with(|c| c.set(offspring));
-    RUNTIME_FIT_COMM_WEIGHT.with(|c| c.set(comm));
-    RUNTIME_FIT_IDLE_PENALTY_WEIGHT.with(|c| c.set(idle_penalty));
-    RUNTIME_FIT_PLANT_WEIGHT.with(|c| c.set(plant));
-    RUNTIME_FIT_HERDING_WEIGHT.with(|c| c.set(herding));
-    RUNTIME_FIT_MEAT_WEIGHT.with(|c| c.set(meat));
-    RUNTIME_FIT_ATTACKS_WEIGHT.with(|c| c.set(attacks));
-    RUNTIME_FIT_KILLS_WEIGHT.with(|c| c.set(kills));
+    RUNTIME_FIT_LIFETIME_WEIGHT_HERB.with(|c| c.set(lifetime_herb));
+    RUNTIME_FIT_ENERGY_WEIGHT_HERB.with(|c| c.set(energy_herb));
+    RUNTIME_FIT_OFFSPRING_WEIGHT_HERB.with(|c| c.set(offspring_herb));
+    RUNTIME_FIT_COMM_WEIGHT_HERB.with(|c| c.set(comm_herb));
+    RUNTIME_FIT_IDLE_PENALTY_WEIGHT_HERB.with(|c| c.set(idle_penalty_herb));
+    RUNTIME_FIT_PLANT_WEIGHT_HERB.with(|c| c.set(plant_herb));
+    RUNTIME_FIT_MEAT_WEIGHT_HERB.with(|c| c.set(meat_herb));
+    RUNTIME_FIT_ATTACKS_WEIGHT_HERB.with(|c| c.set(attacks_herb));
+    RUNTIME_FIT_KILLS_WEIGHT_HERB.with(|c| c.set(kills_herb));
+    RUNTIME_FIT_HERDING_WEIGHT_HERB.with(|c| c.set(herding_herb));
+
+    RUNTIME_FIT_LIFETIME_WEIGHT_CARN.with(|c| c.set(lifetime_carn));
+    RUNTIME_FIT_ENERGY_WEIGHT_CARN.with(|c| c.set(energy_carn));
+    RUNTIME_FIT_OFFSPRING_WEIGHT_CARN.with(|c| c.set(offspring_carn));
+    RUNTIME_FIT_COMM_WEIGHT_CARN.with(|c| c.set(comm_carn));
+    RUNTIME_FIT_IDLE_PENALTY_WEIGHT_CARN.with(|c| c.set(idle_penalty_carn));
+    RUNTIME_FIT_PLANT_WEIGHT_CARN.with(|c| c.set(plant_carn));
+    RUNTIME_FIT_MEAT_WEIGHT_CARN.with(|c| c.set(meat_carn));
+    RUNTIME_FIT_ATTACKS_WEIGHT_CARN.with(|c| c.set(attacks_carn));
+    RUNTIME_FIT_KILLS_WEIGHT_CARN.with(|c| c.set(kills_carn));
+    RUNTIME_FIT_HERDING_WEIGHT_CARN.with(|c| c.set(herding_carn));
 }
 
 // Setter specifically for behavior-shaping weights adjustable from the menu
 #[allow(dead_code)]
-pub fn set_behavior_weights(
-    approach_food: f32,
-    chase_other: f32,
-    chase_same: f32,
-    herding: f32,
-    attacks: f32,
-    kills: f32,
-    plant: f32,
-    meat: f32,
-    idle_penalty: f32,
+pub fn set_behavior_weights_per_kind(
+    // herbivore
+    approach_food_herb: f32,
+    chase_other_herb: f32,
+    chase_same_herb: f32,
+    // carnivore
+    approach_food_carn: f32,
+    chase_other_carn: f32,
+    chase_same_carn: f32,
 ) {
-    RUNTIME_FIT_APPROACH_FOOD_WEIGHT.with(|c| c.set(approach_food));
-    RUNTIME_FIT_CHASE_OTHER_WEIGHT.with(|c| c.set(chase_other));
-    RUNTIME_FIT_CHASE_SAME_WEIGHT.with(|c| c.set(chase_same));
-    RUNTIME_FIT_HERDING_WEIGHT.with(|c| c.set(herding));
-    RUNTIME_FIT_ATTACKS_WEIGHT.with(|c| c.set(attacks));
-    RUNTIME_FIT_KILLS_WEIGHT.with(|c| c.set(kills));
-    RUNTIME_FIT_PLANT_WEIGHT.with(|c| c.set(plant));
-    RUNTIME_FIT_MEAT_WEIGHT.with(|c| c.set(meat));
-    RUNTIME_FIT_IDLE_PENALTY_WEIGHT.with(|c| c.set(idle_penalty));
+    RUNTIME_FIT_APPROACH_FOOD_WEIGHT_HERB.with(|c| c.set(approach_food_herb));
+    RUNTIME_FIT_CHASE_OTHER_WEIGHT_HERB.with(|c| c.set(chase_other_herb));
+    RUNTIME_FIT_CHASE_SAME_WEIGHT_HERB.with(|c| c.set(chase_same_herb));
+    RUNTIME_FIT_APPROACH_FOOD_WEIGHT_CARN.with(|c| c.set(approach_food_carn));
+    RUNTIME_FIT_CHASE_OTHER_WEIGHT_CARN.with(|c| c.set(chase_other_carn));
+    RUNTIME_FIT_CHASE_SAME_WEIGHT_CARN.with(|c| c.set(chase_same_carn));
 }
 
 // Parameters for approach/chase reward shaping

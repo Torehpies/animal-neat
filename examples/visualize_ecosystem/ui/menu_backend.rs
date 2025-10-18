@@ -12,23 +12,43 @@ pub struct SimConfig {
     pub carnivore_count: usize,
     pub max_food: usize,
     pub food_respawn_prob: f32,
-    pub initial_energy: f32,
-    pub max_energy: f32,
-    pub energy_drain_per_step: f32,
-    // Fitness weights
-    pub w_lifetime: f32,
-    pub w_energy: f32,
-    pub w_offspring: f32,
-    pub w_comm: f32,
-    pub w_idle_penalty: f32,
-    pub w_plant: f32,
-    pub w_meat: f32,
-    pub w_attacks: f32,
-    pub w_kills: f32,
-    pub w_herding: f32,
-    pub w_approach: f32,
-    pub w_chase: f32,
-    pub w_chase_same: f32,
+    // Per-kind energy configuration
+    pub initial_energy_herb: f32,
+    pub max_energy_herb: f32,
+    pub energy_drain_per_step_herb: f32,
+    pub initial_energy_carn: f32,
+    pub max_energy_carn: f32,
+    pub energy_drain_per_step_carn: f32,
+    // Fitness weights (per AgentKind)
+    // Herbivore-specific
+    pub w_lifetime_herb: f32,
+    pub w_energy_herb: f32,
+    pub w_offspring_herb: f32,
+    pub w_comm_herb: f32,
+    pub w_idle_penalty_herb: f32,
+    pub w_plant_herb: f32,
+    pub w_meat_herb: f32,
+    pub w_attacks_herb: f32,
+    pub w_kills_herb: f32,
+    pub w_herding_herb: f32,
+    // Carnivore-specific
+    pub w_lifetime_carn: f32,
+    pub w_energy_carn: f32,
+    pub w_offspring_carn: f32,
+    pub w_comm_carn: f32,
+    pub w_idle_penalty_carn: f32,
+    pub w_plant_carn: f32,
+    pub w_meat_carn: f32,
+    pub w_attacks_carn: f32,
+    pub w_kills_carn: f32,
+    pub w_herding_carn: f32,
+    // Behavior shaping per kind
+    pub w_approach_herb: f32,
+    pub w_chase_herb: f32,
+    pub w_chase_same_herb: f32,
+    pub w_approach_carn: f32,
+    pub w_chase_carn: f32,
+    pub w_chase_same_carn: f32,
 }
 
 impl Default for SimConfig {
@@ -42,24 +62,47 @@ impl Default for SimConfig {
             population_size: 25 + 25,
             max_food: 300,
             food_respawn_prob: 0.006,
-            initial_energy: 500.0,
-            max_energy: 5000.0,
-            energy_drain_per_step: 0.05,
-            w_lifetime: 0.05,
-            w_energy: 5.0,
-            w_offspring: 10.0,
-            w_comm: 0.0,
-            w_idle_penalty: 0.6,
-            w_plant: 2.0,
-            w_meat: 20.0,
-            w_attacks: 10.0,
-            w_kills: 20.0,
-            w_herding: 0.5,
-            w_approach: 0.1,
-            w_chase: 0.3,
-            w_chase_same: 0.4,
+            initial_energy_herb: 500.0,
+            max_energy_herb: 5000.0,
+            energy_drain_per_step_herb: 0.05,
+            initial_energy_carn: 500.0,
+            max_energy_carn: 5000.0,
+            energy_drain_per_step_carn: 0.05,
+            // Defaults: start both kinds with the same weights as before; users can tweak separately
+            w_lifetime_herb: 0.05,
+            w_energy_herb: 5.0,
+            w_offspring_herb: 10.0,
+            w_comm_herb: 0.0,
+            w_idle_penalty_herb: 0.6,
+            w_plant_herb: 2.0,
+            w_meat_herb: 20.0,
+            w_attacks_herb: 10.0,
+            w_kills_herb: 20.0,
+            w_herding_herb: 0.5,
+            w_lifetime_carn: 0.05,
+            w_energy_carn: 5.0,
+            w_offspring_carn: 10.0,
+            w_comm_carn: 0.0,
+            w_idle_penalty_carn: 0.6,
+            w_plant_carn: 2.0,
+            w_meat_carn: 20.0,
+            w_attacks_carn: 10.0,
+            w_kills_carn: 20.0,
+            w_herding_carn: 0.5,
+            w_approach_herb: 0.1,
+            w_chase_herb: 0.3,
+            w_chase_same_herb: 0.4,
+            w_approach_carn: 0.1,
+            w_chase_carn: 0.3,
+            w_chase_same_carn: 0.4,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MenuScreen {
+    Core,
+    Fitness,
 }
 
 pub struct MenuState {
@@ -68,6 +111,7 @@ pub struct MenuState {
     pub input_buffer: String,
     pub show_help: bool,
     pub help_scroll: f32,
+    pub screen: MenuScreen,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -79,22 +123,42 @@ pub enum EditField {
     Carnivores,
     MaxFood,
     FoodRespawnRate,
-    InitialEnergy,
-    MaxEnergy,
-    EnergyDrain,
-    WLifetime,
-    WEnergy,
-    WOffspring,
-    WComm,
-    WIdle,
-    WPlant,
-    WMeat,
-    WAttacks,
-    WKills,
-    WHerd,
-    WApproach,
-    WChase,
-    WChaseSame,
+    // Per-kind energy fields
+    InitialEnergyHerb,
+    MaxEnergyHerb,
+    EnergyDrainHerb,
+    InitialEnergyCarn,
+    MaxEnergyCarn,
+    EnergyDrainCarn,
+    // Herbivore weights
+    WLifetimeHerb,
+    WEnergyHerb,
+    WOffspringHerb,
+    WCommHerb,
+    WIdleHerb,
+    WPlantHerb,
+    WMeatHerb,
+    WAttacksHerb,
+    WKillsHerb,
+    WHerdHerb,
+    // Carnivore weights
+    WLifetimeCarn,
+    WEnergyCarn,
+    WOffspringCarn,
+    WCommCarn,
+    WIdleCarn,
+    WPlantCarn,
+    WMeatCarn,
+    WAttacksCarn,
+    WKillsCarn,
+    WHerdCarn,
+    // Behavior shaping per kind
+    WApproachHerb,
+    WChaseHerb,
+    WChaseSameHerb,
+    WApproachCarn,
+    WChaseCarn,
+    WChaseSameCarn,
 }
 
 impl MenuState {
@@ -105,6 +169,7 @@ impl MenuState {
             input_buffer: String::new(),
             show_help: false,
             help_scroll: 0.0,
+            screen: MenuScreen::Core,
         }
     }
 }
@@ -151,27 +216,40 @@ pub fn apply_field_value(cfg: &mut SimConfig, field: EditField, val: f32) {
         EditField::FoodRespawnRate => {
             cfg.food_respawn_prob = val.max(0.0001).min(0.1);
         }
-        EditField::InitialEnergy => {
-            cfg.initial_energy = val.max(10.0).min(10000.0);
-        }
-        EditField::MaxEnergy => {
-            cfg.max_energy = val.max(100.0).min(50000.0);
-        }
-        EditField::EnergyDrain => {
-            cfg.energy_drain_per_step = val.max(0.0).min(10.0);
-        }
-        EditField::WLifetime => { cfg.w_lifetime = val; }
-        EditField::WEnergy => { cfg.w_energy = val; }
-        EditField::WOffspring => { cfg.w_offspring = val; }
-        EditField::WComm => { cfg.w_comm = val; }
-        EditField::WIdle => { cfg.w_idle_penalty = val.max(0.0); }
-        EditField::WPlant => { cfg.w_plant = val; }
-        EditField::WMeat => { cfg.w_meat = val; }
-        EditField::WAttacks => { cfg.w_attacks = val; }
-        EditField::WKills => { cfg.w_kills = val; }
-        EditField::WHerd => { cfg.w_herding = val; }
-        EditField::WApproach => { cfg.w_approach = val; }
-        EditField::WChase => { cfg.w_chase = val; }
-        EditField::WChaseSame => { cfg.w_chase_same = val; }
+        EditField::InitialEnergyHerb => { cfg.initial_energy_herb = val.max(10.0).min(10000.0); }
+        EditField::MaxEnergyHerb => { cfg.max_energy_herb = val.max(100.0).min(50000.0); }
+        EditField::EnergyDrainHerb => { cfg.energy_drain_per_step_herb = val.max(0.0).min(10.0); }
+        EditField::InitialEnergyCarn => { cfg.initial_energy_carn = val.max(10.0).min(10000.0); }
+        EditField::MaxEnergyCarn => { cfg.max_energy_carn = val.max(100.0).min(50000.0); }
+        EditField::EnergyDrainCarn => { cfg.energy_drain_per_step_carn = val.max(0.0).min(10.0); }
+        // Herbivore weights
+        EditField::WLifetimeHerb => { cfg.w_lifetime_herb = val; }
+        EditField::WEnergyHerb => { cfg.w_energy_herb = val; }
+        EditField::WOffspringHerb => { cfg.w_offspring_herb = val; }
+        EditField::WCommHerb => { cfg.w_comm_herb = val; }
+        EditField::WIdleHerb => { cfg.w_idle_penalty_herb = val.max(0.0); }
+        EditField::WPlantHerb => { cfg.w_plant_herb = val; }
+        EditField::WMeatHerb => { cfg.w_meat_herb = val; }
+        EditField::WAttacksHerb => { cfg.w_attacks_herb = val; }
+        EditField::WKillsHerb => { cfg.w_kills_herb = val; }
+        EditField::WHerdHerb => { cfg.w_herding_herb = val; }
+        // Carnivore weights
+        EditField::WLifetimeCarn => { cfg.w_lifetime_carn = val; }
+        EditField::WEnergyCarn => { cfg.w_energy_carn = val; }
+        EditField::WOffspringCarn => { cfg.w_offspring_carn = val; }
+        EditField::WCommCarn => { cfg.w_comm_carn = val; }
+        EditField::WIdleCarn => { cfg.w_idle_penalty_carn = val.max(0.0); }
+        EditField::WPlantCarn => { cfg.w_plant_carn = val; }
+        EditField::WMeatCarn => { cfg.w_meat_carn = val; }
+        EditField::WAttacksCarn => { cfg.w_attacks_carn = val; }
+        EditField::WKillsCarn => { cfg.w_kills_carn = val; }
+        EditField::WHerdCarn => { cfg.w_herding_carn = val; }
+        // Behavior shaping per kind
+        EditField::WApproachHerb => { cfg.w_approach_herb = val; }
+        EditField::WChaseHerb => { cfg.w_chase_herb = val; }
+        EditField::WChaseSameHerb => { cfg.w_chase_same_herb = val; }
+        EditField::WApproachCarn => { cfg.w_approach_carn = val; }
+        EditField::WChaseCarn => { cfg.w_chase_carn = val; }
+        EditField::WChaseSameCarn => { cfg.w_chase_same_carn = val; }
     }
 }

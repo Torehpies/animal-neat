@@ -16,7 +16,10 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         kind: if i % 2 == 0 { AgentKind::Herbivore } else { AgentKind::Carnivore },
     body: Body { pos: world::rand_pos(&mut rng), vel: Vec2::new(0.0, 0.0), radius: AGENT_COLLISION_RADIUS },
         theta: -std::f32::consts::FRAC_PI_2,
-    energy: crate::params::get_initial_energy().min(crate::params::get_max_energy()),
+    energy: {
+        let k = if i % 2 == 0 { crate::params::Kind::Herb } else { crate::params::Kind::Carn };
+        crate::params::get_initial_energy_for(k).min(crate::params::get_max_energy_for(k))
+    },
         health: AGENT_BASE_HEALTH,
         max_health: AGENT_BASE_HEALTH,
         invuln_steps: 0,
@@ -82,24 +85,26 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         steps += 1;
     }
 
-    // Configurable fitness: lifetime, avg energy, offspring, comm reward, and idle penalty
-    let w_life = crate::params::get_fit_lifetime_weight();
-    let w_energy = crate::params::get_fit_energy_weight();
-    let w_off = crate::params::get_fit_offspring_weight();
-    let w_comm = crate::params::get_fit_comm_weight();
-    let w_idle = crate::params::get_fit_idle_penalty_weight();
-    let w_plant = crate::params::get_fit_plant_weight();
-    let w_meat = crate::params::get_fit_meat_weight();
-    let w_att = crate::params::get_fit_attacks_weight();
-    let w_kill = crate::params::get_fit_kills_weight();
-    let w_herd = crate::params::get_fit_herding_weight();
-    let w_approach = crate::params::get_fit_approach_food_weight();
-    let w_chase = crate::params::get_fit_chase_other_weight();
-    let w_chase_same = crate::params::get_fit_chase_same_weight();
     let complexity_penalty = crate::params::COMPLEXITY_PENALTY_PER_CONN;
     agents.iter().enumerate().map(|(i, a)| {
+        let kind = match a.kind { AgentKind::Herbivore => crate::params::Kind::Herb, AgentKind::Carnivore => crate::params::Kind::Carn };
+        // Per-kind behavior shaping weights
+        let w_approach = crate::params::get_fit_approach_food_weight(kind);
+        let w_chase = crate::params::get_fit_chase_other_weight(kind);
+        let w_chase_same = crate::params::get_fit_chase_same_weight(kind);
+        // Per-kind fitness weights
+        let w_life = crate::params::get_fit_lifetime_weight(kind);
+        let w_energy = crate::params::get_fit_energy_weight(kind);
+        let w_off = crate::params::get_fit_offspring_weight(kind);
+        let w_comm = crate::params::get_fit_comm_weight(kind);
+        let w_idle = crate::params::get_fit_idle_penalty_weight(kind);
+        let w_plant = crate::params::get_fit_plant_weight(kind);
+        let w_meat = crate::params::get_fit_meat_weight(kind);
+        let w_att = crate::params::get_fit_attacks_weight(kind);
+        let w_kill = crate::params::get_fit_kills_weight(kind);
+        let w_herd = crate::params::get_fit_herding_weight(kind);
         let lifetime_score = (a.alive_steps as f32) / (MAX_STEPS as f32);
-        let avg_energy_norm = if a.alive_steps > 0 { (energy_accum[i] / a.alive_steps as f32) / crate::params::get_max_energy() } else { 0.0 };
+    let avg_energy_norm = if a.alive_steps > 0 { (energy_accum[i] / a.alive_steps as f32) / crate::params::get_max_energy_for(kind) } else { 0.0 };
         let offspring_score = a.offspring_count as f32;
         let comm_score = comm_fit.get(i).copied().unwrap_or(0.0);
         // Normalize idle penalty to [0,1] fraction of maximum possible idle accumulation this episode

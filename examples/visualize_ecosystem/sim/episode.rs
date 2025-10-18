@@ -31,7 +31,10 @@ impl Episode {
                 kind: if i % 2 == 0 { AgentKind::Herbivore } else { AgentKind::Carnivore },
                 body: Body { pos, vel: Vec2::new(0.0, 0.0), radius: AGENT_COLLISION_RADIUS },
                 theta: -std::f32::consts::FRAC_PI_2,
-                energy: crate::params::get_initial_energy().min(crate::params::get_max_energy()),
+                energy: {
+                    let k = match i % 2 { 0 => crate::params::Kind::Herb, _ => crate::params::Kind::Carn };
+                    crate::params::get_initial_energy_for(k).min(crate::params::get_max_energy_for(k))
+                },
                 health: AGENT_BASE_HEALTH,
                 max_health: AGENT_BASE_HEALTH,
                 invuln_steps: 0,

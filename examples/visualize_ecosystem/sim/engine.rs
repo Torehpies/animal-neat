@@ -80,8 +80,9 @@ pub fn tick_step<R: Rng>(
         if a.energy <= 0.0 || a.health <= DEATH_HEALTH_THRESHOLD {
             return ActionIntent { alive: false, ..Default::default() };
         }
-        let (cur_fx, cur_fy) = sensing::food_vector_from_rays(a.body.pos, a.theta, food);
-        let energy_in = (a.energy / crate::params::get_max_energy()).clamp(0.0, 1.0);
+    let (cur_fx, cur_fy) = sensing::food_vector_from_rays(a.body.pos, a.theta, food);
+    let kind_for_inputs = match a.kind { AgentKind::Herbivore => crate::params::Kind::Herb, AgentKind::Carnivore => crate::params::Kind::Carn };
+    let energy_in = (a.energy / crate::params::get_max_energy_for(kind_for_inputs)).clamp(0.0, 1.0);
         let my_species = a.species_id;
         // Reuse agent's scratch input buffer in-place
     let mut scratch = [0.0f32; crate::params::INPUTS];
@@ -207,7 +208,8 @@ pub fn tick_step<R: Rng>(
 
         // Positive shaping: reward approaching food and chasing other/same species
         // Approach food: only reward if facing food AND moving forward (no reward for staring without motion)
-        if crate::params::get_fit_approach_food_weight() != 0.0 {
+    let k = match a.kind { AgentKind::Herbivore => crate::params::Kind::Herb, AgentKind::Carnivore => crate::params::Kind::Carn };
+    if crate::params::get_fit_approach_food_weight(k) != 0.0 {
             // Using current food vector magnitude as a proxy for closeness improvement with thrust
             let food_vec_now = Vec2 { x: intent.cur_food_vec.0, y: intent.cur_food_vec.1 };
             let food_signal = food_vec_now.length(); // 0..1 strength (0 if none)
@@ -228,7 +230,7 @@ pub fn tick_step<R: Rng>(
             if reward > APPROACH_EPS { a.approach_food_units += reward; }
         }
         // Chase other-species: reward if moving towards nearest other-species agent
-        if crate::params::get_fit_chase_other_weight() != 0.0 {
+    if crate::params::get_fit_chase_other_weight(k) != 0.0 {
             // Use last_other_mem (local vector) approximated from previous step sensing
             let v = a.last_other_mem; // in local frame (x=right, y=forward), length encodes proximity signal
             // Compute forward motion factor as in approach-food
@@ -247,7 +249,7 @@ pub fn tick_step<R: Rng>(
             if reward > APPROACH_EPS { a.chase_other_units += reward; }
         }
         // Chase same-species: reward if moving towards nearest same-species agent
-        if crate::params::get_fit_chase_same_weight() != 0.0 {
+    if crate::params::get_fit_chase_same_weight(k) != 0.0 {
             let v = a.last_same_mem; // local frame (x=right, y=forward), strength attenuated by distance
             // Compute forward motion factor as in approach-food
             let forward = intent.dir;
@@ -267,7 +269,10 @@ pub fn tick_step<R: Rng>(
         // Eating: only Herbivores eat plants
     let ate = if matches!(a.kind, AgentKind::Herbivore) && world::eat_if_near(food, food_lifetime, &a.body) {
             if DIGEST_STEPS_PLANT > 0 { a.digest.push_back(DigestEvent { remaining: DIGEST_STEPS_PLANT, per_step: FOOD_ENERGY / (DIGEST_STEPS_PLANT as f32) }); }
-            else { a.energy = (a.energy + FOOD_ENERGY).min(crate::params::get_max_energy()); }
+            else {
+                let k = crate::params::Kind::Herb;
+                a.energy = (a.energy + FOOD_ENERGY).min(crate::params::get_max_energy_for(k));
+            }
             a.eaten += 1; if let Some(ref mut hook) = first_eat_step { if hook.is_none() { **hook = Some(step_idx); } } true } else { false };
         // Predation candidate scan via spatial grid
         if PREDATION_ENABLED || SCAVENGE_ENABLED {
@@ -298,7 +303,9 @@ pub fn tick_step<R: Rng>(
             prey_targets[i] = target;
         }
         // Herding: reward proximity to same-species peers (capped per step)
-        if HERDING_ENABLED && crate::params::get_fit_herding_weight() != 0.0 {
+        if HERDING_ENABLED {
+            let kind = match a.kind { AgentKind::Herbivore => crate::params::Kind::Herb, AgentKind::Carnivore => crate::params::Kind::Carn };
+            if crate::params::get_fit_herding_weight(kind) != 0.0 {
             let gx = (a.body.pos.x / cell_size).floor() as i32; let gy = (a.body.pos.y / cell_size).floor() as i32;
             let mut neighbors = 0usize;
             for oy in -1..=1 { for ox in -1..=1 {
@@ -316,6 +323,7 @@ pub fn tick_step<R: Rng>(
                 }
             }}
             if neighbors > 0 { a.herding_units += neighbors.min(HERDING_MAX_NEIGHBORS) as f32; }
+            }
         }
 
         // Stats & energy
@@ -329,7 +337,7 @@ pub fn tick_step<R: Rng>(
         }
         delta.heading_change_accum += intent.turn_delta.abs();
         a.alive_steps += 1; a.age_steps = a.age_steps.saturating_add(1);
-        let mut energy_cost = crate::params::get_energy_drain_per_step();
+    let mut energy_cost = crate::params::get_energy_drain_per_step_for(match a.kind { AgentKind::Herbivore => crate::params::Kind::Herb, AgentKind::Carnivore => crate::params::Kind::Carn });
         if USE_INERTIA {
             let vmag = a.body.vel.length();
             energy_cost += vmag * EXTRA_VEL_ENERGY_C1 + vmag*vmag*vmag * EXTRA_VEL_ENERGY_C2;
@@ -345,7 +353,11 @@ pub fn tick_step<R: Rng>(
         }
         if COMMUNICATION_ENABLED { energy_cost += a.call_intensity * CALL_COST; }
         a.energy -= energy_cost; if a.energy <= 0.0 || a.health <= DEATH_HEALTH_THRESHOLD { if a.dead_since.is_none() { a.dead_since = Some(step_idx); a.corpse_energy = CORPSE_INITIAL_ENERGY; } }
-        if a.energy > 0.0 && a.health > DEATH_HEALTH_THRESHOLD { let ef=(a.energy/ crate::params::get_max_energy()).clamp(0.0,1.0); a.health=(a.health + INJURY_HEAL_RATE * ef * a.max_health).min(a.max_health); }
+        if a.energy > 0.0 && a.health > DEATH_HEALTH_THRESHOLD {
+            let k = match a.kind { AgentKind::Herbivore => crate::params::Kind::Herb, AgentKind::Carnivore => crate::params::Kind::Carn };
+            let ef=(a.energy/ crate::params::get_max_energy_for(k)).clamp(0.0,1.0);
+            a.health=(a.health + INJURY_HEAL_RATE * ef * a.max_health).min(a.max_health);
+        }
     // Accumulate energy for eco-mode live fitness to avoid extra evaluation pass later
     if a.energy > 0.0 && a.health > DEATH_HEALTH_THRESHOLD { a.energy_accum += a.energy; }
     // Memories (decay after storing new vectors)
