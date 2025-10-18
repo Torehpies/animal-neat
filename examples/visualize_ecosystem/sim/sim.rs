@@ -1,6 +1,6 @@
 use macroquad::prelude::*;
 
-use crate::sim::{Agent, DigestEvent};
+use crate::sim::{Agent, AgentKind, DigestEvent};
 use crate::params::*;
 
 
@@ -24,6 +24,8 @@ pub fn resolve_predation(
 ) {
     let mut claimed = vec![false; agents.len()];
     for i in 0..agents.len() {
+        // Only carnivores can attack/scavenge
+        if !matches!(agents[i].kind, AgentKind::Carnivore) { continue; }
         if let Some(j) = prey_targets[i] {
             if claimed[j] || agents[j].consumed { continue; }
             let target_alive = agents[j].energy > 0.0 && agents[j].health > DEATH_HEALTH_THRESHOLD;

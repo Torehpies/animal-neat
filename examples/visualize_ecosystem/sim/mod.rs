@@ -6,7 +6,7 @@ pub mod eval;
 pub mod engine;
 
 pub use episode::Episode;
-pub use types::{Agent, AgentId, DigestEvent, CommSignal};
+pub use types::{Agent, AgentId, AgentKind, DigestEvent, CommSignal};
 pub use util::{dir_from_theta, grid_index, mask_inputs};
 pub use eval::eval_population_single_episode;
 pub use engine::{tick_step, StepDelta};

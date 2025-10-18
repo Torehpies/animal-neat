@@ -2,12 +2,21 @@ use macroquad::prelude::Vec2;
 use std::collections::VecDeque;
 use crate::body::Body;
 
+use serde::{Serialize, Deserialize};
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
+pub enum AgentKind {
+    Herbivore,
+    Carnivore,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct AgentId(pub usize);
 
 #[derive(Clone, Debug)]
 pub struct Agent {
     pub id: AgentId,
+    pub kind: AgentKind,
     pub body: Body,
     pub theta: f32,
     pub energy: f32,

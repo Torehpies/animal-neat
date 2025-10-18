@@ -23,6 +23,7 @@ use neat::neat::{
     io,
     speciator::Speciator,
 };
+use crate::sim::AgentKind;
 #[path = "visualize_ecosystem/params.rs"]
 mod params;
 #[path = "visualize_ecosystem/sensing.rs"]
@@ -336,6 +337,7 @@ async fn main() {
                     let body = crate::body::Body { pos: a_snap.body_pos.to_vec2(), vel: a_snap.body_vel.to_vec2(), radius: AGENT_RADIUS };
                     state.episode.agents.push(Agent {
                         id: AgentId(i),
+                        kind: a_snap.kind,
                         body,
                         theta: a_snap.theta,
                         energy: a_snap.energy,
@@ -483,6 +485,7 @@ async fn main() {
                             let body = crate::body::Body { pos: a_snap.body_pos.to_vec2(), vel: a_snap.body_vel.to_vec2(), radius: AGENT_RADIUS };
                             state.episode.agents.push(Agent {
                                 id: AgentId(i),
+                                kind: a_snap.kind,
                                 body,
                                 theta: a_snap.theta,
                                 energy: a_snap.energy,
@@ -1103,10 +1106,17 @@ fn spawn_offspring_if_needed<R: Rng>(
 
         // let child_species = *member_species.get(population.len()-1).unwrap_or(&sid); // unused currently
 
+        // Decide newborn kind: inherit if parents share kind, otherwise random choice
+        let child_kind = {
+            let ai_kind = episode.agents[i].kind;
+            let aj_kind = episode.agents[j].kind;
+            if ai_kind == aj_kind { ai_kind } else { if rng.random::<f32>() < 0.5 { crate::sim::AgentKind::Herbivore } else { crate::sim::AgentKind::Carnivore } }
+        };
         // Append newborn agent aligned with last genome
         let birth_pos = body.pos;  // Save position before moving body
         episode.agents.push(Agent {
             id: AgentId(episode.agents.len()),
+            kind: child_kind,
             body,
             theta: -std::f32::consts::FRAC_PI_2,
             energy: ECO_NEWBORN_ENERGY.min(MAX_ENERGY),

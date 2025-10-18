@@ -3,7 +3,7 @@ use crate::params::*;
 use crate::{sim::Episode, Vec2};
 use crate::sensing;
 use crate::ui_common::{world_to_screen, fit_world_rect, world_scale};
-use crate::sim::{dir_from_theta};
+use crate::sim::{dir_from_theta, AgentKind};
 
 pub fn draw_world(
     area: Rect,
@@ -102,7 +102,7 @@ pub fn draw_world(
     let snapshot: Vec<(Vec2, bool, bool, usize, bool)> = episode.agents.iter().map(|a| {
         let alive = a.energy > 0.0;
         let is_corpse = !alive && !a.consumed && a.corpse_energy > 0.1;
-        (a.body.pos, alive, a.consumed, 0usize, is_corpse)
+        (a.body.pos, alive, a.consumed, a.species_id, is_corpse)
     }).collect();
 
     // Determine focused agent (nearest to mouse)
@@ -131,15 +131,11 @@ pub fn draw_world(
                 let hf = (a.health / a.max_health).clamp(0.0,1.0);
                 Color::new(r * (0.5 + 0.5*hf), g * (0.5 + 0.5*hf), b * (0.5 + 0.5*hf), 1.0)
             } else {
-                // Diet-based tint: greener for plant-eaters, redder for meat-eaters
-                let meat = a.kills as f32;
-                let plants = a.eaten.saturating_sub(a.kills) as f32;
-                let total = meat + plants;
-                let meat_ratio = if total > 0.0 { meat / total } else { 0.0 };
-                let hue = (1.0 / 3.0) * (1.0 - meat_ratio); // 1/3 = green, 0 = red
-                let sat = if total > 0.0 { 0.85 } else { 0.25 }; // pale before first meal
-                let val = 0.95;
-                let (r, g, b) = crate::ui_common::hsv_to_rgb(hue, sat, val);
+                // Fixed tint by agent kind: herbivore green, carnivore red
+                let (r, g, b) = match a.kind {
+                    AgentKind::Herbivore => crate::ui_common::hsv_to_rgb(1.0/3.0, 0.85, 0.95),
+                    AgentKind::Carnivore => crate::ui_common::hsv_to_rgb(0.0, 0.85, 0.95),
+                };
                 let hf = (a.health / a.max_health).clamp(0.0,1.0);
                 Color::new(r * (0.5 + 0.5*hf), g * (0.5 + 0.5*hf), b * (0.5 + 0.5*hf), 1.0)
             };

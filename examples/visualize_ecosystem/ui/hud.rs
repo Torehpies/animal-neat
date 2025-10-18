@@ -127,18 +127,14 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: bool, fast_mode: bool
                 let hdr = format!("Focused Agent #{}", fi);
                 y = section_title(&hdr, x, y, max_w);
                 let alive = a.energy > 0.0 && a.health > 0.0;
-                let diet_plants = a.eaten.saturating_sub(a.kills) as f32;
-                let diet_meat = a.kills as f32;
-                let total_intake = diet_plants + diet_meat;
-                let meat_ratio = if total_intake > 0.0 { diet_meat / total_intake } else { 0.0 };
                 let lines = [
                     format!("Species {} | Births {}", a.species_id, a.offspring_count),
+                    format!("Type: {}", match a.kind { crate::sim::AgentKind::Herbivore => "Herbivore", crate::sim::AgentKind::Carnivore => "Carnivore" }),
                     format!("Status: {}", if alive { "Alive" } else { "Dead" }),
                     format!("Energy {:.0}/{:.0}", a.energy.max(0.0), crate::params::get_max_energy()),
                     format!("Health {:.0}/{:.0}", a.health.max(0.0), a.max_health),
                     format!("Alive steps {}", a.alive_steps),
-                    format!("Intake plants:{} meat:{} (meat% {:.0}%)", diet_plants as i32, diet_meat as i32, meat_ratio*100.0),
-                    format!("Kills {} CorpseEnergy {:.0}", a.kills, a.corpse_energy),
+                    format!("Plants eaten {} | Kills {} | CorpseEnergy {:.0}", a.eaten.saturating_sub(a.kills), a.kills, a.corpse_energy),
                 ];
                 for line in lines.iter() { if y > max_y { break; } y = draw_text_wrapped(line, x+4.0, y, 16.0, GRAY, max_w, 4.0); }
             }

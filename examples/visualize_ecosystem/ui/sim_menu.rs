@@ -152,6 +152,7 @@ pub async fn run_sim_menu(state: &mut crate::AppState) -> SimMenuResult {
                             for a_snap in &snap.agents {
                                 new_agents.push(Agent {
                                     id: AgentId(new_agents.len()),
+                                    kind: a_snap.kind,
                                     body: Body {
                                         pos: a_snap.body_pos.to_vec2(),
                                         vel: a_snap.body_vel.to_vec2(),

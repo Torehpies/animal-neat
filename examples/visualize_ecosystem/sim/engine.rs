@@ -5,7 +5,7 @@ use neat::genome::Genome;
 use ::rand::Rng;
 use sim::{resolve_predation, decay_corpses_and_flashes};
 
-use crate::{params::*, sensing, sim::{self, CommSignal, Agent, DigestEvent, dir_from_theta, grid_index}, world::{self, wrap_to_world}};
+use crate::{params::*, sensing, sim::{self, CommSignal, Agent, AgentKind, DigestEvent, dir_from_theta, grid_index}, world::{self, wrap_to_world}};
 use crate::body::{resolve_collision, Body};
 
 // Phase 1 output: neural decision + precomputed inputs we still need in phase 2
@@ -263,8 +263,8 @@ pub fn tick_step<R: Rng>(
             reward = reward.clamp(0.0, APPROACH_MAX_DELTA_PER_STEP);
             if reward > APPROACH_EPS { a.chase_same_units += reward; }
         }
-        // Eating
-    let ate = if world::eat_if_near(food, food_lifetime, &a.body) {
+        // Eating: only Herbivores eat plants
+    let ate = if matches!(a.kind, AgentKind::Herbivore) && world::eat_if_near(food, food_lifetime, &a.body) {
             if DIGEST_STEPS_PLANT > 0 { a.digest.push_back(DigestEvent { remaining: DIGEST_STEPS_PLANT, per_step: FOOD_ENERGY / (DIGEST_STEPS_PLANT as f32) }); }
             else { a.energy = (a.energy + FOOD_ENERGY).min(crate::params::get_max_energy()); }
             a.eaten += 1; if let Some(ref mut hook) = first_eat_step { if hook.is_none() { **hook = Some(step_idx); } } true } else { false };

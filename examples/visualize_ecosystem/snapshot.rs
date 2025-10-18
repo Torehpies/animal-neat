@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::io;
 
-use crate::sim::Agent;
+use crate::sim::{Agent, AgentKind};
 use macroquad::prelude::Vec2;
 use neat::neat::{genome::Genome, innovation_tracker::InnovationTracker};
 
@@ -25,6 +25,7 @@ impl Vec2Ser {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AgentSnapshot {
+    pub kind: AgentKind,
     pub body_pos: Vec2Ser,
     pub body_vel: Vec2Ser,
     pub theta: f32,
@@ -60,6 +61,7 @@ pub struct AgentSnapshot {
 impl From<&Agent> for AgentSnapshot {
     fn from(a: &Agent) -> Self {
         AgentSnapshot {
+            kind: a.kind,
             body_pos: Vec2Ser::from(a.body.pos),
             body_vel: Vec2Ser::from(a.body.vel),
             theta: a.theta,
