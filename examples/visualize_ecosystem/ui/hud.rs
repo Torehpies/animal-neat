@@ -25,7 +25,7 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: bool, fast_mode: bool
 
     // Derived stats
     let mode = if !running { "Paused" } else { "Running" };
-    let species_count = state.speciator.get_species().len();
+    // species_count (NEAT speciator) removed: HUD should not show NEAT species
     let alive = state.episode.agents.iter().filter(|a| a.energy > 0.0).count();
     let corpses = state.episode.agents.iter().filter(|a| a.energy <= 0.0 && !a.consumed).count();
     let (min_e, avg_e, max_e) = if !state.episode.agents.is_empty() {
@@ -107,7 +107,7 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: bool, fast_mode: bool
         } else {
             format!("Gen {}", state.generation)
         },
-        format!("Pop {} | Species {}", state.population.len(), species_count),
+    format!("Pop {}", state.population.len()),
         format!("Best {:.2} | Avg {:.2}", state.last_best, state.last_avg),
         format!("Steps {} | Alive {}", state.episode.steps, alive),
         if ECO_CONTINUOUS { format!("Births this ep: {}", state.episode.births_this_episode) } else { format!("Corpses {}", corpses) },
@@ -127,14 +127,20 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: bool, fast_mode: bool
                 let hdr = format!("Focused Agent #{}", fi);
                 y = section_title(&hdr, x, y, max_w);
                 let alive = a.energy > 0.0 && a.health > 0.0;
+                let plants_eaten = a.eaten.saturating_sub(a.kills);
+                let stats_line = match a.kind { 
+                    crate::sim::AgentKind::Herbivore => format!("Plants eaten {} | CorpseEnergy {:.0}", plants_eaten, a.corpse_energy),
+                    crate::sim::AgentKind::Carnivore => format!("Kills {} | CorpseEnergy {:.0}", a.kills, a.corpse_energy),
+                };
                 let lines = [
-                    format!("Species {} | Births {}", a.species_id, a.offspring_count),
+                    // Don't display NEAT species id in HUD; show births only
+                    format!("Births {}", a.offspring_count),
                     format!("Type: {}", match a.kind { crate::sim::AgentKind::Herbivore => "Herbivore", crate::sim::AgentKind::Carnivore => "Carnivore" }),
                     format!("Status: {}", if alive { "Alive" } else { "Dead" }),
                     format!("Energy {:.0}/{:.0}", a.energy.max(0.0), crate::params::get_max_energy()),
                     format!("Health {:.0}/{:.0}", a.health.max(0.0), a.max_health),
                     format!("Alive steps {}", a.alive_steps),
-                    format!("Plants eaten {} | Kills {} | CorpseEnergy {:.0}", a.eaten.saturating_sub(a.kills), a.kills, a.corpse_energy),
+                    stats_line,
                 ];
                 for line in lines.iter() { if y > max_y { break; } y = draw_text_wrapped(line, x+4.0, y, 16.0, GRAY, max_w, 4.0); }
             }

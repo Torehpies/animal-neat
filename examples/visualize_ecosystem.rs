@@ -155,7 +155,7 @@ impl AppState {
             }
             map
         };
-    let episode = Episode::new(&mut rng, pop_size, &member_species);
+    let episode = Episode::new(&mut rng, pop_size);
         // Create a unique save prefix per simulation using system time
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
         let save_prefix = format!("snapshots/sim_{}_{:09}", now.as_secs(), now.subsec_nanos());
@@ -247,7 +247,7 @@ impl AppState {
         };
         self.generation += 1;
         let mut rng = ::rand::rng();
-        self.episode = Episode::new(&mut rng, self.population.len(), &self.member_species);
+    self.episode = Episode::new(&mut rng, self.population.len());
         // Clear focused agent because indices now refer to new episode
         self.focused_agent = None;
         // Optional periodic snapshotting after evolution completes this generation
@@ -408,7 +408,7 @@ async fn main() {
         // Controls
             if is_key_pressed(KeyCode::P) { running = !running; }
             if is_key_pressed(KeyCode::F) { fast_mode = !fast_mode; }
-            if is_key_pressed(KeyCode::R) { let mut rng = ::rand::rng(); state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species); }
+            if is_key_pressed(KeyCode::R) { let mut rng = ::rand::rng(); state.episode = Episode::new(&mut rng, state.population.len()); }
         if is_key_pressed(KeyCode::V) { state.show_cones = !state.show_cones; }
             if is_key_pressed(KeyCode::U) { state.show_unified_overlay = !state.show_unified_overlay; }
             if is_key_pressed(KeyCode::E) { state.show_energy_overlay = !state.show_energy_overlay; }
@@ -550,7 +550,7 @@ async fn main() {
                                     map
                                 };
                                 let mut rng = ::rand::rng();
-                                state.episode = Episode::new(&mut rng, state.population.len(), &state.member_species);
+                                state.episode = Episode::new(&mut rng, state.population.len());
                                 println!("Loaded population snapshot from {}", path.display());
                                 state.hud_toast = Some((format!("Loaded population: {}", path.display()), 2.5));
                             }
@@ -895,14 +895,14 @@ fn finalize_end_of_episode(state: &mut AppState, rng: &mut impl ::rand::Rng) {
         if intel_best.is_finite() { state.graphs.intel_best.push(intel_best); }
         if intel_mean.is_finite() { state.graphs.intel_mean.push(intel_mean); }
         state.graphs.reset_episode();
-        state.episode = Episode::new(rng, state.population.len(), &state.member_species);
+    state.episode = Episode::new(rng, state.population.len());
     } else {
         // Log intelligence proxy for this episode (before resetting)
         if intel_best.is_finite() { state.graphs.intel_best.push(intel_best); }
         if intel_mean.is_finite() { state.graphs.intel_mean.push(intel_mean); }
         state.evolve_one_generation();
         state.graphs.reset_episode();
-        state.episode = Episode::new(rng, state.population.len(), &state.member_species);
+    state.episode = Episode::new(rng, state.population.len());
         if state.last_best.is_finite() { state.graphs.best.push(state.last_best); state.graphs.mean.push(state.last_avg); }
     }
     state.scoreboard_pending = false;

@@ -21,7 +21,7 @@ pub struct Episode {
 }
 
 impl Episode {
-    pub fn new<R: Rng>(rng: &mut R, agent_count: usize, species_map: &[usize]) -> Self {
+    pub fn new<R: Rng>(rng: &mut R, agent_count: usize) -> Self {
         let mut agents = Vec::with_capacity(agent_count);
         for i in 0..agent_count {
             // Uniform random spawn across the world for all agents (no species clustering)
@@ -47,7 +47,8 @@ impl Episode {
                 last_danger_mem: Vec2 { x: 0.0, y: 0.0 },
                 last_same_mem: Vec2 { x: 0.0, y: 0.0 },
                 last_other_mem: Vec2 { x: 0.0, y: 0.0 },
-                species_id: *species_map.get(i).unwrap_or(&0),
+                // Two fixed ecological species: 0 = Herbivore, 1 = Carnivore
+                species_id: if i % 2 == 0 { 0 } else { 1 },
                 age_steps: 0,
                 call_intensity: 0.0, heard_sectors: [0.0;3],
                 repro_cooldown: 0,

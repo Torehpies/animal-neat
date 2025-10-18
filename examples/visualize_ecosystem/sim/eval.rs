@@ -1,7 +1,7 @@
 use std::collections::{HashSet, VecDeque};
 
 use macroquad::prelude::Vec2;
-use neat::{genome::Genome, speciator::Speciator};
+use neat::genome::Genome;
 
 use crate::{body::Body, params::{AGENT_RADIUS, *}, sim::{CommSignal, Agent, AgentId, AgentKind, tick_step}, world};
 
@@ -9,10 +9,8 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
     let mut rng = ::rand::rng();
     let mut food = world::build_world(&mut rng);
     let mut food_lifetime = world::init_food_lifetimes(&food, &mut rng);
-    // Lightweight speciation for evaluation to provide species differentiation signal
-    let mut temp_speciator = Speciator::new(1.0);
-    temp_speciator.speciate(population);
-    let species_map = build_species_map(&temp_speciator, population.len());
+    // Only two ecological species: Herbivore (0) and Carnivore (1)
+    let species_map: Vec<usize> = (0..population.len()).map(|i| if i % 2 == 0 { 0 } else { 1 }).collect();
     let mut agents: Vec<Agent> = population.iter().enumerate().map(|(i, _)| Agent {
         id: AgentId(i),
         kind: if i % 2 == 0 { AgentKind::Herbivore } else { AgentKind::Carnivore },
@@ -34,7 +32,7 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         last_danger_mem: Vec2 { x: 0.0, y: 0.0 },
         last_same_mem: Vec2 { x: 0.0, y: 0.0 },
         last_other_mem: Vec2 { x: 0.0, y: 0.0 },
-    species_id: *species_map.get(i).unwrap_or(&0),
+    species_id: if i % 2 == 0 { 0 } else { 1 },
         age_steps: 0,
         call_intensity: 0.0, heard_sectors: [0.0;3],
         repro_cooldown: 0,
@@ -138,10 +136,3 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
     }).collect()
 }
 
-pub fn build_species_map(speciator: &Speciator, pop_len: usize) -> Vec<usize> {
-    let mut map = vec![0usize; pop_len];
-    for (sidx, s) in speciator.get_species().iter().enumerate() {
-        for &m in &s.members { if m < pop_len { map[m] = sidx; } }
-    }
-    map
-}
