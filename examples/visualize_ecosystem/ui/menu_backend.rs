@@ -7,6 +7,9 @@ pub struct SimConfig {
     pub world_width: f32,
     pub world_height: f32,
     pub population_size: usize,
+    // split population into two ecological groups
+    pub herbivore_count: usize,
+    pub carnivore_count: usize,
     pub max_food: usize,
     pub food_respawn_prob: f32,
     pub initial_energy: f32,
@@ -33,7 +36,10 @@ impl Default for SimConfig {
         Self {
             world_width: 750.0,
             world_height: 750.0,
-            population_size: 50,
+            // default split: half herbivores, half carnivores
+            herbivore_count: 25,
+            carnivore_count: 25,
+            population_size: 25 + 25,
             max_food: 300,
             food_respawn_prob: 0.006,
             initial_energy: 500.0,
@@ -69,6 +75,8 @@ pub enum EditField {
     WorldWidth,
     WorldHeight,
     PopSize,
+    Herbivores,
+    Carnivores,
     MaxFood,
     FoodRespawnRate,
     InitialEnergy,
@@ -113,6 +121,28 @@ pub fn apply_field_value(cfg: &mut SimConfig, field: EditField, val: f32) {
         EditField::PopSize => {
             // Allow much larger populations for stress-testing; clamp to 999,999
             cfg.population_size = (val as usize).max(1).min(999_999);
+            // if explicit species counts are zero, split evenly; otherwise preserve proportions by scaling
+            let total_spec = cfg.herbivore_count + cfg.carnivore_count;
+            if total_spec == 0 {
+                let half = cfg.population_size / 2;
+                cfg.herbivore_count = half;
+                cfg.carnivore_count = cfg.population_size - half;
+            } else {
+                // scale existing counts to match new total (preserve ratio)
+                let h = cfg.herbivore_count as f32;
+                let c = cfg.carnivore_count as f32;
+                let sum = (h + c).max(1.0);
+                cfg.herbivore_count = ((h / sum) * (cfg.population_size as f32)).round() as usize;
+                cfg.carnivore_count = cfg.population_size.saturating_sub(cfg.herbivore_count);
+            }
+        }
+        EditField::Herbivores => {
+            cfg.herbivore_count = (val as usize).max(0).min(999_999);
+            cfg.population_size = cfg.herbivore_count + cfg.carnivore_count;
+        }
+        EditField::Carnivores => {
+            cfg.carnivore_count = (val as usize).max(0).min(999_999);
+            cfg.population_size = cfg.herbivore_count + cfg.carnivore_count;
         }
         EditField::MaxFood => {
             // Allow a very large vegetation count; clamp to 999,999

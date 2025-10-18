@@ -28,6 +28,19 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: bool, fast_mode: bool
     // species_count (NEAT speciator) removed: HUD should not show NEAT species
     let alive = state.episode.agents.iter().filter(|a| a.energy > 0.0).count();
     let corpses = state.episode.agents.iter().filter(|a| a.energy <= 0.0 && !a.consumed).count();
+    // Per-species alive counts
+    let herb_alive = state
+        .episode
+        .agents
+        .iter()
+        .filter(|a| a.kind == crate::sim::AgentKind::Herbivore && a.energy > 0.0)
+        .count();
+    let carn_alive = state
+        .episode
+        .agents
+        .iter()
+        .filter(|a| a.kind == crate::sim::AgentKind::Carnivore && a.energy > 0.0)
+        .count();
     let (min_e, avg_e, max_e) = if !state.episode.agents.is_empty() {
         let mut min_e = f32::INFINITY; let mut max_e = f32::NEG_INFINITY; let mut sum = 0.0;
         for a in &state.episode.agents { min_e = min_e.min(a.energy); max_e = max_e.max(a.energy); sum += a.energy; }
@@ -108,6 +121,7 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: bool, fast_mode: bool
             format!("Gen {}", state.generation)
         },
     format!("Pop {}", state.population.len()),
+    format!("Herb {} | Carn {}", herb_alive, carn_alive),
         format!("Best {:.2} | Avg {:.2}", state.last_best, state.last_avg),
         format!("Steps {} | Alive {}", state.episode.steps, alive),
         if ECO_CONTINUOUS { format!("Births this ep: {}", state.episode.births_this_episode) } else { format!("Corpses {}", corpses) },

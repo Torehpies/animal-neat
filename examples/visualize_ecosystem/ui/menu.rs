@@ -89,6 +89,7 @@ fn draw_help_overlay(panel_x: f32, panel_y: f32, panel_w: f32, panel_h: f32, ui_
 fn field_step(field: EditField) -> f32 {
     match field {
         EditField::PopSize | EditField::MaxFood => 10.0,
+        EditField::Herbivores | EditField::Carnivores => 1.0,
         EditField::FoodRespawnRate => 0.0005,
         EditField::EnergyDrain => 0.01,
         EditField::WorldWidth | EditField::WorldHeight => 25.0,
@@ -99,7 +100,7 @@ fn field_step(field: EditField) -> f32 {
 }
 
 fn is_integer_field(field: EditField) -> bool {
-    matches!(field, EditField::PopSize | EditField::MaxFood)
+    matches!(field, EditField::PopSize | EditField::MaxFood | EditField::Herbivores | EditField::Carnivores)
 }
 
 fn field_help(field: EditField) -> &'static str {
@@ -107,6 +108,8 @@ fn field_help(field: EditField) -> &'static str {
         EditField::WorldWidth => "Horizontal world size in units. Larger worlds spread agents.",
         EditField::WorldHeight => "Vertical world size in units.",
         EditField::PopSize => "Number of agents (population). Higher = heavier CPU load.",
+        EditField::Herbivores => "Number of herbivore agents to spawn at episode start.",
+        EditField::Carnivores => "Number of carnivore agents to spawn at episode start.",
         EditField::MaxFood => "Maximum number of plants present at once.",
     EditField::FoodRespawnRate => "Per-step probability a new plant appears (0.0001-0.1).",
         EditField::InitialEnergy => "Starting energy for each agent.",
@@ -345,7 +348,9 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
     // Left column
     if let Some(t) = draw_field_row(state, "World Width", EditField::WorldWidth, format!("{:.0}", state.config.world_width), state.config.world_width, field_x1, value_x1, &mut y1, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
     if let Some(t) = draw_field_row(state, "World Height", EditField::WorldHeight, format!("{:.0}", state.config.world_height), state.config.world_height, field_x1, value_x1, &mut y1, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-    if let Some(t) = draw_field_row(state, "Agents", EditField::PopSize, format!("{}", state.config.population_size), state.config.population_size as f32, field_x1, value_x1, &mut y1, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+    // Split population into herbivores/carnivores fields
+    if let Some(t) = draw_field_row(state, "Herbivores", EditField::Herbivores, format!("{}", state.config.herbivore_count), state.config.herbivore_count as f32, field_x1, value_x1, &mut y1, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+    if let Some(t) = draw_field_row(state, "Carnivores", EditField::Carnivores, format!("{}", state.config.carnivore_count), state.config.carnivore_count as f32, field_x1, value_x1, &mut y1, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
     if let Some(t) = draw_field_row(state, "Initial Energy", EditField::InitialEnergy, format!("{:.1}", state.config.initial_energy), state.config.initial_energy, field_x1, value_x1, &mut y1, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
     if let Some(t) = draw_field_row(state, "Max Energy", EditField::MaxEnergy, format!("{:.1}", state.config.max_energy), state.config.max_energy, field_x1, value_x1, &mut y1, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
     if let Some(t) = draw_field_row(state, "Drain/Step", EditField::EnergyDrain, format!("{:.3}", state.config.energy_drain_per_step), state.config.energy_drain_per_step, field_x1, value_x1, &mut y1, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
