@@ -137,6 +137,13 @@ pub const MAX_ENERGY: f32 = 5000.0;  // clamp upper bound for energy; can be >= 
 pub const ENERGY_DRAIN_PER_STEP: f32 = 0.05;
 pub const MAX_STEPS: usize = 20_000;
 pub const AGENT_RADIUS: f32 = 1.5;
+// Visual-only: scale factor for rendering agents (sprites/circles) without changing collision/physics.
+// 1.0 = same apparent size as physics radius; increase to make agents easier to see.
+pub const AGENT_RENDER_SCALE: f32 = 5.0;
+
+// Collision/physics radius used by Body and all collision/eating/herding math.
+// By default we align collisions with the rendered size so visuals and physics match.
+pub const AGENT_COLLISION_RADIUS: f32 = AGENT_RADIUS * AGENT_RENDER_SCALE;
 
 // =============
 // Spawning

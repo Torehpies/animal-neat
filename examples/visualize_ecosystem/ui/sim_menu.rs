@@ -146,7 +146,7 @@ pub async fn run_sim_menu(state: &mut crate::AppState) -> SimMenuResult {
                             // Rebuild episode from snapshot
                             use crate::sim::{Agent, AgentId};
                             use crate::body::Body;
-                            use crate::params::AGENT_RADIUS;
+                            use crate::params::AGENT_COLLISION_RADIUS;
                             
                             let mut new_agents: Vec<Agent> = Vec::new();
                             for a_snap in &snap.agents {
@@ -156,7 +156,7 @@ pub async fn run_sim_menu(state: &mut crate::AppState) -> SimMenuResult {
                                     body: Body {
                                         pos: a_snap.body_pos.to_vec2(),
                                         vel: a_snap.body_vel.to_vec2(),
-                                        radius: AGENT_RADIUS,
+                                        radius: AGENT_COLLISION_RADIUS,
                                     },
                                     theta: a_snap.theta,
                                     energy: a_snap.energy,

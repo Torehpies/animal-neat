@@ -20,6 +20,8 @@ pub fn draw_world(
     show_hearing_inputs: bool,
     show_memory_inputs: bool,
     color_by_species: bool,
+    herb_tex: Option<&Texture2D>,
+    carn_tex: Option<&Texture2D>,
 ) {
     let fitted = fit_world_rect(area);
     let world_w = crate::world::get_world_w();
@@ -119,27 +121,48 @@ pub fn draw_world(
     // agents
     for (idx, a) in episode.agents.iter().enumerate() {
     let (px, py) = world_to_screen(fitted, a.body.pos);
-    let agent_r = (AGENT_RADIUS * px_per_world).max(3.0);
+    // Visual radius scaled for rendering only; collisions still use AGENT_RADIUS in world units elsewhere
+    let agent_r = (AGENT_RADIUS * AGENT_RENDER_SCALE * px_per_world).max(3.0);
     // species index unused for coloring now that diet-based coloring is applied
         // draw alive vs dead differently
         if a.energy > 0.0 && a.health > DEATH_HEALTH_THRESHOLD {
-            // Color either by species or by diet, based on toggle
-            let fill = if color_by_species {
-                let sidx = a.species_id as u32;
-                let hue = ((sidx % 12) as f32) / 12.0; // 12 distinct hues cycling
-                let (r, g, b) = crate::ui_common::hsv_to_rgb(hue, 0.85, 0.95);
-                let hf = (a.health / a.max_health).clamp(0.0,1.0);
-                Color::new(r * (0.5 + 0.5*hf), g * (0.5 + 0.5*hf), b * (0.5 + 0.5*hf), 1.0)
-            } else {
-                // Fixed tint by agent kind: herbivore green, carnivore red
-                let (r, g, b) = match a.kind {
-                    AgentKind::Herbivore => crate::ui_common::hsv_to_rgb(1.0/3.0, 0.85, 0.95),
-                    AgentKind::Carnivore => crate::ui_common::hsv_to_rgb(0.0, 0.85, 0.95),
-                };
-                let hf = (a.health / a.max_health).clamp(0.0,1.0);
-                Color::new(r * (0.5 + 0.5*hf), g * (0.5 + 0.5*hf), b * (0.5 + 0.5*hf), 1.0)
+            // Try sprite first if available; otherwise fall back to colored circle
+            let tex_opt: Option<&Texture2D> = match a.kind {
+                AgentKind::Herbivore => herb_tex,
+                AgentKind::Carnivore => carn_tex,
             };
-            draw_circle(px, py, agent_r, fill);
+            if let Some(tex) = tex_opt {
+                // Draw the sprite centered at (px,py) and flip horizontally if moving/facing right.
+                let size = agent_r * 2.0;
+                // Determine facing from velocity primary, fallback to heading when nearly stationary
+                let facing_right = if a.body.vel.x.abs() > 0.05 { a.body.vel.x > 0.0 } else { a.theta.cos() > 0.0 };
+                let params = DrawTextureParams {
+                    dest_size: Some(vec2(size, size)),
+                    flip_x: facing_right,
+                    ..Default::default()
+                };
+                draw_texture_ex(tex, px - size * 0.5, py - size * 0.5, WHITE, params);
+                // Small center dot to verify anchor alignment
+                draw_circle(px, py, 1.5, BLACK);
+            } else {
+                // Color either by species or by diet, based on toggle
+                let fill = if color_by_species {
+                    let sidx = a.species_id as u32;
+                    let hue = ((sidx % 12) as f32) / 12.0; // 12 distinct hues cycling
+                    let (r, g, b) = crate::ui_common::hsv_to_rgb(hue, 0.85, 0.95);
+                    let hf = (a.health / a.max_health).clamp(0.0,1.0);
+                    Color::new(r * (0.5 + 0.5*hf), g * (0.5 + 0.5*hf), b * (0.5 + 0.5*hf), 1.0)
+                } else {
+                    // Fixed tint by agent kind: herbivore green, carnivore red
+                    let (r, g, b) = match a.kind {
+                        AgentKind::Herbivore => crate::ui_common::hsv_to_rgb(1.0/3.0, 0.85, 0.95),
+                        AgentKind::Carnivore => crate::ui_common::hsv_to_rgb(0.0, 0.85, 0.95),
+                    };
+                    let hf = (a.health / a.max_health).clamp(0.0,1.0);
+                    Color::new(r * (0.5 + 0.5*hf), g * (0.5 + 0.5*hf), b * (0.5 + 0.5*hf), 1.0)
+                };
+                draw_circle(px, py, agent_r, fill);
+            }
             // Communication: call emission ring (intensity-based)
             if a.call_intensity > 0.03 {
                 let ring_r = agent_r + 6.0 + a.call_intensity * 22.0;
@@ -156,10 +179,10 @@ pub fn draw_world(
             let fill = Color::new(0.25, 0.25, 0.25, 0.9);
             draw_circle(px, py, agent_r, fill);
         }
-        draw_circle_lines(px, py, agent_r, 2.0, Color::new(0.2, 0.2, 0.2, 0.6));
+    // outline disabled - was: draw_circle_lines(px, py, agent_r, 2.0, Color::new(0.2, 0.2, 0.2, 0.6));
         if show_collision_radii {
             // High-contrast collision radius for agents (white ring)
-            draw_circle_lines(px, py, (AGENT_RADIUS * px_per_world).max(1.0), 2.0, Color::new(1.0, 1.0, 1.0, 0.95));
+            draw_circle_lines(px, py, (AGENT_COLLISION_RADIUS * px_per_world).max(1.0), 2.0, Color::new(1.0, 1.0, 1.0, 0.95));
         }
         // heading line
         if a.energy > 0.0 {
@@ -201,7 +224,9 @@ pub fn draw_world(
         }
         // Visual cue: edible nearby (live prey or unconsumed corpse) within EAT_AGENT_RADIUS
         if a.energy > 0.0 {
-            let eat_r2 = EAT_AGENT_RADIUS * EAT_AGENT_RADIUS;
+            // Visualize edible radius using collision-scaled eat radius
+            let eat_collision_radius = EAT_AGENT_RADIUS * AGENT_RENDER_SCALE;
+            let eat_r2 = eat_collision_radius * eat_collision_radius;
             let mut edible_near = false;
             let mut best_target: Option<Vec2> = None;
             let mut best_d2: f32 = f32::INFINITY;

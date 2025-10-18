@@ -23,7 +23,6 @@ use neat::neat::{
     io,
     speciator::Speciator,
 };
-use crate::sim::AgentKind;
 #[path = "visualize_ecosystem/params.rs"]
 mod params;
 #[path = "visualize_ecosystem/sensing.rs"]
@@ -104,6 +103,9 @@ struct AppState {
     pub sim_config: SimConfig,
     // Per-session save prefix (unique per new simulation)
     pub save_prefix: String,
+    // Sprites (optional). If not present, fallback shapes are used.
+    pub herb_tex: Option<Texture2D>,
+    pub carn_tex: Option<Texture2D>,
     // Diagnostics
     show_fps: bool,
     ultra_mode: bool,
@@ -186,6 +188,8 @@ impl AppState {
             graphs: ui_graphs::Trends::new(),
             sim_config,
             save_prefix,
+            herb_tex: None,
+            carn_tex: None,
             show_fps: true,
             ultra_mode: false,
             show_scoreboard_panel: false, // default: autoplay between episodes (no pause)
@@ -325,6 +329,20 @@ async fn main() {
         );
         
         let mut state = AppState::new(sim_config);
+        // Try load sprites (optional). Try a couple of common locations so editor-specific
+        // folders (like .vscode/assets) still work when running from the project root.
+        async fn try_load(path: &str) -> Option<Texture2D> {
+            match load_texture(path).await {
+                Ok(t) => { t.set_filter(FilterMode::Nearest); Some(t) }
+                Err(_) => None,
+            }
+        }
+        let first = try_load("assets/sheep.png").await;
+        state.herb_tex = if first.is_some() { first } else { try_load(".vscode/assets/sheep.png").await };
+        let firstc = try_load("assets/wolf.png").await;
+        state.carn_tex = if firstc.is_some() { firstc } else { try_load(".vscode/assets/wolf.png").await };
+        if state.herb_tex.is_none() { eprintln!("Warning: herbivore sprite not found (assets/sheep.png or .vscode/assets/sheep.png)"); }
+        if state.carn_tex.is_none() { eprintln!("Warning: carnivore sprite not found (assets/wolf.png or .vscode/assets/wolf.png)"); }
         // If the main menu requested to load a snapshot, apply it now
         if let Some(path) = loaded_snapshot_path {
             if let Ok(snap) = snapshot::load_sim_snapshot(&path) {
@@ -334,7 +352,7 @@ async fn main() {
                 state.episode.food = snap.food.iter().map(|v| v.to_vec2()).collect();
                 state.episode.agents.clear();
                 for (i, a_snap) in snap.agents.iter().enumerate() {
-                    let body = crate::body::Body { pos: a_snap.body_pos.to_vec2(), vel: a_snap.body_vel.to_vec2(), radius: AGENT_RADIUS };
+                    let body = crate::body::Body { pos: a_snap.body_pos.to_vec2(), vel: a_snap.body_vel.to_vec2(), radius: AGENT_COLLISION_RADIUS };
                     state.episode.agents.push(Agent {
                         id: AgentId(i),
                         kind: a_snap.kind,
@@ -482,7 +500,7 @@ async fn main() {
                         // rebuild agents from snapshots (leave transient fields defaulted)
                         state.episode.agents.clear();
                         for (i, a_snap) in snap.agents.iter().enumerate() {
-                            let body = crate::body::Body { pos: a_snap.body_pos.to_vec2(), vel: a_snap.body_vel.to_vec2(), radius: AGENT_RADIUS };
+                            let body = crate::body::Body { pos: a_snap.body_pos.to_vec2(), vel: a_snap.body_vel.to_vec2(), radius: AGENT_COLLISION_RADIUS };
                             state.episode.agents.push(Agent {
                                 id: AgentId(i),
                                 kind: a_snap.kind,
@@ -750,6 +768,8 @@ async fn main() {
             false, // hearing disabled
             true,  // memory vectors
             state.color_by_species,
+            state.herb_tex.as_ref(),
+            state.carn_tex.as_ref(),
         );
     ui_hud::draw_hud(hud_area, &mut state, running, fast_mode);
         // Scoreboard panel: shown after episodes only when toggle is ON
@@ -1084,7 +1104,7 @@ fn spawn_offspring_if_needed<R: Rng>(
             pos.x = (pos.x % WORLD_W + WORLD_W) % WORLD_W; pos.y = (pos.y % WORLD_H + WORLD_H) % WORLD_H;
             // Tag child with one parent's species id for in-episode kin behavior. We choose the first parent's species id.
             let sid = ai.species_id;
-            births.push((i, j, crate::body::Body { pos, vel: Vec2::new(0.0, 0.0), radius: AGENT_RADIUS }, sid));
+            births.push((i, j, crate::body::Body { pos, vel: Vec2::new(0.0, 0.0), radius: AGENT_COLLISION_RADIUS }, sid));
             used.insert(i); used.insert(j);
             if live_indices.len() + births.len() >= ECO_MAX_POP { break 'pairing; }
         }

@@ -40,7 +40,7 @@ pub fn input_ranges() -> InputRanges {
     InputRanges { vision, energy, memory, hearing, position }
 }
 
-use super::params::{VISION_RAYS, VISION_ANGLE_DEG, VISION_RANGE, FOOD_RADIUS, AGENT_RADIUS, DANGER_VECTOR_MAX_RANGE, INPUTS, WORLD_W, WORLD_H, HEARING_SECTORS, SOUND_RANGE, SOUND_ATTENUATION_EXP, HEARING_EMA_ALPHA};
+use super::params::{VISION_RAYS, VISION_ANGLE_DEG, VISION_RANGE, FOOD_RADIUS, AGENT_COLLISION_RADIUS, DANGER_VECTOR_MAX_RANGE, INPUTS, WORLD_W, WORLD_H, HEARING_SECTORS, SOUND_RANGE, SOUND_ATTENUATION_EXP, HEARING_EMA_ALPHA};
 use crate::sim::{Agent};
 use macroquad::prelude::Vec2;
 
@@ -224,7 +224,7 @@ pub fn build_inputs_inplace(
             if t <= 0.0 || t > VISION_RANGE { continue; }
             let closest = Vec2 { x: pos.x + rdir.x * t, y: pos.y + rdir.y * t };
             let dx = apos.x - closest.x; let dy = apos.y - closest.y; let dist = (dx*dx + dy*dy).sqrt();
-            if dist <= AGENT_RADIUS {
+            if dist <= AGENT_COLLISION_RADIUS {
                 if *alive {
                     if *species_id == my_species { match best[2] { Some(b) if t >= b => {}, _ => best[2] = Some(t) } }
                     else { match best[3] { Some(b) if t >= b => {}, _ => best[3] = Some(t) } }

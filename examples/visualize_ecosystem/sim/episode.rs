@@ -29,7 +29,7 @@ impl Episode {
             agents.push(Agent {
                 id: AgentId(i),
                 kind: if i % 2 == 0 { AgentKind::Herbivore } else { AgentKind::Carnivore },
-                body: Body { pos, vel: Vec2::new(0.0, 0.0), radius: AGENT_RADIUS },
+                body: Body { pos, vel: Vec2::new(0.0, 0.0), radius: AGENT_COLLISION_RADIUS },
                 theta: -std::f32::consts::FRAC_PI_2,
                 energy: crate::params::get_initial_energy().min(crate::params::get_max_energy()),
                 health: AGENT_BASE_HEALTH,

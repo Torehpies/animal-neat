@@ -134,14 +134,15 @@ pub fn tick_step<R: Rng>(
 
     // Build a simple spatial hash (uniform grid) for predation neighbor lookup (alive or corpse energy targets only)
     // Grid cell size tuned to predation radius so we only check local buckets.
-    const CELL: f32 = EAT_AGENT_RADIUS * 1.25; // a little larger to capture neighbors
+        let eat_collision_radius = EAT_AGENT_RADIUS * AGENT_RENDER_SCALE; // scale for collision
+        let cell_size: f32 = eat_collision_radius * 1.25; // a little larger to capture neighbors
     let mut grid: std::collections::HashMap<(i32,i32), Vec<usize>> = std::collections::HashMap::with_capacity(agents.len()*2);
     for (idx,a) in agents.iter().enumerate() {
         let alive = a.energy > 0.0 && a.health > DEATH_HEALTH_THRESHOLD;
         let is_corpse = !alive && !a.consumed && a.corpse_energy > 0.1;
         if !alive && !is_corpse { continue; }
-        let gx = (a.body.pos.x / CELL).floor() as i32;
-        let gy = (a.body.pos.y / CELL).floor() as i32;
+            let gx = (a.body.pos.x / cell_size).floor() as i32;
+            let gy = (a.body.pos.y / cell_size).floor() as i32;
         grid.entry((gx,gy)).or_default().push(idx);
     }
 
@@ -271,7 +272,7 @@ pub fn tick_step<R: Rng>(
         // Predation candidate scan via spatial grid
         if PREDATION_ENABLED || SCAVENGE_ENABLED {
             let dir = intent.dir; let mut target: Option<usize> = None;
-            let gx = (a.body.pos.x / CELL).floor() as i32; let gy = (a.body.pos.y / CELL).floor() as i32;
+            let gx = (a.body.pos.x / cell_size).floor() as i32; let gy = (a.body.pos.y / cell_size).floor() as i32;
             let half_cone_cos = (VISION_ANGLE_DEG.to_radians() * 0.5).cos();
             // Check surrounding 3x3 cells
             'outer: for oy in -1..=1 { for ox in -1..=1 { if let Some(bucket) = grid.get(&(gx+ox, gy+oy)) {
@@ -288,7 +289,7 @@ pub fn tick_step<R: Rng>(
                         if similar { continue; }
                     }
                     if (alive_j && !PREDATION_ENABLED) || ((!alive_j || is_corpse_j) && !SCAVENGE_ENABLED) { continue; }
-                    let dx = pos_j.x - a.body.pos.x; let dy = pos_j.y - a.body.pos.y; let dist2 = dx*dx + dy*dy; if dist2 > EAT_AGENT_RADIUS*EAT_AGENT_RADIUS { continue; }
+                    let dx = pos_j.x - a.body.pos.x; let dy = pos_j.y - a.body.pos.y; let dist2 = dx*dx + dy*dy; if dist2 > eat_collision_radius*eat_collision_radius { continue; }
                     if alive_j && PREDATION_REQUIRES_VISION { let len = (dist2 as f32).sqrt(); if len < 1e-6 { continue; } let dot = dir.dot(Vec2::new(dx,dy)/len); if dot < half_cone_cos { continue; } }
                     if (!alive_j || is_corpse_j) && SCAVENGE_REQUIRES_VISION { let len = (dist2 as f32).sqrt(); if len < 1e-6 { continue; } let dot = dir.dot(Vec2::new(dx,dy)/len); if dot < half_cone_cos { continue; } }
                     target = Some(j); break 'outer;
@@ -298,7 +299,7 @@ pub fn tick_step<R: Rng>(
         }
         // Herding: reward proximity to same-species peers (capped per step)
         if HERDING_ENABLED && crate::params::get_fit_herding_weight() != 0.0 {
-            let gx = (a.body.pos.x / CELL).floor() as i32; let gy = (a.body.pos.y / CELL).floor() as i32;
+            let gx = (a.body.pos.x / cell_size).floor() as i32; let gy = (a.body.pos.y / cell_size).floor() as i32;
             let mut neighbors = 0usize;
             for oy in -1..=1 { for ox in -1..=1 {
                 if let Some(bucket) = grid.get(&(gx+ox, gy+oy)) {
