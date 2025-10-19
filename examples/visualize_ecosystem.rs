@@ -98,6 +98,10 @@ struct AppState {
     // Graphs
     show_graphs_panel: bool,
     graphs: ui_graphs::Trends,
+    // Separate overlay for graphs (full-screen modal style)
+    show_graphs_overlay: bool,
+    // Active tab for graphs overlay
+    graphs_tab: ui_graphs::GraphTab,
     // Runtime config
     #[allow(dead_code)]
     pub sim_config: SimConfig,
@@ -186,6 +190,8 @@ impl AppState {
             color_by_species: true,
             show_graphs_panel: false,
             graphs: ui_graphs::Trends::new(),
+            show_graphs_overlay: false,
+            graphs_tab: ui_graphs::GraphTab::Population,
             sim_config,
             save_prefix,
             herb_tex: None,
@@ -463,7 +469,31 @@ async fn main() {
         if is_key_pressed(KeyCode::M) { state.show_live_network = !state.show_live_network; }
         if is_key_pressed(KeyCode::H) { state.show_controls = !state.show_controls; }
         if is_key_pressed(KeyCode::K) { state.color_by_species = !state.color_by_species; }
-        if is_key_pressed(KeyCode::Z) { state.show_graphs_panel = !state.show_graphs_panel; }
+    // Z: toggle graphs overlay (replaces old HUD graphs panel)
+    if is_key_pressed(KeyCode::Z) { state.show_graphs_overlay = !state.show_graphs_overlay; }
+        // Tab switching while graphs overlay is open
+        if state.show_graphs_overlay {
+            if is_key_pressed(KeyCode::Right) {
+                state.graphs_tab = match state.graphs_tab {
+                    ui_graphs::GraphTab::Population => ui_graphs::GraphTab::Fitness,
+                    ui_graphs::GraphTab::Fitness => ui_graphs::GraphTab::BirthsDeaths,
+                    ui_graphs::GraphTab::BirthsDeaths => ui_graphs::GraphTab::Intelligence,
+                    ui_graphs::GraphTab::Intelligence => ui_graphs::GraphTab::Population,
+                }
+            }
+            if is_key_pressed(KeyCode::Left) {
+                state.graphs_tab = match state.graphs_tab {
+                    ui_graphs::GraphTab::Population => ui_graphs::GraphTab::Intelligence,
+                    ui_graphs::GraphTab::Fitness => ui_graphs::GraphTab::Population,
+                    ui_graphs::GraphTab::BirthsDeaths => ui_graphs::GraphTab::Fitness,
+                    ui_graphs::GraphTab::Intelligence => ui_graphs::GraphTab::BirthsDeaths,
+                }
+            }
+            if is_key_pressed(KeyCode::Key1) { state.graphs_tab = ui_graphs::GraphTab::Population; }
+            if is_key_pressed(KeyCode::Key2) { state.graphs_tab = ui_graphs::GraphTab::Fitness; }
+            if is_key_pressed(KeyCode::Key3) { state.graphs_tab = ui_graphs::GraphTab::BirthsDeaths; }
+            if is_key_pressed(KeyCode::Key4) { state.graphs_tab = ui_graphs::GraphTab::Intelligence; }
+        }
         if is_key_pressed(KeyCode::X) { state.ultra_mode = !state.ultra_mode; }
         // Scoreboard toggle (T):
         // - Pressing T toggles the preference: when ON, the app pauses at episode end and shows the scoreboard;
@@ -790,6 +820,11 @@ async fn main() {
             state.carn_tex.as_ref(),
         );
     ui_hud::draw_hud(hud_area, &mut state, &mut running, &mut fast_mode);
+        // Draw graphs overlay on top of HUD/world when enabled
+        if state.show_graphs_overlay {
+            let fullscreen = Rect { x: 0.0, y: 0.0, w, h };
+            ui_graphs::draw_graphs_overlay(fullscreen, &state.graphs, &mut state.graphs_tab);
+        }
         // Scoreboard panel: shown after episodes only when toggle is ON
         if state.scoreboard_pending && state.show_scoreboard_panel {
             let fullscreen = Rect { x: 0.0, y: 0.0, w, h };

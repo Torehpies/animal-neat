@@ -29,6 +29,25 @@ pub struct Trends {
 }
 impl Trends { pub fn new() -> Self { Self::default() } pub fn reset_episode(&mut self) { self.pop.clear(); self.species.clear(); self.births.clear(); self.deaths.clear(); } }
 
+// Tabs for the graphs overlay
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum GraphTab {
+    Population,
+    Fitness,
+    BirthsDeaths,
+    Intelligence,
+}
+impl GraphTab { pub fn all() -> &'static [GraphTab] { &[GraphTab::Population, GraphTab::Fitness, GraphTab::BirthsDeaths, GraphTab::Intelligence] }
+    pub fn label(&self) -> &'static str {
+        match self {
+            GraphTab::Population => "Population",
+            GraphTab::Fitness => "Fitness",
+            GraphTab::BirthsDeaths => "Births/Deaths",
+            GraphTab::Intelligence => "Intelligence",
+        }
+    }
+}
+
 fn draw_axes(area: Rect) {
     let g = Color::new(1.0, 1.0, 1.0, 0.08);
     for i in 0..=4 { let y = area.y + area.h * (i as f32) / 4.0; draw_line(area.x, y, area.x + area.w, y, 1.0, g); }
@@ -127,4 +146,123 @@ pub fn draw_graphs_panel(area: Rect, trends: &Trends) {
     let mut _ly4 = a4.y + 30.0;
     _ly4 = legend_entry(a4.x + 6.0, _ly4, "Best (proxy)", Color::new(0.5, 0.9, 1.0, 0.95));
     _ly4 = legend_entry(a4.x + 6.0, _ly4, "Mean (proxy)", Color::new(0.7, 0.8, 1.0, 0.9));
+}
+
+// Draw a full-area population panel (time-series of population & species)
+fn draw_population_panel(area: Rect, trends: &Trends) {
+    draw_axes(area);
+    draw_line_series(area, &trends.pop, Color::new(0.3, 0.7, 1.0, 0.95));
+    draw_line_series(area, &trends.species, Color::new(0.9, 0.7, 0.3, 0.95));
+    draw_text("Population / Species (per-episode)", area.x + 6.0, area.y + 18.0, 16.0, LIGHTGRAY);
+    let mut ly = area.y + 36.0;
+    fn legend_entry(x: f32, y: f32, text: &str, col: Color) -> f32 {
+        let box_w = 12.0; let box_h = 8.0;
+        draw_rectangle(x, y - box_h + 3.0, box_w, box_h, col);
+        draw_text(text, x + box_w + 6.0, y + 3.0, 14.0, LIGHTGRAY);
+        y + 16.0
+    }
+    ly = legend_entry(area.x + 6.0, ly, "Population", Color::new(0.3, 0.7, 1.0, 0.95));
+    ly = legend_entry(area.x + 6.0, ly, "Species", Color::new(0.9, 0.7, 0.3, 0.95));
+}
+
+fn draw_fitness_panel(area: Rect, trends: &Trends) {
+    draw_axes(area);
+    draw_line_series(area, &trends.best, Color::new(0.6, 1.0, 0.6, 0.95));
+    draw_line_series(area, &trends.mean, Color::new(0.8, 0.8, 0.9, 0.95));
+    draw_text("Fitness (best / mean across runs)", area.x + 6.0, area.y + 18.0, 16.0, LIGHTGRAY);
+    let mut ly = area.y + 36.0;
+    fn legend_entry(x: f32, y: f32, text: &str, col: Color) -> f32 {
+        let box_w = 12.0; let box_h = 8.0;
+        draw_rectangle(x, y - box_h + 3.0, box_w, box_h, col);
+        draw_text(text, x + box_w + 6.0, y + 3.0, 14.0, LIGHTGRAY);
+        y + 16.0
+    }
+    ly = legend_entry(area.x + 6.0, ly, "Best", Color::new(0.6, 1.0, 0.6, 0.95));
+    ly = legend_entry(area.x + 6.0, ly, "Mean", Color::new(0.8, 0.8, 0.9, 0.95));
+}
+
+fn draw_births_deaths_panel(area: Rect, trends: &Trends) {
+    draw_axes(area);
+    draw_line_series(area, &trends.births, Color::new(0.6, 0.9, 0.6, 0.95));
+    draw_line_series(area, &trends.deaths, Color::new(0.95, 0.5, 0.5, 0.95));
+    draw_text("Births / Deaths (per-episode)", area.x + 6.0, area.y + 18.0, 16.0, LIGHTGRAY);
+    let mut ly = area.y + 36.0;
+    fn legend_entry(x: f32, y: f32, text: &str, col: Color) -> f32 {
+        let box_w = 12.0; let box_h = 8.0;
+        draw_rectangle(x, y - box_h + 3.0, box_w, box_h, col);
+        draw_text(text, x + box_w + 6.0, y + 3.0, 14.0, LIGHTGRAY);
+        y + 16.0
+    }
+    ly = legend_entry(area.x + 6.0, ly, "Births", Color::new(0.6, 0.9, 0.6, 0.95));
+    ly = legend_entry(area.x + 6.0, ly, "Deaths", Color::new(0.95, 0.5, 0.5, 0.95));
+}
+
+fn draw_intelligence_panel(area: Rect, trends: &Trends) {
+    draw_axes(area);
+    draw_line_series(area, &trends.intel_best, Color::new(0.5, 0.9, 1.0, 0.95));
+    draw_line_series(area, &trends.intel_mean, Color::new(0.7, 0.8, 1.0, 0.95));
+    draw_text("Intelligence proxy (best / mean)", area.x + 6.0, area.y + 18.0, 16.0, LIGHTGRAY);
+    let mut ly = area.y + 36.0;
+    fn legend_entry(x: f32, y: f32, text: &str, col: Color) -> f32 {
+        let box_w = 12.0; let box_h = 8.0;
+        draw_rectangle(x, y - box_h + 3.0, box_w, box_h, col);
+        draw_text(text, x + box_w + 6.0, y + 3.0, 14.0, LIGHTGRAY);
+        y + 16.0
+    }
+    ly = legend_entry(area.x + 6.0, ly, "Best (proxy)", Color::new(0.5, 0.9, 1.0, 0.95));
+    ly = legend_entry(area.x + 6.0, ly, "Mean (proxy)", Color::new(0.7, 0.8, 1.0, 0.95));
+}
+
+/// Draw a modal/fullscreen overlay with the graphs panel centered and a dim background.
+pub fn draw_graphs_overlay(fullscreen: Rect, trends: &Trends, active_tab: &mut GraphTab) {
+    // Dim background
+    draw_rectangle(fullscreen.x, fullscreen.y, fullscreen.w, fullscreen.h, Color::new(0.0, 0.0, 0.0, 0.6));
+    // Panel size relative to screen
+    let panel_w = (fullscreen.w * 0.68).clamp(640.0f32, fullscreen.w - 80.0f32);
+    let panel_h = (fullscreen.h * 0.72).clamp(420.0f32, fullscreen.h - 120.0f32);
+    let panel_x = fullscreen.x + (fullscreen.w - panel_w) * 0.5;
+    let panel_y = fullscreen.y + (fullscreen.h - panel_h) * 0.5;
+    let area = Rect { x: panel_x, y: panel_y, w: panel_w, h: panel_h };
+    // Panel frame
+    draw_panel(area, SUBPANEL_BG, PANEL_BORDER, 2.0);
+    let inner = Rect { x: area.x + PAD*0.5, y: area.y + PAD*0.5, w: area.w - PAD, h: area.h - PAD };
+
+    // Draw tab bar
+    let tabs = [GraphTab::Population, GraphTab::Fitness, GraphTab::BirthsDeaths, GraphTab::Intelligence];
+    let tab_h = 36.0f32;
+    let tab_y = inner.y;
+    let tab_w = inner.w / tabs.len() as f32;
+    let (mx, my) = mouse_position();
+    let mouse = Vec2::new(mx, my);
+    for (i, t) in tabs.iter().enumerate() {
+        let tx = inner.x + i as f32 * tab_w;
+        let tr = Rect { x: tx, y: tab_y, w: tab_w, h: tab_h };
+        // Background for active/hover
+        let is_active = *active_tab == *t;
+        let hover = mouse.x >= tr.x && mouse.x <= tr.x + tr.w && mouse.y >= tr.y && mouse.y <= tr.y + tr.h;
+        let bg = if is_active { Color::new(0.2, 0.25, 0.3, 0.95) } else if hover { Color::new(0.12, 0.12, 0.12, 0.7) } else { Color::new(0.08, 0.08, 0.08, 0.55) };
+        draw_rectangle(tr.x, tr.y, tr.w, tr.h, bg);
+        // Label
+        let label = t.label();
+        let tw = measure_text(label, None, 16u16, 1.0).width;
+        draw_text(label, tr.x + (tr.w - tw) * 0.5, tr.y + tr.h * 0.66, 16.0, LIGHTGRAY);
+        // Click
+        if is_mouse_button_pressed(MouseButton::Left) && hover {
+            *active_tab = *t;
+        }
+    }
+
+    // Content area below tabs
+    let content = Rect { x: inner.x, y: inner.y + tab_h + GAP, w: inner.w, h: inner.h - tab_h - GAP };
+    // Render selected tab into content
+    match active_tab {
+        GraphTab::Population => draw_population_panel(content, trends),
+        GraphTab::Fitness => draw_fitness_panel(content, trends),
+        GraphTab::BirthsDeaths => draw_births_deaths_panel(content, trends),
+        GraphTab::Intelligence => draw_intelligence_panel(content, trends),
+    }
+    // Close hint
+    let hint = "[Z] Close";
+    let hw = measure_text(hint, None, 16u16, 1.0).width;
+    draw_text(hint, fullscreen.x + fullscreen.w - hw - 20.0, fullscreen.y + fullscreen.h - 18.0, 16.0, LIGHTGRAY);
 }
