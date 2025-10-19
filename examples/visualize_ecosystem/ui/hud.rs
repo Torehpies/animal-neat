@@ -308,4 +308,20 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: bool, fast_mode: bool
         draw_text(msg, tx + pad, ty + fs + (th - fs) * 0.5 - 6.0, fs, WHITE);
         if *secs <= 0.0 { state.hud_toast = None; }
     }
+
+    // If paused, draw a centered semi-transparent overlay with "Paused"
+    if !running {
+        let w = screen_width();
+        let h = screen_height();
+        // dim the world a bit
+        draw_rectangle(0.0, 0.0, w, h, Color::new(0.0, 0.0, 0.0, 0.42));
+        // big centered text
+        let fs = 64.0;
+        let label = "Paused";
+        let dims = measure_text(label, None, fs as u16, 1.0);
+        let tx = (w - dims.width) * 0.5;
+        // y coordinate for draw_text is baseline, so center vertically roughly by adding half font size
+        let ty = (h * 0.5) + (fs * 0.5);
+        draw_text(label, tx, ty, fs, WHITE);
+    }
 }
