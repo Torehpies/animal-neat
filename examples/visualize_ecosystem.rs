@@ -823,7 +823,14 @@ async fn main() {
         // Draw graphs overlay on top of HUD/world when enabled
         if state.show_graphs_overlay {
             let fullscreen = Rect { x: 0.0, y: 0.0, w, h };
-            ui_graphs::draw_graphs_overlay(fullscreen, &state.graphs, &mut state.graphs_tab);
+            // Compute current herbivore/carnivore counts for the pie chart
+            let mut herb = 0usize; let mut carn = 0usize;
+            for a in &state.episode.agents {
+                if a.energy > 0.0 && a.health > crate::params::DEATH_HEALTH_THRESHOLD && !a.consumed {
+                    match a.kind { crate::sim::AgentKind::Herbivore => herb += 1, crate::sim::AgentKind::Carnivore => carn += 1 }
+                }
+            }
+            ui_graphs::draw_graphs_overlay(fullscreen, &state.graphs, &mut state.graphs_tab, (herb, carn));
         }
         // Scoreboard panel: shown after episodes only when toggle is ON
         if state.scoreboard_pending && state.show_scoreboard_panel {

@@ -1,4 +1,6 @@
 use macroquad::prelude::*;
+use plotters::prelude::{BitMapBackend, DrawingArea, IntoDrawingArea, Polygon, ShapeStyle, Circle, RGBColor};
+use plotters::style::{IntoFont};
 use crate::ui_common::{draw_panel, PAD, GAP, PANEL_BORDER, SUBPANEL_BG};
 
 // Episode-length time series (grow for entire episode, then reset)
@@ -149,20 +151,83 @@ pub fn draw_graphs_panel(area: Rect, trends: &Trends) {
 }
 
 // Draw a full-area population panel (time-series of population & species)
-fn draw_population_panel(area: Rect, trends: &Trends) {
-    draw_axes(area);
-    draw_line_series(area, &trends.pop, Color::new(0.3, 0.7, 1.0, 0.95));
-    draw_line_series(area, &trends.species, Color::new(0.9, 0.7, 0.3, 0.95));
-    draw_text("Population / Species (per-episode)", area.x + 6.0, area.y + 18.0, 16.0, LIGHTGRAY);
-    let mut ly = area.y + 36.0;
-    fn legend_entry(x: f32, y: f32, text: &str, col: Color) -> f32 {
-        let box_w = 12.0; let box_h = 8.0;
-        draw_rectangle(x, y - box_h + 3.0, box_w, box_h, col);
-        draw_text(text, x + box_w + 6.0, y + 3.0, 14.0, LIGHTGRAY);
-        y + 16.0
+fn draw_population_panel_pie(area: Rect, herb_count: usize, carn_count: usize) {
+    // Determine square render size for the pie texture
+    let render_side = area.w.min(area.h).clamp(160.0, 512.0) as u32;
+    let mut rgb = vec![0u8; (render_side * render_side * 3) as usize];
+    // Draw pie with plotters into RGB buffer
+    {
+        let root: DrawingArea<BitMapBackend<'_>, plotters::coord::Shift> = BitMapBackend::with_buffer(&mut rgb, (render_side, render_side)).into_drawing_area();
+        let bg = RGBColor(22, 22, 28);
+        let _ = root.fill(&bg);
+        let total = herb_count + carn_count;
+        let cx = (render_side as i32) / 2;
+        let cy = (render_side as i32) / 2;
+        let radius = ((render_side as f32) * 0.45) as i32;
+
+        // Helper to draw a filled wedge as a polygon
+        fn draw_wedge(area: &DrawingArea<BitMapBackend<'_>, plotters::coord::Shift>,
+                      cx: i32, cy: i32, r: i32,
+                      start: f32, sweep: f32, color: RGBColor) {
+            let segments = (sweep.abs() / std::f32::consts::PI * 64.0).ceil().max(8.0) as i32;
+            let mut pts: Vec<(i32, i32)> = Vec::with_capacity((segments + 2) as usize);
+            pts.push((cx, cy));
+            for i in 0..=segments {
+                let t = start + sweep * (i as f32 / segments as f32);
+                let x = cx as f32 + r as f32 * t.cos();
+                let y = cy as f32 + r as f32 * t.sin();
+                pts.push((x.round() as i32, y.round() as i32));
+            }
+            let style = ShapeStyle::from(&color).filled();
+            let _ = area.draw(&Polygon::new(pts, style.clone()));
+        }
+
+        if total > 0 {
+            let herb_angle = 2.0f32 * std::f32::consts::PI * (herb_count as f32) / (total as f32);
+            let start = -std::f32::consts::FRAC_PI_2; // start at top
+            // Colors roughly match HUD theme
+            let herb_col = RGBColor(80, 200, 120);
+            let carn_col = RGBColor(220, 90, 90);
+            draw_wedge(&root, cx, cy, radius, start, herb_angle, herb_col);
+            draw_wedge(&root, cx, cy, radius, start + herb_angle, 2.0 * std::f32::consts::PI - herb_angle, carn_col);
+            // Outline circle
+            let _ = root.draw(&Circle::new((cx, cy), radius, ShapeStyle::from(&RGBColor(200,200,210)).stroke_width(1)));
+        } else {
+            // Empty ring to indicate zero population
+            let _ = root.draw(&Circle::new((cx, cy), radius, ShapeStyle::from(&RGBColor(120,120,130)).stroke_width(1)));
+        }
+
+        // Labels
+        let label_style = ("sans-serif", 16).into_font().color(&RGBColor(235,235,245));
+        let txt = format!("Herbivores: {}", herb_count);
+        let _ = root.draw(&plotters::prelude::Text::new(txt, (10, 24), label_style.clone()));
+        let txt2 = format!("Carnivores: {}", carn_count);
+        let _ = root.draw(&plotters::prelude::Text::new(txt2, (10, 48), label_style));
     }
-    ly = legend_entry(area.x + 6.0, ly, "Population", Color::new(0.3, 0.7, 1.0, 0.95));
-    ly = legend_entry(area.x + 6.0, ly, "Species", Color::new(0.9, 0.7, 0.3, 0.95));
+
+    // Convert RGB buffer to RGBA for macroquad
+    let mut rgba = vec![0u8; (render_side * render_side * 4) as usize];
+    for i in 0..(render_side * render_side) as usize {
+        rgba[i * 4] = rgb[i * 3];
+        rgba[i * 4 + 1] = rgb[i * 3 + 1];
+        rgba[i * 4 + 2] = rgb[i * 3 + 2];
+        rgba[i * 4 + 3] = 255;
+    }
+    let tex = Texture2D::from_rgba8(render_side as u16, render_side as u16, &rgba);
+
+    // Draw texture centered in area
+    let scale = (area.w.min(area.h)) / (render_side as f32);
+    let draw_w = (render_side as f32) * scale;
+    let draw_h = (render_side as f32) * scale;
+    let dx = area.x + (area.w - draw_w) * 0.5;
+    let dy = area.y + (area.h - draw_h) * 0.5;
+    draw_texture_ex(
+        &tex,
+        dx,
+        dy,
+        WHITE,
+        DrawTextureParams { dest_size: Some(Vec2::new(draw_w, draw_h)), ..Default::default() },
+    );
 }
 
 fn draw_fitness_panel(area: Rect, trends: &Trends) {
@@ -214,7 +279,7 @@ fn draw_intelligence_panel(area: Rect, trends: &Trends) {
 }
 
 /// Draw a modal/fullscreen overlay with the graphs panel centered and a dim background.
-pub fn draw_graphs_overlay(fullscreen: Rect, trends: &Trends, active_tab: &mut GraphTab) {
+pub fn draw_graphs_overlay(fullscreen: Rect, trends: &Trends, active_tab: &mut GraphTab, herb_carn_counts: (usize, usize)) {
     // Dim background
     draw_rectangle(fullscreen.x, fullscreen.y, fullscreen.w, fullscreen.h, Color::new(0.0, 0.0, 0.0, 0.6));
     // Panel size relative to screen
@@ -256,7 +321,9 @@ pub fn draw_graphs_overlay(fullscreen: Rect, trends: &Trends, active_tab: &mut G
     let content = Rect { x: inner.x, y: inner.y + tab_h + GAP, w: inner.w, h: inner.h - tab_h - GAP };
     // Render selected tab into content
     match active_tab {
-        GraphTab::Population => draw_population_panel(content, trends),
+        GraphTab::Population => {
+            draw_population_panel_pie(content, herb_carn_counts.0, herb_carn_counts.1)
+        },
         GraphTab::Fitness => draw_fitness_panel(content, trends),
         GraphTab::BirthsDeaths => draw_births_deaths_panel(content, trends),
         GraphTab::Intelligence => draw_intelligence_panel(content, trends),
