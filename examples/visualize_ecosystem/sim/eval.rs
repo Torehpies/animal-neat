@@ -9,8 +9,6 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
     let mut rng = ::rand::rng();
     let mut food = world::build_world(&mut rng);
     let mut food_lifetime = world::init_food_lifetimes(&food, &mut rng);
-    // Only two ecological species: Herbivore (0) and Carnivore (1)
-    let species_map: Vec<usize> = (0..population.len()).map(|i| if i % 2 == 0 { 0 } else { 1 }).collect();
     let mut agents: Vec<Agent> = population.iter().enumerate().map(|(i, _)| Agent {
         id: AgentId(i),
         kind: if i % 2 == 0 { AgentKind::Herbivore } else { AgentKind::Carnivore },
@@ -70,7 +68,6 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             &mut food,
             &mut food_lifetime,
             &mut agents,
-            &species_map,
             Some(&mut visited),
             &mut signals,
             &mut comm_fit,

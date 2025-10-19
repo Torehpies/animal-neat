@@ -36,7 +36,6 @@ impl StepDelta {
 // Advance the world by a single step for both headless eval and live episode.
 // - population: genomes aligned with agents
 // - food/agents: mutated in-place
-// - species_ids: per-agent species index for same/other pooling distinctions
 // - visited: optional exploration tracking (eval only)
 // - comm_signals/comm_fit: shared communication state and rewards
 // - first_eat_step: optional hook to record first plant eat time (live only)
@@ -45,7 +44,6 @@ pub fn tick_step<R: Rng>(
     food: &mut Vec<Vec2>,
     food_lifetime: &mut Vec<usize>,
     agents: &mut [Agent],
-    species_ids: &[usize],
     mut visited: Option<&mut [HashSet<u32>]>,
     comm_signals: &mut Vec<CommSignal>,
     comm_fit: &mut [f32],
@@ -64,10 +62,12 @@ pub fn tick_step<R: Rng>(
     //       of these (e.g., collision-free movement) in a second parallel pass if profiling shows Phase 2 dominating.
     // The snapshot & age_snapshot are built once before Phase 1 so both phases have a consistent view of other agents.
     // Build snapshot for predation/scavenge decisions
-    let snapshot: Vec<(Vec2, bool, bool, usize, bool)> = agents.iter().enumerate().map(|(i,a)| {
+    // Tuple: (pos, is_alive, is_consumed, kind_id, is_corpse)
+    let snapshot: Vec<(Vec2, bool, bool, usize, bool)> = agents.iter().map(|a| {
         let alive = a.energy > 0.0 && a.health > DEATH_HEALTH_THRESHOLD;
         let is_corpse = !alive && !a.consumed && a.corpse_energy > 0.1;
-        (a.body.pos, alive, a.consumed, *species_ids.get(i).unwrap_or(&0), is_corpse)
+        let kind_id: usize = match a.kind { AgentKind::Herbivore => 0, AgentKind::Carnivore => 1 };
+        (a.body.pos, alive, a.consumed, kind_id, is_corpse)
     }).collect();
     // Age snapshot previously used for newborn grace; no longer needed
 
@@ -83,7 +83,7 @@ pub fn tick_step<R: Rng>(
     let (cur_fx, cur_fy) = sensing::food_vector_from_rays(a.body.pos, a.theta, food);
     let kind_for_inputs = match a.kind { AgentKind::Herbivore => crate::params::Kind::Herb, AgentKind::Carnivore => crate::params::Kind::Carn };
     let energy_in = (a.energy / crate::params::get_max_energy_for(kind_for_inputs)).clamp(0.0, 1.0);
-        let my_species = a.species_id;
+    let my_species: usize = match a.kind { AgentKind::Herbivore => 0, AgentKind::Carnivore => 1 };
         // Reuse agent's scratch input buffer in-place
     let mut scratch = [0.0f32; crate::params::INPUTS];
         // We can't mutably borrow agent inside map easily; copy inputs then reuse in Phase 2
@@ -279,19 +279,14 @@ pub fn tick_step<R: Rng>(
             let dir = intent.dir; let mut target: Option<usize> = None;
             let gx = (a.body.pos.x / cell_size).floor() as i32; let gy = (a.body.pos.y / cell_size).floor() as i32;
             let half_cone_cos = (VISION_ANGLE_DEG.to_radians() * 0.5).cos();
+            let my_kind_id: usize = match a.kind { AgentKind::Herbivore => 0, AgentKind::Carnivore => 1 };
             // Check surrounding 3x3 cells
             'outer: for oy in -1..=1 { for ox in -1..=1 { if let Some(bucket) = grid.get(&(gx+ox, gy+oy)) {
                 for &j in bucket { if j == i { continue; }
                     let (pos_j, alive_j, consumed_j, species_j, is_corpse_j) = snapshot[j]; if consumed_j { continue; }
-                    // Kinship protection: do not attack live targets that are same-species or genetically similar
+                    // Kinship protection: do not attack live targets that are same kind
                     if alive_j && PREDATION_ENABLED {
-                        let same_species = species_j == a.species_id;
-                        let mut similar = same_species;
-                        if !similar {
-                            let d = neat::neat::compatibility::distance(&population[i], &population[j], ECO_MATE_C1, ECO_MATE_C2, ECO_MATE_C3);
-                            if d <= ECO_MATE_COMPATIBILITY_THRESHOLD { similar = true; }
-                        }
-                        if similar { continue; }
+                        if species_j == my_kind_id { continue; }
                     }
                     if (alive_j && !PREDATION_ENABLED) || ((!alive_j || is_corpse_j) && !SCAVENGE_ENABLED) { continue; }
                     let dx = pos_j.x - a.body.pos.x; let dy = pos_j.y - a.body.pos.y; let dist2 = dx*dx + dy*dy; if dist2 > eat_collision_radius*eat_collision_radius { continue; }
@@ -302,7 +297,7 @@ pub fn tick_step<R: Rng>(
             } }}
             prey_targets[i] = target;
         }
-        // Herding: reward proximity to same-species peers (capped per step)
+        // Herding: reward proximity to same-kind peers (capped per step)
         if HERDING_ENABLED {
             let kind = match a.kind { AgentKind::Herbivore => crate::params::Kind::Herb, AgentKind::Carnivore => crate::params::Kind::Carn };
             if crate::params::get_fit_herding_weight(kind) != 0.0 {
@@ -313,7 +308,8 @@ pub fn tick_step<R: Rng>(
                     for &j in bucket {
                         if j == i { continue; }
                         let (_pos_j, alive_j, _consumed_j, species_j, _is_corpse_j) = snapshot[j];
-                        if !alive_j || species_j != a.species_id { continue; }
+                        let my_species: usize = match a.kind { AgentKind::Herbivore => 0, AgentKind::Carnivore => 1 };
+                        if !alive_j || species_j != my_species { continue; }
                         let dx = snapshot[j].0.x - a.body.pos.x; let dy = snapshot[j].0.y - a.body.pos.y;
                         if dx*dx + dy*dy <= HERDING_RADIUS*HERDING_RADIUS {
                             neighbors += 1;

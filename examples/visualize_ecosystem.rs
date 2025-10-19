@@ -1148,21 +1148,20 @@ fn spawn_offspring_if_needed<R: Rng>(
     }
 
     // Gather eligible parents (energy, cooldown, offspring cap, optional non-idle)
-    let threshold = ECO_BIRTH_ENERGY_THRESHOLD;
     let mut eligible: Vec<usize> = Vec::new();
     for &i in &live_indices {
         let a = &episode.agents[i];
         let non_idle_ok = if params::ECO_REQUIRE_NON_IDLE_FOR_BIRTH {
             a.body.vel.length() > 0.2 || a.idle_steps < IDLENESS_THRESHOLD_STEPS
         } else { true };
-        if a.repro_cooldown == 0 && a.offspring_count < ECO_MAX_OFFSPRING_PER_AGENT && a.energy >= threshold && non_idle_ok {
+        if a.repro_cooldown == 0 && a.offspring_count < ECO_MAX_OFFSPRING_PER_AGENT && non_idle_ok {
             eligible.push(i);
         }
     }
 
-    // Attempt to find nearby pairs among eligible agents. Allow cross-species mating if genomes are similar enough by NEAT distance.
+    // Attempt to find pairs among eligible agents. Only allow mating within the same kind (Herbivore/Carnivore).
     let cost = ECO_BIRTH_ENERGY_COST;
-    let mut births: Vec<(usize, usize, crate::body::Body, usize)> = Vec::new(); // (p1_idx, p2_idx, child_body, species_id_tag)
+    let mut births: Vec<(usize, usize, crate::body::Body)> = Vec::new(); // (p1_idx, p2_idx, child_body)
     let mut used: std::collections::HashSet<usize> = std::collections::HashSet::new();
     eligible.sort_unstable();
     'pairing: for (ii, &i) in eligible.iter().enumerate() {
@@ -1171,26 +1170,29 @@ fn spawn_offspring_if_needed<R: Rng>(
         for &j in eligible.iter().skip(ii+1) {
             if used.contains(&j) { continue; }
             let aj = &episode.agents[j];
-            // Proximity check
-            let dx = ai.body.pos.x - aj.body.pos.x; let dy = ai.body.pos.y - aj.body.pos.y;
-            if dx*dx + dy*dy > ECO_MATE_RADIUS*ECO_MATE_RADIUS { continue; }
-            // Similarity check: allow if same species OR compatibility distance <= threshold
-            let mut similar = ai.species_id == aj.species_id;
-            if !similar {
-                let d = neat::neat::compatibility::distance(&population[i], &population[j], ECO_MATE_C1, ECO_MATE_C2, ECO_MATE_C3);
-                if d <= ECO_MATE_COMPATIBILITY_THRESHOLD { similar = true; }
-            }
-            if !similar { continue; }
+            // Kind check: must be the same ecological kind
+            if ai.kind != aj.kind { continue; }
             // Energy cost feasibility
             let half = cost * 0.5; if ai.energy < half || aj.energy < half { continue; }
+            // Require agents to be touching (wrap-aware shortest distance)
+            let mut dx = ai.body.pos.x - aj.body.pos.x;
+            if dx.abs() > WORLD_W * 0.5 {
+                if dx > 0.0 { dx -= WORLD_W; } else { dx += WORLD_W; }
+            }
+            let mut dy = ai.body.pos.y - aj.body.pos.y;
+            if dy.abs() > WORLD_H * 0.5 {
+                if dy > 0.0 { dy -= WORLD_H; } else { dy += WORLD_H; }
+            }
+            let dist2 = dx*dx + dy*dy;
+            let touch_r = ai.body.radius + aj.body.radius;
+            if dist2 > touch_r * touch_r { continue; }
+
             // Child spawn near parents: midpoint with small jitter
             let mid = Vec2 { x: (ai.body.pos.x + aj.body.pos.x) * 0.5, y: (ai.body.pos.y + aj.body.pos.y) * 0.5 };
             let jitter = Vec2 { x: (rng.random::<f32>() - 0.5) * 3.0 * AGENT_RADIUS, y: (rng.random::<f32>() - 0.5) * 3.0 * AGENT_RADIUS };
             let mut pos = mid + jitter;
             pos.x = (pos.x % WORLD_W + WORLD_W) % WORLD_W; pos.y = (pos.y % WORLD_H + WORLD_H) % WORLD_H;
-            // Tag child with one parent's species id for in-episode kin behavior. We choose the first parent's species id.
-            let sid = ai.species_id;
-            births.push((i, j, crate::body::Body { pos, vel: Vec2::new(0.0, 0.0), radius: AGENT_COLLISION_RADIUS }, sid));
+            births.push((i, j, crate::body::Body { pos, vel: Vec2::new(0.0, 0.0), radius: AGENT_COLLISION_RADIUS }));
             used.insert(i); used.insert(j);
             if live_indices.len() + births.len() >= ECO_MAX_POP { break 'pairing; }
         }
@@ -1200,7 +1202,7 @@ fn spawn_offspring_if_needed<R: Rng>(
 
     // Realize births: create child via crossover + mutation; debit both parents; set cooldowns; append agent + genome
     let mut realized = 0usize;
-    for (i, j, body, sid) in births {
+    for (i, j, body) in births {
         // Double-check alignment: parents indices map to genome indices
         if i >= population.len() || j >= population.len() { continue; }
         let p1 = &population[i];
@@ -1210,13 +1212,12 @@ fn spawn_offspring_if_needed<R: Rng>(
         child_g.mutate(_innov, _cfg);
         population.push(child_g);
 
-        // let child_species = *member_species.get(population.len()-1).unwrap_or(&sid); // unused currently
-
         // Decide newborn kind: inherit if parents share kind, otherwise random choice
         let child_kind = {
             let ai_kind = episode.agents[i].kind;
             let aj_kind = episode.agents[j].kind;
-            if ai_kind == aj_kind { ai_kind } else { if rng.random::<f32>() < 0.5 { crate::sim::AgentKind::Herbivore } else { crate::sim::AgentKind::Carnivore } }
+            // Parents are required to be same kind; inherit directly
+            if ai_kind == aj_kind { ai_kind } else { ai_kind }
         };
         // Append newborn agent aligned with last genome
         let birth_pos = body.pos;  // Save position before moving body
@@ -1241,9 +1242,8 @@ fn spawn_offspring_if_needed<R: Rng>(
             last_danger_mem: Vec2 { x: 0.0, y: 0.0 },
             last_same_mem: Vec2 { x: 0.0, y: 0.0 },
             last_other_mem: Vec2 { x: 0.0, y: 0.0 },
-            // For live-episode behavior (predation/mating), tag newborn with the parents' species id
-            // to avoid immediate conspecific misclassification due to structural differences.
-            species_id: sid,
+            // For code paths that still read species_id, mirror kind: Herbivore=0, Carnivore=1
+            species_id: match child_kind { crate::sim::AgentKind::Herbivore => 0, crate::sim::AgentKind::Carnivore => 1 },
             age_steps: 0,
             call_intensity: 0.0,
             heard_sectors: [0.0;3],

@@ -92,15 +92,12 @@ impl Episode {
     }
     pub fn step<R: Rng>(&mut self, population: &[Genome], rng: &mut R) -> bool {
         if self.agents.iter().all(|a| a.energy <= 0.0 || a.health <= DEATH_HEALTH_THRESHOLD) { return false; }
-        // Build species ids snapshot (already stored on agent)
-        let species_ids: Vec<usize> = self.agents.iter().map(|a| a.species_id).collect();
         // Tick once using shared engine
         let stats: StepDelta = tick_step(
             population,
             &mut self.food,
             &mut self.food_lifetime,
             &mut self.agents,
-            &species_ids,
             None,
             &mut self.comm_signals,
             &mut self.comm_fitness_accum,
