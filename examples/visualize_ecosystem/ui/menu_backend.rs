@@ -112,6 +112,7 @@ pub struct MenuState {
     pub show_help: bool,
     pub help_scroll: f32,
     pub screen: MenuScreen,
+    pub show_advanced: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -170,6 +171,7 @@ impl MenuState {
             show_help: false,
             help_scroll: 0.0,
             screen: MenuScreen::Core,
+            show_advanced: false,
         }
     }
 }

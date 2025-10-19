@@ -155,8 +155,4 @@ impl ParticleSystem {
         self.pull_timer = 0.0;
     }
 
-    // Getter for direct access if needed
-    pub fn particles_mut(&mut self) -> &mut Vec<Particle> {
-        &mut self.particles
-    }
 }

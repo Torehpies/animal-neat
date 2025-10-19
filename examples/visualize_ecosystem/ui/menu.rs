@@ -91,9 +91,9 @@ fn field_step(field: EditField) -> f32 {
         EditField::PopSize | EditField::MaxFood => 10.0,
         EditField::Herbivores | EditField::Carnivores => 1.0,
         EditField::FoodRespawnRate => 0.0005,
-    EditField::EnergyDrainHerb | EditField::EnergyDrainCarn => 0.01,
+        EditField::EnergyDrainHerb | EditField::EnergyDrainCarn => 0.01,
         EditField::WorldWidth | EditField::WorldHeight => 25.0,
-    EditField::InitialEnergyHerb | EditField::MaxEnergyHerb | EditField::InitialEnergyCarn | EditField::MaxEnergyCarn => 25.0,
+        EditField::InitialEnergyHerb | EditField::MaxEnergyHerb | EditField::InitialEnergyCarn | EditField::MaxEnergyCarn => 25.0,
         // fitness weights: subtle nudge
         _ => 0.05,
     }
@@ -111,13 +111,13 @@ fn field_help(field: EditField) -> &'static str {
         EditField::Herbivores => "Number of herbivore agents to spawn at episode start.",
         EditField::Carnivores => "Number of carnivore agents to spawn at episode start.",
         EditField::MaxFood => "Maximum number of plants present at once.",
-    EditField::FoodRespawnRate => "Per-step probability a new plant appears (0.0001-0.1).",
-    EditField::InitialEnergyHerb => "Starting energy for herbivores.",
-    EditField::MaxEnergyHerb => "Energy cap for herbivores.",
-    EditField::EnergyDrainHerb => "Metabolism drain per step for herbivores.",
-    EditField::InitialEnergyCarn => "Starting energy for carnivores.",
-    EditField::MaxEnergyCarn => "Energy cap for carnivores.",
-    EditField::EnergyDrainCarn => "Metabolism drain per step for carnivores.",
+        EditField::FoodRespawnRate => "Per-step probability a new plant appears (0.0001-0.1).",
+        EditField::InitialEnergyHerb => "Starting energy for herbivores.",
+        EditField::MaxEnergyHerb => "Energy cap for herbivores.",
+        EditField::EnergyDrainHerb => "Metabolism drain per step for herbivores.",
+        EditField::InitialEnergyCarn => "Starting energy for carnivores.",
+        EditField::MaxEnergyCarn => "Energy cap for carnivores.",
+        EditField::EnergyDrainCarn => "Metabolism drain per step for carnivores.",
         EditField::WLifetimeHerb | EditField::WLifetimeCarn => "Fitness weight for survival/lifespan.",
         EditField::WEnergyHerb | EditField::WEnergyCarn => "Fitness weight for ending energy.",
         EditField::WOffspringHerb | EditField::WOffspringCarn => "Fitness reward for successful reproduction.",
@@ -128,7 +128,7 @@ fn field_help(field: EditField) -> &'static str {
         EditField::WAttacksHerb | EditField::WAttacksCarn => "Reward/pressure for initiating attacks.",
         EditField::WKillsHerb | EditField::WKillsCarn => "Reward for lethal predation.",
         EditField::WHerdHerb | EditField::WHerdCarn => "Herding/social proximity shaping weight.",
-    EditField::WApproachHerb => "Approach behavior shaping weight (Herbivore) — rewards closing on plants/carcasses while moving forward.",
+        EditField::WApproachHerb => "Approach behavior shaping weight (Herbivore) — rewards closing on plants/carcasses while moving forward.",
         EditField::WChaseHerb => "Chasing other-species shaping weight (Herbivore).",
         EditField::WChaseSameHerb => "Chasing conspecifics shaping weight (Herbivore).",
         EditField::WApproachCarn => "Approach behavior shaping weight (Carnivore).",
@@ -243,14 +243,35 @@ fn draw_field_row(
     tooltip
 }
 
-/// Draw the menu and handle input. Returns Some(config) when user confirms, None while still editing
+fn draw_button(
+    label: &str,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    ui_scale: f32,
+    font_sz: f32,
+) -> bool {
+    let (mx, my) = mouse_position();
+    let hover = mx >= x && mx <= x + w && my >= y && my <= y + h;
+    let bg_color = if hover { Color::new(0.35, 0.75, 0.95, 1.0) } else { Color::new(0.22, 0.55, 0.78, 1.0) };
+    
+    draw_rectangle(x, y, w, h, bg_color);
+    draw_rectangle_lines(x, y, w, h, 2.0 * ui_scale, WHITE);
+    let text_w = measure_text(label, None, font_sz as u16, 1.0).width;
+    draw_text(label, x + (w - text_w) / 2.0, y + 32.0 * ui_scale, font_sz, WHITE);
+    
+    hover && is_mouse_button_pressed(MouseButton::Left)
+}
+
+/// Draw the unified menu and handle input. Returns Some(config) when user confirms, None while still editing
 pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
     clear_background(Color::new(0.05, 0.05, 0.08, 1.0));
     
     let w = screen_width();
     let h = screen_height();
     let panel_w = (w * 0.65).clamp(700.0, 1000.0);
-    let panel_h = (h * 0.8).clamp(720.0, 1000.0);
+    let panel_h = (h * 0.8).clamp(800.0, 1200.0); // increased min height for new layout
     let panel_x = (w - panel_w) / 2.0;
     let panel_y = (h - panel_h) / 2.0;
     
@@ -258,19 +279,15 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
     draw_rectangle(panel_x, panel_y, panel_w, panel_h, Color::new(0.12, 0.12, 0.15, 1.0));
     draw_rectangle_lines(panel_x, panel_y, panel_w, panel_h, 3.0, Color::new(0.3, 0.6, 0.8, 1.0));
     
-    // Responsive sizing: compute scale based on panel width and height
-    let base_panel_w = 900.0; // reference width used by original sizes
-    let base_panel_h = 800.0; // reference height
+    // Responsive sizing
+    let base_panel_w = 900.0;
+    let base_panel_h = 1000.0;
     let ui_scale_w = panel_w / base_panel_w;
     let ui_scale_h = panel_h / base_panel_h;
-    // pick a conservative scale so things don't get too big
     let ui_scale = ui_scale_w.min(ui_scale_h).clamp(0.6, 1.6);
 
     // If help overlay is open, draw it and swallow clicks to close, then early-return
     if state.show_help {
-        let ui_scale_w = panel_w / 900.0;
-        let ui_scale_h = panel_h / 800.0;
-        let ui_scale = ui_scale_w.min(ui_scale_h).clamp(0.6, 1.6);
         draw_help_overlay(panel_x, panel_y, panel_w, panel_h, ui_scale);
         if is_mouse_button_pressed(MouseButton::Left) {
             state.show_help = false;
@@ -316,7 +333,6 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
     draw_text("?", hb_x + (help_size - q_w) / 2.0, hb_y + help_size - 8.0 * ui_scale, q_sz, WHITE);
     if over_help && is_mouse_button_pressed(MouseButton::Left) {
         state.show_help = true;
-        // prevent other click handlers from firing this frame by returning
         return None;
     }
     y += line_h + 6.0;
@@ -332,121 +348,158 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
     // Collect tooltips to render on top at end
     let mut deferred_tooltips: Vec<(String, f32, f32)> = Vec::new();
 
-    // Switch between Core screen and Fitness screen for more space
-    if state.screen == MenuScreen::Core {
-        // Core parameters header with a subtle subpanel outline
-        let core_header_y = y;
-        draw_text("Core Parameters", x, core_header_y, label_size, LIGHTGRAY);
-        y = core_header_y + line_h;
+    // === CORE PARAMETERS ===
+    let core_header_y = y;
+    draw_text("Core Parameters", x, core_header_y, label_size, LIGHTGRAY);
+    y = core_header_y + line_h;
 
-        // Two-column layout for core parameters
-        let inner_w = panel_w - 2.0 * padding;
-        // Responsive columns: if the inner width is too small, use single column
-        let single_column = inner_w < 520.0 * ui_scale;
-        let field_x1 = x + 20.0 * ui_scale;
-        let value_x1 = field_x1 + 180.0 * ui_scale;
-        let field_x2 = if single_column { field_x1 } else { x + inner_w * 0.52 };
-        let value_x2 = field_x2 + 180.0 * ui_scale;
+    // Two-column layout for core parameters
+    let inner_w = panel_w - 2.0 * padding;
+    let single_column = inner_w < 520.0 * ui_scale;
+    let field_x1 = x + 20.0 * ui_scale;
+    let value_x1 = field_x1 + 180.0 * ui_scale;
+    let field_x2 = if single_column { field_x1 } else { x + inner_w * 0.52 };
+    let value_x2 = field_x2 + 180.0 * ui_scale;
 
-        let mut y1 = y;
-        let mut y2 = y;
+    let mut y1 = y;
+    let mut y2 = y;
 
-        // Left column
-        if let Some(t) = draw_field_row(state, "World Width", EditField::WorldWidth, format!("{:.0}", state.config.world_width), state.config.world_width, field_x1, value_x1, &mut y1, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        if let Some(t) = draw_field_row(state, "World Height", EditField::WorldHeight, format!("{:.0}", state.config.world_height), state.config.world_height, field_x1, value_x1, &mut y1, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+    // Left column
+    if let Some(t) = draw_field_row(state, "World Width", EditField::WorldWidth, format!("{:.0}", state.config.world_width), state.config.world_width, field_x1, value_x1, &mut y1, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+    if let Some(t) = draw_field_row(state, "World Height", EditField::WorldHeight, format!("{:.0}", state.config.world_height), state.config.world_height, field_x1, value_x1, &mut y1, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
 
-        // Right column
-        if let Some(t) = draw_field_row(state, "Max Food", EditField::MaxFood, format!("{}", state.config.max_food), state.config.max_food as f32, field_x2, value_x2, &mut y2, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        if let Some(t) = draw_field_row(state, "Spawn Rate", EditField::FoodRespawnRate, format!("{:.4}", state.config.food_respawn_prob), state.config.food_respawn_prob, field_x2, value_x2, &mut y2, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+    // Right column
+    if let Some(t) = draw_field_row(state, "Max Food", EditField::MaxFood, format!("{}", state.config.max_food), state.config.max_food as f32, field_x2, value_x2, &mut y2, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+    if let Some(t) = draw_field_row(state, "Spawn Rate", EditField::FoodRespawnRate, format!("{:.4}", state.config.food_respawn_prob), state.config.food_respawn_prob, field_x2, value_x2, &mut y2, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
 
-        // Core subpanel outline bounds (from header to last field)
-        let core_top = core_header_y - 6.0;
-        let core_bottom = y1.max(y2);
-        let core_h = (core_bottom - core_top) + 12.0;
-        let core_panel_x = x - 14.0;
-        let core_panel_w = (panel_w - 2.0 * padding) + 28.0;
-        draw_rectangle_lines(core_panel_x, core_top, core_panel_w, core_h, 1.0, Color::new(0.3, 0.6, 0.8, 0.35));
+    // Core subpanel outline
+    let core_top = core_header_y - 6.0;
+    let core_bottom = y1.max(y2);
+    let core_h = (core_bottom - core_top) + 12.0;
+    let core_panel_x = x - 14.0;
+    let core_panel_w = (panel_w - 2.0 * padding) + 28.0;
+    draw_rectangle_lines(core_panel_x, core_top, core_panel_w, core_h, 1.0, Color::new(0.3, 0.6, 0.8, 0.35));
 
-        y = y1.max(y2) + 28.0;
-    } else {
-        // Fitness Weights sections side-by-side: Herbivore (left), Carnivore (right), each single column
-        let sections_gap = 24.0 * ui_scale;
-        let inner_w = panel_w - 2.0 * padding;
-        let sec_w = (inner_w - sections_gap).max(0.0) * 0.5;
+    y = y1.max(y2) + 28.0;
 
-        // Left section (Herbivore)
-        let herb_x = x;
-        let herb_label_x = herb_x + 20.0 * ui_scale;
-        let herb_value_x = herb_label_x + 160.0 * ui_scale;
-        let herb_header_y = y;
-        draw_text("Fitness Weights (Herbivore)", herb_x, herb_header_y, label_size, LIGHTGRAY);
-        let mut yh = herb_header_y + line_h;
-        // Herbivore-specific population and energy controls at top
-        if let Some(t) = draw_field_row(state, "Herbivores", EditField::Herbivores, format!("{}", state.config.herbivore_count), state.config.herbivore_count as f32, herb_label_x, herb_value_x, &mut yh, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        if let Some(t) = draw_field_row(state, "Init Energy (Herb)", EditField::InitialEnergyHerb, format!("{:.1}", state.config.initial_energy_herb), state.config.initial_energy_herb, herb_label_x, herb_value_x, &mut yh, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        if let Some(t) = draw_field_row(state, "Max Energy (Herb)", EditField::MaxEnergyHerb, format!("{:.1}", state.config.max_energy_herb), state.config.max_energy_herb, herb_label_x, herb_value_x, &mut yh, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        if let Some(t) = draw_field_row(state, "Drain/Step (Herb)", EditField::EnergyDrainHerb, format!("{:.3}", state.config.energy_drain_per_step_herb), state.config.energy_drain_per_step_herb, herb_label_x, herb_value_x, &mut yh, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        // Herbivore fitness weights (single column)
-        if let Some(t) = draw_field_row(state, "Lifetime (Herb)", EditField::WLifetimeHerb, format!("{:.3}", state.config.w_lifetime_herb), state.config.w_lifetime_herb, herb_label_x, herb_value_x, &mut yh, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        if let Some(t) = draw_field_row(state, "Energy (Herb)", EditField::WEnergyHerb, format!("{:.3}", state.config.w_energy_herb), state.config.w_energy_herb, herb_label_x, herb_value_x, &mut yh, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        if let Some(t) = draw_field_row(state, "Offspring (Herb)", EditField::WOffspringHerb, format!("{:.3}", state.config.w_offspring_herb), state.config.w_offspring_herb, herb_label_x, herb_value_x, &mut yh, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        if let Some(t) = draw_field_row(state, "Comm (Herb)", EditField::WCommHerb, format!("{:.3}", state.config.w_comm_herb), state.config.w_comm_herb, herb_label_x, herb_value_x, &mut yh, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        if let Some(t) = draw_field_row(state, "Idle Penalty (Herb)", EditField::WIdleHerb, format!("{:.3}", state.config.w_idle_penalty_herb), state.config.w_idle_penalty_herb, herb_label_x, herb_value_x, &mut yh, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        if let Some(t) = draw_field_row(state, "Plants (Herb)", EditField::WPlantHerb, format!("{:.3}", state.config.w_plant_herb), state.config.w_plant_herb, herb_label_x, herb_value_x, &mut yh, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        if let Some(t) = draw_field_row(state, "Meat (Herb)", EditField::WMeatHerb, format!("{:.3}", state.config.w_meat_herb), state.config.w_meat_herb, herb_label_x, herb_value_x, &mut yh, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        if let Some(t) = draw_field_row(state, "Attacks (Herb)", EditField::WAttacksHerb, format!("{:.3}", state.config.w_attacks_herb), state.config.w_attacks_herb, herb_label_x, herb_value_x, &mut yh, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        if let Some(t) = draw_field_row(state, "Kills (Herb)", EditField::WKillsHerb, format!("{:.3}", state.config.w_kills_herb), state.config.w_kills_herb, herb_label_x, herb_value_x, &mut yh, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        if let Some(t) = draw_field_row(state, "Herding (Herb)", EditField::WHerdHerb, format!("{:.3}", state.config.w_herding_herb), state.config.w_herding_herb, herb_label_x, herb_value_x, &mut yh, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        if let Some(t) = draw_field_row(state, "Approach (Herb)", EditField::WApproachHerb, format!("{:.3}", state.config.w_approach_herb), state.config.w_approach_herb, herb_label_x, herb_value_x, &mut yh, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        if let Some(t) = draw_field_row(state, "Chase Other (Herb)", EditField::WChaseHerb, format!("{:.3}", state.config.w_chase_herb), state.config.w_chase_herb, herb_label_x, herb_value_x, &mut yh, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        if let Some(t) = draw_field_row(state, "Chase Same (Herb)", EditField::WChaseSameHerb, format!("{:.3}", state.config.w_chase_same_herb), state.config.w_chase_same_herb, herb_label_x, herb_value_x, &mut yh, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+    // === POPULATION & ENERGY (Two columns: Herbivore, Carnivore) ===
+    let sections_gap = 24.0 * ui_scale;
+    let sec_w = (inner_w - sections_gap).max(0.0) * 0.5;
 
-        // Right section (Carnivore)
-        let carn_x = x + sec_w + sections_gap;
-        let carn_label_x = carn_x + 20.0 * ui_scale;
-        let carn_value_x = carn_label_x + 160.0 * ui_scale;
-        let carn_header_y = y;
-        draw_text("Fitness Weights (Carnivore)", carn_x, carn_header_y, label_size, LIGHTGRAY);
-        let mut yc = carn_header_y + line_h;
-        // Carnivore-specific population and energy controls at top
-        if let Some(t) = draw_field_row(state, "Carnivores", EditField::Carnivores, format!("{}", state.config.carnivore_count), state.config.carnivore_count as f32, carn_label_x, carn_value_x, &mut yc, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        if let Some(t) = draw_field_row(state, "Init Energy (Carn)", EditField::InitialEnergyCarn, format!("{:.1}", state.config.initial_energy_carn), state.config.initial_energy_carn, carn_label_x, carn_value_x, &mut yc, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        if let Some(t) = draw_field_row(state, "Max Energy (Carn)", EditField::MaxEnergyCarn, format!("{:.1}", state.config.max_energy_carn), state.config.max_energy_carn, carn_label_x, carn_value_x, &mut yc, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        if let Some(t) = draw_field_row(state, "Drain/Step (Carn)", EditField::EnergyDrainCarn, format!("{:.3}", state.config.energy_drain_per_step_carn), state.config.energy_drain_per_step_carn, carn_label_x, carn_value_x, &mut yc, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        // Carnivore fitness weights (single column)
-        if let Some(t) = draw_field_row(state, "Lifetime (Carn)", EditField::WLifetimeCarn, format!("{:.3}", state.config.w_lifetime_carn), state.config.w_lifetime_carn, carn_label_x, carn_value_x, &mut yc, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        if let Some(t) = draw_field_row(state, "Energy (Carn)", EditField::WEnergyCarn, format!("{:.3}", state.config.w_energy_carn), state.config.w_energy_carn, carn_label_x, carn_value_x, &mut yc, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        if let Some(t) = draw_field_row(state, "Offspring (Carn)", EditField::WOffspringCarn, format!("{:.3}", state.config.w_offspring_carn), state.config.w_offspring_carn, carn_label_x, carn_value_x, &mut yc, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        if let Some(t) = draw_field_row(state, "Comm (Carn)", EditField::WCommCarn, format!("{:.3}", state.config.w_comm_carn), state.config.w_comm_carn, carn_label_x, carn_value_x, &mut yc, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        if let Some(t) = draw_field_row(state, "Idle Penalty (Carn)", EditField::WIdleCarn, format!("{:.3}", state.config.w_idle_penalty_carn), state.config.w_idle_penalty_carn, carn_label_x, carn_value_x, &mut yc, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        if let Some(t) = draw_field_row(state, "Plants (Carn)", EditField::WPlantCarn, format!("{:.3}", state.config.w_plant_carn), state.config.w_plant_carn, carn_label_x, carn_value_x, &mut yc, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        if let Some(t) = draw_field_row(state, "Meat (Carn)", EditField::WMeatCarn, format!("{:.3}", state.config.w_meat_carn), state.config.w_meat_carn, carn_label_x, carn_value_x, &mut yc, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        if let Some(t) = draw_field_row(state, "Attacks (Carn)", EditField::WAttacksCarn, format!("{:.3}", state.config.w_attacks_carn), state.config.w_attacks_carn, carn_label_x, carn_value_x, &mut yc, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        if let Some(t) = draw_field_row(state, "Kills (Carn)", EditField::WKillsCarn, format!("{:.3}", state.config.w_kills_carn), state.config.w_kills_carn, carn_label_x, carn_value_x, &mut yc, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        if let Some(t) = draw_field_row(state, "Herding (Carn)", EditField::WHerdCarn, format!("{:.3}", state.config.w_herding_carn), state.config.w_herding_carn, carn_label_x, carn_value_x, &mut yc, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        if let Some(t) = draw_field_row(state, "Approach (Carn)", EditField::WApproachCarn, format!("{:.3}", state.config.w_approach_carn), state.config.w_approach_carn, carn_label_x, carn_value_x, &mut yc, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        if let Some(t) = draw_field_row(state, "Chase Other (Carn)", EditField::WChaseCarn, format!("{:.3}", state.config.w_chase_carn), state.config.w_chase_carn, carn_label_x, carn_value_x, &mut yc, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
-        if let Some(t) = draw_field_row(state, "Chase Same (Carn)", EditField::WChaseSameCarn, format!("{:.3}", state.config.w_chase_same_carn), state.config.w_chase_same_carn, carn_label_x, carn_value_x, &mut yc, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+    let pop_header_y = y;
+    draw_text("Population & Energy", x, pop_header_y, label_size, LIGHTGRAY);
+    y = pop_header_y + line_h;
 
-        // Subpanels outlines for each section
-        let button_h_for_clamp = 40.0;
-        let available_bottom = panel_y + panel_h - (button_h_for_clamp + padding) - 8.0;
-        let herb_top = herb_header_y - 6.0;
-        let carn_top = carn_header_y - 6.0;
-        let herb_bottom = yh.min(available_bottom);
-        let carn_bottom = yc.min(available_bottom);
-        let herb_h = ((herb_bottom - herb_top) + 12.0).max(40.0);
-        let carn_h = ((carn_bottom - carn_top) + 12.0).max(40.0);
-        // Panel widths slightly larger than content width for a nice margin
-        let herb_panel_x = herb_x - 14.0;
-        let carn_panel_x = carn_x - 14.0;
-        let panel_w_each = sec_w + 28.0;
-        draw_rectangle_lines(herb_panel_x, herb_top, panel_w_each, herb_h, 1.0, Color::new(0.3, 0.6, 0.8, 0.35));
-        draw_rectangle_lines(carn_panel_x, carn_top, panel_w_each, carn_h, 1.0, Color::new(0.3, 0.6, 0.8, 0.35));
+    // Left: Herbivore
+    let herb_x = x;
+    let herb_label_x = herb_x + 20.0 * ui_scale;
+    let herb_value_x = herb_label_x + 160.0 * ui_scale;
+    let herb_header_y = y;
+    draw_text("Herbivore", herb_x, herb_header_y, (label_size * 0.9) as u16 as f32, Color::new(0.9, 1.0, 0.9, 1.0));
+    let mut yh = herb_header_y + line_h;
+    if let Some(t) = draw_field_row(state, "Count", EditField::Herbivores, format!("{}", state.config.herbivore_count), state.config.herbivore_count as f32, herb_label_x, herb_value_x, &mut yh, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+    if let Some(t) = draw_field_row(state, "Init Energy", EditField::InitialEnergyHerb, format!("{:.1}", state.config.initial_energy_herb), state.config.initial_energy_herb, herb_label_x, herb_value_x, &mut yh, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+    if let Some(t) = draw_field_row(state, "Max Energy", EditField::MaxEnergyHerb, format!("{:.1}", state.config.max_energy_herb), state.config.max_energy_herb, herb_label_x, herb_value_x, &mut yh, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+    if let Some(t) = draw_field_row(state, "Drain/Step", EditField::EnergyDrainHerb, format!("{:.3}", state.config.energy_drain_per_step_herb), state.config.energy_drain_per_step_herb, herb_label_x, herb_value_x, &mut yh, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+    if let Some(t) = draw_field_row(state, "Lifetime Weight", EditField::WLifetimeHerb, format!("{:.3}", state.config.w_lifetime_herb), state.config.w_lifetime_herb, herb_label_x, herb_value_x, &mut yh, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+    if let Some(t) = draw_field_row(state, "Energy Weight", EditField::WEnergyHerb, format!("{:.3}", state.config.w_energy_herb), state.config.w_energy_herb, herb_label_x, herb_value_x, &mut yh, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
 
+    // Right: Carnivore
+    let carn_x = x + sec_w + sections_gap;
+    let carn_label_x = carn_x + 20.0 * ui_scale;
+    let carn_value_x = carn_label_x + 160.0 * ui_scale;
+    let carn_header_y = y;
+    draw_text("Carnivore", carn_x, carn_header_y, (label_size * 0.9) as u16 as f32, Color::new(1.0, 0.9, 0.9, 1.0));
+    let mut yc = carn_header_y + line_h;
+    if let Some(t) = draw_field_row(state, "Count", EditField::Carnivores, format!("{}", state.config.carnivore_count), state.config.carnivore_count as f32, carn_label_x, carn_value_x, &mut yc, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+    if let Some(t) = draw_field_row(state, "Init Energy", EditField::InitialEnergyCarn, format!("{:.1}", state.config.initial_energy_carn), state.config.initial_energy_carn, carn_label_x, carn_value_x, &mut yc, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+    if let Some(t) = draw_field_row(state, "Max Energy", EditField::MaxEnergyCarn, format!("{:.1}", state.config.max_energy_carn), state.config.max_energy_carn, carn_label_x, carn_value_x, &mut yc, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+    if let Some(t) = draw_field_row(state, "Drain/Step", EditField::EnergyDrainCarn, format!("{:.3}", state.config.energy_drain_per_step_carn), state.config.energy_drain_per_step_carn, carn_label_x, carn_value_x, &mut yc, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+    if let Some(t) = draw_field_row(state, "Lifetime Weight", EditField::WLifetimeCarn, format!("{:.3}", state.config.w_lifetime_carn), state.config.w_lifetime_carn, carn_label_x, carn_value_x, &mut yc, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+    if let Some(t) = draw_field_row(state, "Energy Weight", EditField::WEnergyCarn, format!("{:.3}", state.config.w_energy_carn), state.config.w_energy_carn, carn_label_x, carn_value_x, &mut yc, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+
+    // Subpanels outlines for pop/energy sections
+    let button_h_for_clamp = 60.0;
+    let available_bottom = panel_y + panel_h - (button_h_for_clamp + padding) - 8.0;
+    let pop_top = pop_header_y - 6.0;
+    let herb_bottom = yh.min(available_bottom);
+    let carn_bottom = yc.min(available_bottom);
+    let pop_h = ((herb_bottom - pop_top) + 12.0).max(40.0);
+    let herb_panel_x = herb_x - 14.0;
+    let carn_panel_x = carn_x - 14.0;
+    let panel_w_each = sec_w + 28.0;
+    draw_rectangle_lines(herb_panel_x, pop_top, panel_w_each, pop_h, 1.0, Color::new(0.3, 0.6, 0.8, 0.35));
+    draw_rectangle_lines(carn_panel_x, pop_top, panel_w_each, pop_h, 1.0, Color::new(0.3, 0.6, 0.8, 0.35));
+
+    y = herb_bottom.max(carn_bottom) + 28.0;
+
+    // === ADVANCED OPTIONS TOGGLE ===
+    let adv_button_x = x + inner_w * 0.35;
+    let adv_button_y = y;
+    let adv_button_w = inner_w * 0.3;
+    let adv_button_h = 40.0 * ui_scale;
+    
+    let adv_label = if state.show_advanced { "▼ Advanced Options" } else { "▶ Advanced Options" };
+    let adv_hovered = {
+        let (mx, my) = mouse_position();
+        mx >= adv_button_x && mx <= adv_button_x + adv_button_w && my >= adv_button_y && my <= adv_button_y + adv_button_h
+    };
+    let adv_bg = if adv_hovered { Color::new(0.25, 0.45, 0.65, 1.0) } else { Color::new(0.18, 0.32, 0.48, 1.0) };
+    draw_rectangle(adv_button_x, adv_button_y, adv_button_w, adv_button_h, adv_bg);
+    draw_rectangle_lines(adv_button_x, adv_button_y, adv_button_w, adv_button_h, 2.0 * ui_scale, WHITE);
+    let adv_text_w = measure_text(adv_label, None, (18.0 * ui_scale) as u16, 1.0).width;
+    draw_text(adv_label, adv_button_x + (adv_button_w - adv_text_w) / 2.0, adv_button_y + 28.0 * ui_scale, 18.0 * ui_scale, WHITE);
+    
+    if adv_hovered && is_mouse_button_pressed(MouseButton::Left) && state.editing_field.is_none() {
+        state.show_advanced = !state.show_advanced;
     }
 
+    y += adv_button_h + 16.0;
 
+    // === ADVANCED FITNESS WEIGHTS (if toggled open) ===
+    if state.show_advanced {
+        let adv_header_y = y;
+        draw_text("Advanced Fitness Weights", x, adv_header_y, label_size, LIGHTGRAY);
+        y = adv_header_y + line_h;
+
+        let adv_top = adv_header_y - 6.0;
+        let mut yh_adv = y;
+        let mut yc_adv = y;
+
+        // Left: Herbivore advanced weights
+        let herb_adv_label_x = herb_label_x;
+        let herb_adv_value_x = herb_value_x;
+        
+        if let Some(t) = draw_field_row(state, "Offspring", EditField::WOffspringHerb, format!("{:.3}", state.config.w_offspring_herb), state.config.w_offspring_herb, herb_adv_label_x, herb_adv_value_x, &mut yh_adv, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+        if let Some(t) = draw_field_row(state, "Communication", EditField::WCommHerb, format!("{:.3}", state.config.w_comm_herb), state.config.w_comm_herb, herb_adv_label_x, herb_adv_value_x, &mut yh_adv, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+        if let Some(t) = draw_field_row(state, "Idle Penalty", EditField::WIdleHerb, format!("{:.3}", state.config.w_idle_penalty_herb), state.config.w_idle_penalty_herb, herb_adv_label_x, herb_adv_value_x, &mut yh_adv, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+        if let Some(t) = draw_field_row(state, "Plants", EditField::WPlantHerb, format!("{:.3}", state.config.w_plant_herb), state.config.w_plant_herb, herb_adv_label_x, herb_adv_value_x, &mut yh_adv, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+        if let Some(t) = draw_field_row(state, "Meat", EditField::WMeatHerb, format!("{:.3}", state.config.w_meat_herb), state.config.w_meat_herb, herb_adv_label_x, herb_adv_value_x, &mut yh_adv, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+        if let Some(t) = draw_field_row(state, "Attacks", EditField::WAttacksHerb, format!("{:.3}", state.config.w_attacks_herb), state.config.w_attacks_herb, herb_adv_label_x, herb_adv_value_x, &mut yh_adv, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+        if let Some(t) = draw_field_row(state, "Kills", EditField::WKillsHerb, format!("{:.3}", state.config.w_kills_herb), state.config.w_kills_herb, herb_adv_label_x, herb_adv_value_x, &mut yh_adv, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+        if let Some(t) = draw_field_row(state, "Herding", EditField::WHerdHerb, format!("{:.3}", state.config.w_herding_herb), state.config.w_herding_herb, herb_adv_label_x, herb_adv_value_x, &mut yh_adv, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+
+        // Right: Carnivore advanced weights
+        let carn_adv_label_x = carn_label_x;
+        let carn_adv_value_x = carn_value_x;
+        
+        if let Some(t) = draw_field_row(state, "Offspring", EditField::WOffspringCarn, format!("{:.3}", state.config.w_offspring_carn), state.config.w_offspring_carn, carn_adv_label_x, carn_adv_value_x, &mut yc_adv, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+        if let Some(t) = draw_field_row(state, "Communication", EditField::WCommCarn, format!("{:.3}", state.config.w_comm_carn), state.config.w_comm_carn, carn_adv_label_x, carn_adv_value_x, &mut yc_adv, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+        if let Some(t) = draw_field_row(state, "Idle Penalty", EditField::WIdleCarn, format!("{:.3}", state.config.w_idle_penalty_carn), state.config.w_idle_penalty_carn, carn_adv_label_x, carn_adv_value_x, &mut yc_adv, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+        if let Some(t) = draw_field_row(state, "Plants", EditField::WPlantCarn, format!("{:.3}", state.config.w_plant_carn), state.config.w_plant_carn, carn_adv_label_x, carn_adv_value_x, &mut yc_adv, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+        if let Some(t) = draw_field_row(state, "Meat", EditField::WMeatCarn, format!("{:.3}", state.config.w_meat_carn), state.config.w_meat_carn, carn_adv_label_x, carn_adv_value_x, &mut yc_adv, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+        if let Some(t) = draw_field_row(state, "Attacks", EditField::WAttacksCarn, format!("{:.3}", state.config.w_attacks_carn), state.config.w_attacks_carn, carn_adv_label_x, carn_adv_value_x, &mut yc_adv, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+        if let Some(t) = draw_field_row(state, "Kills", EditField::WKillsCarn, format!("{:.3}", state.config.w_kills_carn), state.config.w_kills_carn, carn_adv_label_x, carn_adv_value_x, &mut yc_adv, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+        if let Some(t) = draw_field_row(state, "Herding", EditField::WHerdCarn, format!("{:.3}", state.config.w_herding_carn), state.config.w_herding_carn, carn_adv_label_x, carn_adv_value_x, &mut yc_adv, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+
+        // Advanced subpanels outline
+        let adv_bottom = yh_adv.max(yc_adv);
+        let adv_h = ((adv_bottom - adv_top) + 12.0).max(40.0);
+        draw_rectangle_lines(herb_panel_x, adv_top, panel_w_each, adv_h, 1.0, Color::new(0.3, 0.6, 0.8, 0.35));
+        draw_rectangle_lines(carn_panel_x, adv_top, panel_w_each, adv_h, 1.0, Color::new(0.3, 0.6, 0.8, 0.35));
+
+        y = adv_bottom + 28.0;
+    }
 
     // Handle keyboard input for editing
     if let Some(field) = state.editing_field {
@@ -468,7 +521,7 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
             state.input_buffer.clear();
         }
         
-        // Collect typed characters using macroquad's get_char_pressed
+        // Collect typed characters
         while let Some(ch) = get_char_pressed() {
             if ch.is_ascii_digit() || ch == '.' || ch == '-' {
                 state.input_buffer.push(ch);
@@ -476,69 +529,27 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
         }
     }
     
-    // Bottom navigation buttons: Reset, Back/Next, and Start on Fitness screen
+    // === BOTTOM BUTTONS ===
     let button_w = 200.0;
     let button_h = 50.0;
-    let button_y_offset = 20.0;
     let button_gap = 20.0;
-    let total_buttons = if state.screen == MenuScreen::Core { 2 } else { 3 }; // Reset + Next, or Reset + Back + Start
-    let buttons_total_w = button_w * (total_buttons as f32) + button_gap * ((total_buttons - 1) as f32);
-    let button_y = panel_y + panel_h - button_h - padding + button_y_offset;
+    let buttons_total_w = button_w * 2.0 + button_gap; // Reset + Start
+    let button_y = panel_y + panel_h - button_h - padding + 20.0 * ui_scale;
     let start_x_base = panel_x + (panel_w - buttons_total_w) / 2.0;
 
     let reset_x = start_x_base;
-    let back_x = if state.screen == MenuScreen::Fitness { reset_x + button_w + button_gap } else { 0.0 };
-    let next_x = if state.screen == MenuScreen::Core { reset_x + button_w + button_gap } else { 0.0 };
-    let start_x = if state.screen == MenuScreen::Fitness { back_x + button_w + button_gap } else { 0.0 };
-
-    let (mx, my) = mouse_position();
-    let btn_color = |hover: bool| if hover { Color::new(0.35, 0.75, 0.95, 1.0) } else { Color::new(0.22, 0.55, 0.78, 1.0) };
+    let start_x = reset_x + button_w + button_gap;
 
     // Reset button
-    let hover_reset = mx >= reset_x && mx <= reset_x + button_w && my >= button_y && my <= button_y + button_h;
-    draw_rectangle(reset_x, button_y, button_w, button_h, btn_color(hover_reset));
-    draw_rectangle_lines(reset_x, button_y, button_w, button_h, 2.0 * ui_scale, WHITE);
-    let reset_label = "RESET TO DEFAULTS";
-    let rtw = measure_text(reset_label, None, 20, 1.0).width;
-    draw_text(reset_label, reset_x + (button_w - rtw) / 2.0, button_y + 32.0 * ui_scale, 20.0 * ui_scale, WHITE);
-    if hover_reset && is_mouse_button_pressed(MouseButton::Left) && state.editing_field.is_none() {
+    if draw_button("RESET TO DEFAULTS", reset_x, button_y, button_w, button_h, ui_scale, 20.0 * ui_scale) && state.editing_field.is_none() {
         *state = MenuState::new();
     }
 
-    if state.screen == MenuScreen::Core {
-        // Next button
-        let hover_next = mx >= next_x && mx <= next_x + button_w && my >= button_y && my <= button_y + button_h;
-        draw_rectangle(next_x, button_y, button_w, button_h, btn_color(hover_next));
-        draw_rectangle_lines(next_x, button_y, button_w, button_h, 2.0 * ui_scale, WHITE);
-        let label = "NEXT: FITNESS";
-        let tw = measure_text(label, None, 22, 1.0).width;
-        draw_text(label, next_x + (button_w - tw) / 2.0, button_y + 32.0 * ui_scale, 22.0 * ui_scale, WHITE);
-        if hover_next && is_mouse_button_pressed(MouseButton::Left) && state.editing_field.is_none() {
-            state.screen = MenuScreen::Fitness;
-        }
-    } else {
-        // Back button
-        let hover_back = mx >= back_x && mx <= back_x + button_w && my >= button_y && my <= button_y + button_h;
-        draw_rectangle(back_x, button_y, button_w, button_h, btn_color(hover_back));
-        draw_rectangle_lines(back_x, button_y, button_w, button_h, 2.0 * ui_scale, WHITE);
-        let label = "BACK";
-        let tw = measure_text(label, None, 22, 1.0).width;
-        draw_text(label, back_x + (button_w - tw) / 2.0, button_y + 32.0 * ui_scale, 22.0 * ui_scale, WHITE);
-        if hover_back && is_mouse_button_pressed(MouseButton::Left) && state.editing_field.is_none() {
-            state.screen = MenuScreen::Core;
-        }
-
-        // Start button
-        let hover_start = mx >= start_x && mx <= start_x + button_w && my >= button_y && my <= button_y + button_h;
-        draw_rectangle(start_x, button_y, button_w, button_h, btn_color(hover_start));
-        draw_rectangle_lines(start_x, button_y, button_w, button_h, 2.0 * ui_scale, WHITE);
-        let text = "START SIMULATION";
-        let text_w = measure_text(text, None, 24, 1.0).width;
-        draw_text(text, start_x + (button_w - text_w) / 2.0, button_y + 32.0 * ui_scale, 24.0 * ui_scale, WHITE);
-        if hover_start && is_mouse_button_pressed(MouseButton::Left) && state.editing_field.is_none() {
-            return Some(state.config.clone());
-        }
+    // Start Simulation button
+    if draw_button("START SIMULATION", start_x, button_y, button_w, button_h, ui_scale, 24.0 * ui_scale) && state.editing_field.is_none() {
+        return Some(state.config.clone());
     }
+
     // Draw the last tooltip (top-most hovered label) last
     if let Some((text, tx, ty)) = deferred_tooltips.last() {
         draw_tooltip(text, *tx, *ty, ui_scale);
