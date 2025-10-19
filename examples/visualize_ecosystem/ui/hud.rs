@@ -24,7 +24,6 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: bool, fast_mode: bool
     let max_w = area.w - (x - area.x) - PAD;
 
     // Derived stats
-    let mode = if !running { "Paused" } else { "Running" };
     // species_count (NEAT speciator) removed: HUD should not show NEAT species
     let alive = state.episode.agents.iter().filter(|a| a.energy > 0.0).count();
     let corpses = state.episode.agents.iter().filter(|a| a.energy <= 0.0 && !a.consumed).count();
@@ -47,68 +46,21 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: bool, fast_mode: bool
         (min_e, sum / state.episode.agents.len() as f32, max_e)
     } else { (0.0, 0.0, 0.0) };
 
-    // Status pill at top-right
+    // Top-right: optional FPS pill (status mode removed)
     {
         let fs = 14.0;
-        let dims = measure_text(mode, None, fs as u16, 1.0);
-        let pad_x = 8.0; let pad_y = 4.0;
-        let pill_w = dims.width + 2.0 * pad_x;
-        let pill_h = fs + 2.0 * pad_y;
-        let px = area.x + area.w - PAD - pill_w;
-        let py = area.y + 6.0;
-    let col = if !running { Color::new(0.95, 0.75, 0.30, 1.0) } else if fast_mode { Color::new(0.30, 0.85, 0.45, 1.0) } else { Color::new(0.30, 0.60, 1.0, 1.0) };
-        draw_rectangle(px, py, pill_w, pill_h, Color::new(col.r, col.g, col.b, 0.18));
-        draw_rectangle_lines(px, py, pill_w, pill_h, 1.0, Color::new(col.r, col.g, col.b, 0.55));
-        draw_text(mode, px + pad_x, py + fs, fs, Color::new(0.90, 0.92, 0.95, 1.0));
-
-        // Optional FPS pill just below mode
         if state.show_fps {
             let fps = get_fps();
             let fps_txt = format!("{} fps", fps);
+            let pad_x = 8.0; let pad_y = 4.0;
             let dims2 = measure_text(&fps_txt, None, fs as u16, 1.0);
             let pill_w2 = dims2.width + 2.0 * pad_x;
-            let pill_h2 = pill_h; // same height
-            let py2 = py + pill_h + 4.0;
-            let px2 = px + (pill_w - pill_w2).max(0.0); // right align with status
+            let pill_h2 = fs + 2.0 * pad_y;
+            let px2 = area.x + area.w - PAD - pill_w2;
+            let py2 = area.y + 6.0;
             draw_rectangle(px2, py2, pill_w2, pill_h2, Color::new(0.15, 0.18, 0.22, 0.25));
             draw_rectangle_lines(px2, py2, pill_w2, pill_h2, 1.0, Color::new(0.45, 0.55, 0.70, 0.55));
             draw_text(&fps_txt, px2 + pad_x, py2 + fs, fs, Color::new(0.85, 0.9, 0.95, 1.0));
-        }
-
-        // Quick Save button under FPS pill
-        let btn_w = 80.0;
-        let btn_h = 26.0;
-        let bpx = px - btn_w - 8.0;
-        let bpy = py;
-        let (mx, my) = mouse_position();
-        let hovering = mx >= bpx && mx <= bpx + btn_w && my >= bpy && my <= bpy + btn_h;
-        let col = if hovering { Color::new(0.2, 0.6, 0.9, 1.0) } else { Color::new(0.15, 0.45, 0.75, 1.0) };
-        draw_rectangle(bpx, bpy, btn_w, btn_h, col);
-        draw_rectangle_lines(bpx, bpy, btn_w, btn_h, 1.0, WHITE);
-        let label = "Save";
-        let tw = measure_text(label, None, fs as u16, 1.0).width;
-        draw_text(label, bpx + (btn_w - tw) * 0.5, bpy + fs + (btn_h - fs) * 0.5 - 4.0, fs, WHITE);
-
-        if state.hud_save_cooldown > 0.0 { state.hud_save_cooldown = (state.hud_save_cooldown - get_frame_time()).max(0.0); }
-        if hovering && is_mouse_button_pressed(MouseButton::Left) && state.hud_save_cooldown <= 0.0 {
-            state.hud_save_cooldown = 0.2;
-            // Generate a quick name: prefix + __quicksave.json
-            let filename = format!("{}__quicksave.json", state.save_prefix);
-            match crate::snapshot::save_sim_snapshot(
-                &filename,
-                state.generation,
-                &state.population,
-                &state.innov,
-                &state.episode,
-                &state.member_species,
-            ) {
-                Ok(_) => {
-                    state.hud_toast = Some((format!("Saved: {}", filename), 2.5));
-                }
-                Err(e) => {
-                    state.hud_toast = Some((format!("Save failed: {}", e), 3.5));
-                }
-            }
         }
     }
 
