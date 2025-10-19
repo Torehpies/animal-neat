@@ -18,40 +18,41 @@ pub async fn run_sim_menu(state: &mut crate::AppState) -> SimMenuResult {
         let h = screen_height();
         draw_rectangle(0.0, 0.0, w, h, Color::new(0.0, 0.0, 0.0, 0.7));
 
-    // Panel
-    let panel_w = 460.0f32;
-    // Compute button metrics first so we can size the panel to fit vertically
-    let btn_h = 48.0f32;
-    let gap = 15.0f32;
-    let buttons_count = 4.0f32; // Resume, Save, Load, Back
-    let top_offset = 80.0f32; // space above first button (includes title)
-    let bottom_margin = 30.0f32;
-    let mut panel_h = top_offset + buttons_count * btn_h + (buttons_count - 1.0) * gap + bottom_margin;
-    // Clamp to sensible bounds
-    panel_h = panel_h.clamp(240.0f32, h - 80.0f32);
+    // Panel (compute height to fit title + buttons)
+    let panel_w: f32 = 460.0f32;
+    let title = "Paused — Simulation Menu";
+    let title_size: f32 = 28.0f32;
+
+    // Button/layout sizing
+    let btn_h: f32 = 48.0f32;
+    let gap: f32 = 15.0f32;
+    let num_buttons: f32 = 4.0f32; // Resume, Save, Load, Back
+    let padding: f32 = 30.0f32;
+    let title_gap: f32 = 20.0f32; // space between title and first button
+
+    let buttons_h_total = num_buttons * btn_h + (num_buttons - 1.0) * gap;
+    let panel_h = (padding + title_size + title_gap + buttons_h_total + padding).clamp(240.0f32, h - 60.0f32);
+
     let cx = w * 0.5;
     let cy = h * 0.5;
     let panel_x = cx - panel_w * 0.5;
     let panel_y = cy - panel_h * 0.5;
-        draw_rectangle(panel_x, panel_y, panel_w, panel_h, Color::new(0.06, 0.06, 0.08, 0.96));
-        draw_rectangle_lines(panel_x, panel_y, panel_w, panel_h, 2.0, WHITE);
+    draw_rectangle(panel_x, panel_y, panel_w, panel_h, Color::new(0.06, 0.06, 0.08, 0.96));
+    draw_rectangle_lines(panel_x, panel_y, panel_w, panel_h, 2.0, WHITE);
 
-        // Title
-        let title = "Paused — Simulation Menu";
-        let title_size = 28.0;
-        let title_w = measure_text(title, None, title_size as u16, 1.0).width;
-        draw_text(title, panel_x + (panel_w - title_w) / 2.0, panel_y + 45.0, title_size, WHITE);
+    // Title (centered)
+    let title_w = measure_text(title, None, title_size as u16, 1.0).width;
+    draw_text(title, panel_x + (panel_w - title_w) / 2.0, panel_y + padding + title_size, title_size, WHITE);
 
     // Buttons (vertical stack, equal-sized)
-    let padding = 30.0f32;
-    let mut by = panel_y + 80.0f32;
+    let mut by = panel_y + padding + title_size + title_gap;
     let btn_w = panel_w - 2.0 * padding; // full width within padding
 
     let (mx, my) = mouse_position();
 
     let start_x = panel_x + padding;
 
-    let txt_size = 22.0f32;
+    let txt_size = 22.0;
 
     // Resume
     let resume_x = start_x;
