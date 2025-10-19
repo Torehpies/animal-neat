@@ -78,6 +78,22 @@ pub fn nearest_food_along_ray(p: Vec2, dir: Vec2, food: &[Vec2]) -> Option<f32> 
     best
 }
 
+/// Find nearest carcass (agent corpse) along a ray using the provided snapshot.
+/// Returns the distance t along the ray in world units when found, otherwise None.
+pub fn nearest_carcass_along_ray(p: Vec2, dir: Vec2, snapshot: &[(Vec2, bool, bool, usize, bool)]) -> Option<f32> {
+    let mut best: Option<f32> = None;
+    for (_j, (apos, _alive, consumed, _species, is_corpse)) in snapshot.iter().enumerate() {
+        if *consumed || !*is_corpse { continue; }
+        let op = Vec2 { x: apos.x - p.x, y: apos.y - p.y };
+        let t = op.x * dir.x + op.y * dir.y;
+        if t <= 0.0 || t > VISION_RANGE { continue; }
+        let closest = Vec2 { x: p.x + dir.x * t, y: p.y + dir.y * t };
+        let dx = apos.x - closest.x; let dy = apos.y - closest.y; let dist = (dx*dx + dy*dy).sqrt();
+        if dist <= AGENT_COLLISION_RADIUS { match best { Some(b) if t >= b => {}, _ => best = Some(t) } }
+    }
+    best
+}
+
 #[allow(dead_code)]
 pub fn nearest_agent_vector_local(pos: Vec2, theta: f32, snapshot: &[(Vec2, bool, bool, usize, bool)], self_idx: usize) -> (f32, f32) {
     let mut best_d2 = f32::INFINITY;
@@ -224,7 +240,10 @@ pub fn build_inputs_inplace(
             if t <= 0.0 || t > VISION_RANGE { continue; }
             let closest = Vec2 { x: pos.x + rdir.x * t, y: pos.y + rdir.y * t };
             let dx = apos.x - closest.x; let dy = apos.y - closest.y; let dist = (dx*dx + dy*dy).sqrt();
-            if dist <= AGENT_COLLISION_RADIUS {
+            // Allow a slightly larger hit tolerance for corpses so stationary meat shows up
+            // in per-ray vision. Live agents still use the strict AGENT_COLLISION_RADIUS.
+            let carcass_hit_radius = AGENT_COLLISION_RADIUS * 1.5;
+            if dist <= AGENT_COLLISION_RADIUS || (dist <= carcass_hit_radius && *is_corpse) {
                 if *alive {
                     if *species_id == my_species { match best[2] { Some(b) if t >= b => {}, _ => best[2] = Some(t) } }
                     else { match best[3] { Some(b) if t >= b => {}, _ => best[3] = Some(t) } }

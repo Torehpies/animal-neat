@@ -18,6 +18,7 @@ struct ActionIntent {
     turn_delta: f32,
     dir: Vec2,
     cur_food_vec: (f32,f32),
+    cur_carcass_vec: (f32,f32),
     last_same_vec: (f32,f32),
     last_other_vec: (f32,f32),
 }
@@ -80,7 +81,42 @@ pub fn tick_step<R: Rng>(
         if a.energy <= 0.0 || a.health <= DEATH_HEALTH_THRESHOLD {
             return ActionIntent { alive: false, ..Default::default() };
         }
-    let (cur_fx, cur_fy) = sensing::food_vector_from_rays(a.body.pos, a.theta, food);
+        let (cur_fx, cur_fy) = sensing::food_vector_from_rays(a.body.pos, a.theta, food);
+        // Compute a similar aggregate vector for nearby corpses/meat using ray sampling of the agent snapshot.
+        let mut carcass_hits: Vec<(Vec2, f32)> = Vec::new();
+        {
+            let dir = dir_from_theta(a.theta);
+            let rays = sensing::ray_directions(dir);
+            for r in rays {
+                let len = (r.x * r.x + r.y * r.y).sqrt().max(1e-6);
+                let rdir = Vec2 { x: r.x / len, y: r.y / len };
+                let mut best_t: Option<f32> = None;
+                // scan snapshot for corpse hits along this ray
+                for (_j, (p, _alive, consumed, _sid, is_corpse)) in snapshot.iter().enumerate() {
+                    if *consumed || !*is_corpse { continue; }
+                    let op = Vec2 { x: p.x - a.body.pos.x, y: p.y - a.body.pos.y };
+                    let t = op.x * rdir.x + op.y * rdir.y;
+                    if t <= 0.0 || t > VISION_RANGE { continue; }
+                    let closest = Vec2 { x: a.body.pos.x + rdir.x * t, y: a.body.pos.y + rdir.y * t };
+                        let dx = p.x - closest.x; let dy = p.y - closest.y; let dist = (dx*dx + dy*dy).sqrt();
+                        // Use a slightly more forgiving hit radius for stationary carcasses so they are
+                        // more likely to be detected by vision rays (helps carcasses show up in the UI
+                        // and makes scavenging more robust). Keep live-agent hit radius unchanged.
+                        let carcass_hit_radius = AGENT_COLLISION_RADIUS * 1.5;
+                        if dist <= AGENT_COLLISION_RADIUS || (dist <= carcass_hit_radius && *is_corpse) {
+                            match best_t { Some(b) if t >= b => {}, _ => best_t = Some(t) }
+                        }
+                }
+                if let Some(t) = best_t { let w = (1.0 - (t / VISION_RANGE)).clamp(0.0, 1.0); if w > 0.0 { carcass_hits.push((rdir, w)); } }
+            }
+        }
+        let (mut car_x, mut car_y) = sensing::aggregate_vector_from_rays(a.theta, &carcass_hits);
+        // Completely hide carcass/meat signals from herbivores: they should not receive carcass
+        // aggregate vectors in their inputs or memory. This prevents herbivores from being
+        // attracted to corpses via carcass-based shaping.
+        if matches!(a.kind, AgentKind::Herbivore) {
+            car_x = 0.0f32; car_y = 0.0f32;
+        }
     let kind_for_inputs = match a.kind { AgentKind::Herbivore => crate::params::Kind::Herb, AgentKind::Carnivore => crate::params::Kind::Carn };
     let energy_in = (a.energy / crate::params::get_max_energy_for(kind_for_inputs)).clamp(0.0, 1.0);
     let my_species: usize = match a.kind { AgentKind::Herbivore => 0, AgentKind::Carnivore => 1 };
@@ -104,9 +140,19 @@ pub fn tick_step<R: Rng>(
         let mut agent_candidates: Vec<usize> = Vec::new();
         for (sj, (p, _alive, _consumed, _sid, _corpse)) in snapshot.iter().enumerate() {
             let agx = (p.x / VISION_CELL).floor() as i32; let agy = (p.y / VISION_CELL).floor() as i32;
-            if (agx - gx).abs() <= 1 && (agy - gy).abs() <= 1 { agent_candidates.push(sj); }
+            if (agx - gx).abs() <= 1 && (agy - gy).abs() <= 1 {
+                // If we're building inputs for a herbivore, exclude corpse entries so the per-ray
+                // carcass category is not populated for herbivore inputs. Carnivores still see corpses.
+                if matches!(a.kind, AgentKind::Herbivore) {
+                    if !_corpse { agent_candidates.push(sj); }
+                } else {
+                    agent_candidates.push(sj);
+                }
+            }
         }
-        sensing::build_inputs_inplace(&mut scratch, a.body.pos, a.theta, food, energy_in, a.last_food_mem, a.last_same_mem, a.last_other_mem, &snapshot, i, my_species, a.heard_sectors, Some(&food_candidates), Some(&agent_candidates));
+    // If this agent is a carnivore, hide plant signals by passing an empty food index slice.
+    let food_slice: &[usize] = if matches!(a.kind, AgentKind::Carnivore) { &[] } else { &food_candidates[..] };
+    sensing::build_inputs_inplace(&mut scratch, a.body.pos, a.theta, food, energy_in, a.last_food_mem, a.last_same_mem, a.last_other_mem, &snapshot, i, my_species, a.heard_sectors, Some(food_slice), Some(&agent_candidates));
         sim::mask_inputs(&mut scratch);
         let out = population[i].evaluate_slice(&scratch);
         let mut raw_turn = out.get(0).copied().unwrap_or(0.0);
@@ -123,11 +169,14 @@ pub fn tick_step<R: Rng>(
         let dir = dir_from_theta(theta);
         // nearest same/other local vectors (for memory update)
         let ((same_x, same_y), (other_x, other_y)) = sensing::nearest_same_other_vectors_local(a.body.pos, a.theta, &snapshot, i, my_species);
+        // For carnivores, hide the plant aggregate vector from their stored intent; herbivores already have carcass zeroed above.
+        let (store_fx, store_fy) = if matches!(a.kind, AgentKind::Carnivore) { (0.0f32, 0.0f32) } else { (cur_fx, cur_fy) };
         ActionIntent {
             alive: true,
             raw_turn, raw_thrust, raw_call,
             turn_delta, dir,
-            cur_food_vec: (cur_fx, cur_fy),
+            cur_food_vec: (store_fx, store_fy),
+            cur_carcass_vec: (car_x, car_y),
             last_same_vec: (same_x, same_y),
             last_other_vec: (other_x, other_y),
         }
@@ -207,14 +256,18 @@ pub fn tick_step<R: Rng>(
         }
 
         // Positive shaping: reward approaching food and chasing other/same species
-        // Approach food: only reward if facing food AND moving forward (no reward for staring without motion)
+        // Approach food: Herbivores use plant vector; Carnivores use carcass vector.
+        // Allow reward when moving forward OR when the agent is strongly facing the target
     let k = match a.kind { AgentKind::Herbivore => crate::params::Kind::Herb, AgentKind::Carnivore => crate::params::Kind::Carn };
-    if crate::params::get_fit_approach_food_weight(k) != 0.0 {
-            // Using current food vector magnitude as a proxy for closeness improvement with thrust
-            let food_vec_now = Vec2 { x: intent.cur_food_vec.0, y: intent.cur_food_vec.1 };
-            let food_signal = food_vec_now.length(); // 0..1 strength (0 if none)
-            let forward = intent.dir; // facing after turn
-            let closing = food_vec_now.x * forward.x + food_vec_now.y * forward.y; // projection onto forward
+        if crate::params::get_fit_approach_food_weight(k) != 0.0 {
+            // pick the appropriate local vector
+            let (tx, ty, signal_strength) = match a.kind {
+                AgentKind::Herbivore => (intent.cur_food_vec.0, intent.cur_food_vec.1, (intent.cur_food_vec.0*intent.cur_food_vec.0 + intent.cur_food_vec.1*intent.cur_food_vec.1).sqrt()),
+                AgentKind::Carnivore => (intent.cur_carcass_vec.0, intent.cur_carcass_vec.1, (intent.cur_carcass_vec.0*intent.cur_carcass_vec.0 + intent.cur_carcass_vec.1*intent.cur_carcass_vec.1).sqrt()),
+            };
+            // Projection onto forward (local frame uses y as forward, but compute robustly)
+            let forward = intent.dir;
+            let forward_component = (forward.x * tx + forward.y * ty).max(0.0);
             // Forward motion factor: velocity along forward (inertia) or positive thrust (no inertia)
             let motion_factor = if USE_INERTIA {
                 let fwd_speed = a.body.vel.dot(forward).max(0.0);
@@ -224,10 +277,15 @@ pub fn tick_step<R: Rng>(
                 if t.abs() < THRUST_DEADZONE { t = 0.0; }
                 t.max(0.0).clamp(0.0, 1.0)
             };
-            // Reward only when both alignment and forward motion are positive
-            let mut reward = (closing.max(0.0)) * motion_factor * food_signal;
-            reward = reward.clamp(0.0, APPROACH_MAX_DELTA_PER_STEP);
-            if reward > APPROACH_EPS { a.approach_food_units += reward; }
+            // Movement gating: allow reward when moving OR when strongly facing target (so carnivores can orient toward carcass)
+            let moving_forward = if USE_INERTIA { (a.body.vel.dot(forward) / MAX_VELOCITY) > 0.01 } else { intent.raw_thrust.max(0.0) > 0.01 };
+            let allow_by_facing = forward_component > 0.6; // strong facing override
+            let mut reward = 0.0f32;
+            if forward_component > APPROACH_EPS && (moving_forward || allow_by_facing) {
+                reward = forward_component * motion_factor * signal_strength;
+                reward = reward.clamp(0.0, APPROACH_MAX_DELTA_PER_STEP);
+                if reward > APPROACH_EPS { a.approach_food_units += reward; }
+            }
         }
         // Chase other-species: reward if moving towards nearest other-species agent
     if crate::params::get_fit_chase_other_weight(k) != 0.0 {
@@ -298,6 +356,7 @@ pub fn tick_step<R: Rng>(
             prey_targets[i] = target;
         }
         // Herding: reward proximity to same-kind peers (capped per step)
+        // Additional rule: for Herbivores, only award herding if food is nearby (prevents camping in barren areas)
         if HERDING_ENABLED {
             let kind = match a.kind { AgentKind::Herbivore => crate::params::Kind::Herb, AgentKind::Carnivore => crate::params::Kind::Carn };
             if crate::params::get_fit_herding_weight(kind) != 0.0 {
@@ -318,7 +377,20 @@ pub fn tick_step<R: Rng>(
                     }
                 }
             }}
-            if neighbors > 0 { a.herding_units += neighbors.min(HERDING_MAX_NEIGHBORS) as f32; }
+            // Herbivore-specific gating: only award herding if food is nearby
+            let mut award_herding = true;
+            if matches!(a.kind, AgentKind::Herbivore) {
+                let mut nearby_food = 0usize;
+                for f in food.iter() {
+                    let dx = f.x - a.body.pos.x; let dy = f.y - a.body.pos.y;
+                    if dx*dx + dy*dy <= COMM_FOOD_RADIUS*COMM_FOOD_RADIUS {
+                        nearby_food += 1;
+                        if nearby_food >= COMM_FOOD_MIN { break; }
+                    }
+                }
+                award_herding = nearby_food >= COMM_FOOD_MIN;
+            }
+            if award_herding && neighbors > 0 { a.herding_units += neighbors.min(HERDING_MAX_NEIGHBORS) as f32; }
             }
         }
 

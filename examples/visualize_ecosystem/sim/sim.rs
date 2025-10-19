@@ -28,9 +28,9 @@ pub fn resolve_predation(
         if !matches!(agents[i].kind, AgentKind::Carnivore) { continue; }
         if let Some(j) = prey_targets[i] {
             if claimed[j] || agents[j].consumed { continue; }
-            // Carnivores should not attack or scavenge their own kind.
-            if matches!(agents[j].kind, AgentKind::Carnivore) { continue; }
             let target_alive = agents[j].energy > 0.0 && agents[j].health > DEATH_HEALTH_THRESHOLD;
+            // Prevent attacking live same-species targets, but allow scavenging same-species corpses.
+            if target_alive && matches!(agents[j].kind, AgentKind::Carnivore) { continue; }
             // Newborn grace removed: newborns are treated like any other agent
             if (target_alive && !PREDATION_ENABLED) || (!target_alive && !SCAVENGE_ENABLED) { continue; }
             if target_alive {

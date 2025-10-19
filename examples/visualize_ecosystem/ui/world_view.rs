@@ -214,28 +214,52 @@ pub fn draw_world(
 
             let dir = dir_from_theta(a.theta);
             for r in sensing::ray_directions(dir) {
-                let food_t = sensing::nearest_food_along_ray(a.body.pos, r, &episode.food);
-                match food_t {
-                    Some(t) => {
+                // For herbivores show plants (green); for carnivores also check for carcasses (orange)
+                if a.kind == AgentKind::Herbivore {
+                    let food_t = sensing::nearest_food_along_ray(a.body.pos, r, &episode.food);
+                    match food_t {
+                        Some(t) => {
+                            let sense_pt = Vec2 { x: a.body.pos.x + r.x * t, y: a.body.pos.y + r.y * t };
+                            let (sx, sy) = world_to_screen(fitted, sense_pt);
+                            let green = Color::new(0.2, 1.0, 0.2, 0.9);
+                            draw_line(px, py, sx, sy, 2.0, green);
+                            draw_circle(sx, sy, 3.0, green);
+                            let end = Vec2 { x: a.body.pos.x + r.x * VISION_RANGE, y: a.body.pos.y + r.y * VISION_RANGE };
+                            let (x2, y2) = world_to_screen(fitted, end);
+                            draw_line(sx, sy, x2, y2, 1.0, Color::new(0.2, 1.0, 0.2, 0.25));
+                        }
+                        None => {
+                            let end = Vec2 { x: a.body.pos.x + r.x * VISION_RANGE, y: a.body.pos.y + r.y * VISION_RANGE };
+                            let (x2, y2) = world_to_screen(fitted, end);
+                            draw_line(px, py, x2, y2, 1.0, Color::new(0.2, 1.0, 0.2, 0.35));
+                        }
+                    }
+                } else {
+                    // Carnivores: prefer carcass detection; fallback to showing plants faintly if present
+                    let carc_t = sensing::nearest_carcass_along_ray(a.body.pos, r, &snapshot);
+                    if let Some(t) = carc_t {
                         let sense_pt = Vec2 { x: a.body.pos.x + r.x * t, y: a.body.pos.y + r.y * t };
                         let (sx, sy) = world_to_screen(fitted, sense_pt);
-                        // draw sensed segment in green up to the food point
-                        let green = Color::new(0.2, 1.0, 0.2, 0.9);
-                        draw_line(px, py, sx, sy, 2.0, green);
-                        // mark the sensed point
-                        draw_circle(sx, sy, 3.0, green);
-                        // faint remainder to max range (lighter green)
+                        let orange = Color::new(1.0, 0.6, 0.1, 0.95);
+                        draw_line(px, py, sx, sy, 2.5, orange);
+                        draw_circle(sx, sy, 3.5, orange);
                         let end = Vec2 { x: a.body.pos.x + r.x * VISION_RANGE, y: a.body.pos.y + r.y * VISION_RANGE };
                         let (x2, y2) = world_to_screen(fitted, end);
-                        draw_line(sx, sy, x2, y2, 1.0, Color::new(0.2, 1.0, 0.2, 0.25));
-                    }
-                    None => {
-                        let end = Vec2 { x: a.body.pos.x + r.x * VISION_RANGE, y: a.body.pos.y * 1.0 + r.y * VISION_RANGE };
-                        let (x2, y2) = world_to_screen(fitted, end);
-                        draw_line(px, py, x2, y2, 1.0, Color::new(0.2, 1.0, 0.2, 0.35));
+                        draw_line(sx, sy, x2, y2, 1.0, Color::new(1.0, 0.6, 0.1, 0.25));
+                    } else {
+                        // Show faint plant rays as context
+                        let food_t = sensing::nearest_food_along_ray(a.body.pos, r, &episode.food);
+                        if let Some(t) = food_t {
+                            let sense_pt = Vec2 { x: a.body.pos.x + r.x * t, y: a.body.pos.y + r.y * t };
+                            let (sx, sy) = world_to_screen(fitted, sense_pt);
+                            draw_line(px, py, sx, sy, 1.0, Color::new(0.2, 1.0, 0.2, 0.35));
+                        } else {
+                            let end = Vec2 { x: a.body.pos.x + r.x * VISION_RANGE, y: a.body.pos.y + r.y * VISION_RANGE };
+                            let (x2, y2) = world_to_screen(fitted, end);
+                            draw_line(px, py, x2, y2, 0.5, Color::new(0.2, 1.0, 0.2, 0.12));
+                        }
                     }
                 }
-                // Overlay of other categories removed for simplicity in cone view; use inputs grid below for full breakdown.
             }
         }
         // Visual cue: edible nearby (live prey or unconsumed corpse) within EAT_AGENT_RADIUS
