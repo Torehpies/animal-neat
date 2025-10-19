@@ -437,12 +437,25 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
         let carn_bottom = yc.min(available_bottom);
         let herb_h = ((herb_bottom - herb_top) + 12.0).max(40.0);
         let carn_h = ((carn_bottom - carn_top) + 12.0).max(40.0);
-        // Panel widths slightly larger than content width for a nice margin
-        let herb_panel_x = herb_x - 14.0;
-        let carn_panel_x = carn_x - 14.0;
-        let panel_w_each = sec_w + 28.0;
-        draw_rectangle_lines(herb_panel_x, herb_top, panel_w_each, herb_h, 1.0, Color::new(0.3, 0.6, 0.8, 0.35));
-        draw_rectangle_lines(carn_panel_x, carn_top, panel_w_each, carn_h, 1.0, Color::new(0.3, 0.6, 0.8, 0.35));
+    // Panel widths slightly larger than content width for a nice margin
+    let herb_panel_x = herb_x - 14.0;
+    let carn_panel_x = carn_x - 14.0;
+
+    // Desired extra margin beyond the content width
+    let desired_extra = 28.0;
+    // Minimum pixel separation to keep between the two panels (scale with UI)
+    let min_separation = 8.0 * ui_scale;
+
+    // Compute the maximum allowed panel width so the boxes don't overlap.
+    // carn_panel_x - herb_panel_x is the horizontal distance between the two panel origins.
+    let max_allowed_by_gap = (carn_panel_x - herb_panel_x) - min_separation;
+
+    // Ensure panel width is at least the content width (sec_w) but never exceeds the gap-based maximum.
+    let panel_w_each = (sec_w + desired_extra).min(max_allowed_by_gap.max(sec_w));
+
+    // Draw outlines (thin, scaled by UI)
+    draw_rectangle_lines(herb_panel_x, herb_top, panel_w_each, herb_h, 1.0 * ui_scale, Color::new(0.3, 0.6, 0.8, 0.35));
+    draw_rectangle_lines(carn_panel_x, carn_top, panel_w_each, carn_h, 1.0 * ui_scale, Color::new(0.3, 0.6, 0.8, 0.35));
 
     }
 
