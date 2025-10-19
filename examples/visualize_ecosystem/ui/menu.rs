@@ -1,10 +1,39 @@
 //! Simple menu for customizing simulation parameters before starting
 
 use macroquad::prelude::*;
+mod particle_system;
+use particle_system::ParticleSystem;
 
 // Pull in backend types/logic and re-export so external modules can continue using ui_menu::SimConfig
-pub use crate::menu_backend::{SimConfig, MenuState};
+pub use crate::menu_backend::{SimConfig, MenuState as BackendMenuState};
 use crate::menu_backend::{EditField, apply_field_value, MenuScreen};
+
+pub struct MenuState {
+    pub config: SimConfig,
+    pub editing_field: Option<EditField>,
+    pub input_buffer: String,
+    pub show_help: bool,
+    pub show_advanced: bool,
+    particle_system: ParticleSystem,
+}
+
+impl MenuState {
+    pub fn new() -> Self {
+        Self {
+            config: SimConfig::default(),
+            editing_field: None,
+            input_buffer: String::new(),
+            show_help: false,
+            show_advanced: false,
+            particle_system: ParticleSystem::new(100),
+        }
+    }
+}
+
+pub enum MenuResult {
+    Config(SimConfig),
+    Back,
+}
 
 // Simple word-wrapping for multi-paragraph help text
 fn draw_text_wrapped(text: &str, mut x: f32, mut y: f32, max_w: f32, font_sz: f32, line_h: f32, color: Color) {
@@ -243,30 +272,13 @@ fn draw_field_row(
     tooltip
 }
 
-fn draw_button(
-    label: &str,
-    x: f32,
-    y: f32,
-    w: f32,
-    h: f32,
-    ui_scale: f32,
-    font_sz: f32,
-) -> bool {
-    let (mx, my) = mouse_position();
-    let hover = mx >= x && mx <= x + w && my >= y && my <= y + h;
-    let bg_color = if hover { Color::new(0.35, 0.75, 0.95, 1.0) } else { Color::new(0.22, 0.55, 0.78, 1.0) };
-    
-    draw_rectangle(x, y, w, h, bg_color);
-    draw_rectangle_lines(x, y, w, h, 2.0 * ui_scale, WHITE);
-    let text_w = measure_text(label, None, font_sz as u16, 1.0).width;
-    draw_text(label, x + (w - text_w) / 2.0, y + 32.0 * ui_scale, font_sz, WHITE);
-    
-    hover && is_mouse_button_pressed(MouseButton::Left)
-}
-
-/// Draw the unified menu and handle input. Returns Some(config) when user confirms, None while still editing
-pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
+/// Draw the unified menu and handle input. Returns Some(MenuResult) when user confirms or goes back
+pub async fn draw_menu(state: &mut MenuState) -> Option<MenuResult> {
     clear_background(Color::new(0.05, 0.05, 0.08, 1.0));
+    
+    // Update and draw particles FIRST (behind everything)
+    state.particle_system.update();
+    state.particle_system.draw();
     
     let w = screen_width();
     let h = screen_height();
@@ -532,22 +544,119 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
     // === BOTTOM BUTTONS ===
     let button_w = 200.0;
     let button_h = 50.0;
-    let button_gap = 20.0;
-    let buttons_total_w = button_w * 2.0 + button_gap; // Reset + Start
+    let button_gap = 16.0;
+    let buttons_total_w = button_w * 3.0 + button_gap * 2.0; // Back + Reset + Start
     let button_y = panel_y + panel_h - button_h - padding + 20.0 * ui_scale;
     let start_x_base = panel_x + (panel_w - buttons_total_w) / 2.0;
 
-    let reset_x = start_x_base;
+    let back_x = start_x_base;
+    let reset_x = back_x + button_w + button_gap;
     let start_x = reset_x + button_w + button_gap;
 
-    // Reset button
-    if draw_button("RESET TO DEFAULTS", reset_x, button_y, button_w, button_h, ui_scale, 20.0 * ui_scale) && state.editing_field.is_none() {
+    // Back button (grey) with particle effect
+    let back_hover = mx >= back_x && mx <= back_x + button_w && my >= button_y && my <= button_y + button_h;
+    let back_bg = if back_hover { Color::new(0.45, 0.45, 0.45, 1.0) } else { Color::new(0.35, 0.35, 0.35, 1.0) };
+    draw_rectangle(back_x + 3.0, button_y + 3.0, button_w, button_h, Color::new(0.0, 0.0, 0.0, 0.25));
+    draw_rectangle(back_x, button_y, button_w, button_h, back_bg);
+    draw_rectangle_lines(back_x, button_y, button_w, button_h, 2.0 * ui_scale, WHITE);
+    let back_text_w = measure_text("BACK", None, (30.0 * ui_scale) as u16, 1.0).width;
+    let back_text_h = measure_text("BACK", None, (30.0 * ui_scale) as u16, 1.0).height;
+    draw_text("BACK", back_x + (button_w - back_text_w) / 2.0, button_y + (button_h + back_text_h) / 2.0, 30.0 * ui_scale, WHITE);
+    if back_hover && is_mouse_button_pressed(MouseButton::Left) && state.editing_field.is_none() {
+        let target_center = vec2(back_x + button_w / 2.0, button_y + button_h / 2.0);
+        state.particle_system.activate_pull(target_center, 0.5);
+
+        let effect_duration = 0.8;
+        let start_time = get_time();
+
+        // Store a screenshot-like render to fade out
+        loop {
+            if get_time() - start_time >= effect_duration {
+                break;
+            }
+            
+            let t = ((get_time() - start_time) / effect_duration).clamp(0.0, 1.0) as f32;
+
+            clear_background(Color::new(0.05, 0.05, 0.08, 1.0));
+            state.particle_system.update();
+            state.particle_system.draw();
+
+            // Redraw entire UI with fade
+            draw_rectangle(panel_x, panel_y, panel_w, panel_h, Color::new(0.12, 0.12, 0.15, 1.0 - t * 0.8));
+            draw_rectangle_lines(panel_x, panel_y, panel_w, panel_h, 3.0, Color::new(0.3, 0.6, 0.8, 1.0 - t * 0.8));
+
+            // Fade overlay on top
+            draw_rectangle(
+                0.0,
+                0.0,
+                screen_width(),
+                screen_height(),
+                Color::new(0.0, 0.0, 0.0, t * 0.8),
+            );
+
+            next_frame().await;
+        }
+
+        return Some(MenuResult::Back);
+    }
+
+    // Reset button (yellow)
+    let reset_hover = mx >= reset_x && mx <= reset_x + button_w && my >= button_y && my <= button_y + button_h;
+    let reset_bg = if reset_hover { Color::new(0.7, 0.65, 0.3, 1.0) } else { Color::new(0.55, 0.5, 0.25, 1.0) };
+    draw_rectangle(reset_x + 3.0, button_y + 3.0, button_w, button_h, Color::new(0.0, 0.0, 0.0, 0.25));
+    draw_rectangle(reset_x, button_y, button_w, button_h, reset_bg);
+    draw_rectangle_lines(reset_x, button_y, button_w, button_h, 2.0 * ui_scale, WHITE);
+    let reset_text_w = measure_text("RESET TO DEFAULTS", None, (30.0 * ui_scale) as u16, 1.0).width;
+    let reset_text_h = measure_text("RESET TO DEFAULTS", None, (30.0 * ui_scale) as u16, 1.0).height;
+    draw_text("RESET TO DEFAULTS", reset_x + (button_w - reset_text_w) / 2.0, button_y + (button_h + reset_text_h) / 2.0, 30.0 * ui_scale, WHITE);
+    if reset_hover && is_mouse_button_pressed(MouseButton::Left) && state.editing_field.is_none() {
         *state = MenuState::new();
     }
 
-    // Start Simulation button
-    if draw_button("START SIMULATION", start_x, button_y, button_w, button_h, ui_scale, 24.0 * ui_scale) && state.editing_field.is_none() {
-        return Some(state.config.clone());
+    // Start Simulation button (blue) with particle effect
+    let start_hover = mx >= start_x && mx <= start_x + button_w && my >= button_y && my <= button_y + button_h;
+    let start_bg = if start_hover { Color::new(0.25, 0.7, 0.7, 1.0) } else { Color::new(0.2, 0.55, 0.55, 1.0) };
+    draw_rectangle(start_x + 3.0, button_y + 3.0, button_w, button_h, Color::new(0.0, 0.0, 0.0, 0.25));
+    draw_rectangle(start_x, button_y, button_w, button_h, start_bg);
+    draw_rectangle_lines(start_x, button_y, button_w, button_h, 2.0 * ui_scale, WHITE);
+    let start_text_w = measure_text("START SIMULATION", None, (30.0 * ui_scale) as u16, 1.0).width;
+    let start_text_h = measure_text("START SIMULATION", None, (30.0 * ui_scale) as u16, 1.0).height;
+    draw_text("START SIMULATION", start_x + (button_w - start_text_w) / 2.0, button_y + (button_h + start_text_h) / 2.0, 30.0 * ui_scale, WHITE);
+    if start_hover && is_mouse_button_pressed(MouseButton::Left) && state.editing_field.is_none() {
+        let target_center = vec2(start_x + button_w / 2.0, button_y + button_h / 2.0);
+        state.particle_system.activate_pull(target_center, 0.5);
+
+        let effect_duration = 0.8;
+        let start_time = get_time();
+
+        loop {
+            if get_time() - start_time >= effect_duration {
+                break;
+            }
+            
+            let t = ((get_time() - start_time) / effect_duration).clamp(0.0, 1.0) as f32;
+
+            clear_background(Color::new(0.05, 0.05, 0.08, 1.0));
+            state.particle_system.update();
+            state.particle_system.draw();
+
+            // Redraw entire UI with fade
+            draw_rectangle(panel_x, panel_y, panel_w, panel_h, Color::new(0.12, 0.12, 0.15, 1.0 - t * 0.8));
+            draw_rectangle_lines(panel_x, panel_y, panel_w, panel_h, 3.0, Color::new(0.3, 0.6, 0.8, 1.0 - t * 0.8));
+
+            // Fade overlay on top
+            draw_rectangle(
+                0.0,
+                0.0,
+                screen_width(),
+                screen_height(),
+                Color::new(0.0, 0.0, 0.0, t * 0.8),
+            );
+
+            next_frame().await;
+        }
+
+        return Some(MenuResult::Config(state.config.clone()));
     }
 
     // Draw the last tooltip (top-most hovered label) last

@@ -1,5 +1,8 @@
 use macroquad::prelude::*;
 
+mod particle_system;
+use particle_system::ParticleSystem;
+
 /// Result of the in-simulation modal menu
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SimMenuResult {
@@ -11,12 +14,17 @@ pub enum SimMenuResult {
 /// This function handles the modal overlay and all button interactions.
 pub async fn run_sim_menu(state: &mut crate::AppState) -> SimMenuResult {
     let mut click_cooldown = 0.0f32;
+    let mut particle_system = ParticleSystem::new(150);
 
     loop {
-        // Draw a semi-transparent dark overlay over the frozen simulation
+        // Update and draw particles
+        particle_system.update();
+        particle_system.draw();
+
+        // Draw a semi-transparent dark overlay
         let w = screen_width();
         let h = screen_height();
-        draw_rectangle(0.0, 0.0, w, h, Color::new(0.0, 0.0, 0.0, 0.7));
+        draw_rectangle(0.0, 0.0, w, h, Color::new(0.0, 0.0, 0.0, 0.2));
 
         // Panel
         let panel_w = 460.0;
@@ -97,19 +105,41 @@ pub async fn run_sim_menu(state: &mut crate::AppState) -> SimMenuResult {
         // Input handling
         if is_mouse_button_pressed(MouseButton::Left) && click_cooldown <= 0.0 {
             if hovering_resume {
-                //click_cooldown = 0.15;
+                click_cooldown = 0.15;
+                
+                // Fade out effect
+                let fade_duration = 0.3;
+                let start_time = get_time();
+                while get_time() - start_time < fade_duration {
+                    let progress = (get_time() - start_time) / fade_duration;
+                    let alpha = 1.0 - progress as f32;
+                    
+                    particle_system.update();
+                    particle_system.draw();
+                    
+                    draw_rectangle(0.0, 0.0, w, h, Color::new(0.0, 0.0, 0.0, 1.0 - alpha));
+                    next_frame().await;
+                }
+                
                 return SimMenuResult::Resume;
-            } else if hovering_save && click_cooldown <= 0.0 {
-                // Handle Save: show save picker
-                //click_cooldown = 0.20;
-                // Wait for cooldown
-                let cooldown_start = get_time();
-                while get_time() - cooldown_start < 0.20 {
+            } else if hovering_save {
+                click_cooldown = 0.15;
+                
+                // Fade out effect
+                let fade_duration = 0.3;
+                let start_time = get_time();
+                while get_time() - start_time < fade_duration {
+                    let progress = (get_time() - start_time) / fade_duration;
+                    let alpha = 1.0 - progress as f32;
+                    
+                    particle_system.update();
+                    particle_system.draw();
+                    
+                    draw_rectangle(0.0, 0.0, w, h, Color::new(0.0, 0.0, 0.0, 1.0 - alpha));
                     next_frame().await;
                 }
                 
                 if let Some(save_path) = crate::ui_save_picker::pick_save(None).await {
-                    // Save the current simulation state
                     if let Err(e) = crate::snapshot::save_sim_snapshot(
                         &save_path,
                         state.generation,
@@ -123,19 +153,24 @@ pub async fn run_sim_menu(state: &mut crate::AppState) -> SimMenuResult {
                         println!("Saved simulation to {}", save_path);
                     }
                 }
-                // Reset cooldown after picker closes
+            } else if hovering_load {
                 click_cooldown = 0.15;
-            } else if hovering_load && click_cooldown <= 0.0 {
-                // Handle Load: show load picker
-                //click_cooldown = 0.20;
-                // Wait for cooldown
-                let cooldown_start = get_time();
-                while get_time() - cooldown_start < 0.20 {
+                
+                // Fade out effect
+                let fade_duration = 0.3;
+                let start_time = get_time();
+                while get_time() - start_time < fade_duration {
+                    let progress = (get_time() - start_time) / fade_duration;
+                    let alpha = 1.0 - progress as f32;
+                    
+                    particle_system.update();
+                    particle_system.draw();
+                    
+                    draw_rectangle(0.0, 0.0, w, h, Color::new(0.0, 0.0, 0.0, 1.0 - alpha));
                     next_frame().await;
                 }
                 
                 if let Some(load_path) = crate::ui_load_picker::pick_snapshot().await {
-                    // Load the simulation state
                     match crate::snapshot::load_sim_snapshot(&load_path) {
                         Ok(snap) => {
                             state.population = snap.population;
@@ -143,7 +178,6 @@ pub async fn run_sim_menu(state: &mut crate::AppState) -> SimMenuResult {
                             state.innov = snap.innovation;
                             state.member_species = snap.member_species;
                             
-                            // Rebuild episode from snapshot
                             use crate::sim::{Agent, AgentId};
                             use crate::body::Body;
                             use crate::params::AGENT_COLLISION_RADIUS;
@@ -170,7 +204,7 @@ pub async fn run_sim_menu(state: &mut crate::AppState) -> SimMenuResult {
                                     predation_flash_steps: a_snap.predation_flash_steps,
                                     dead_since: a_snap.dead_since,
                                     corpse_energy: a_snap.corpse_energy,
-                                    digest: std::collections::VecDeque::new(), // Reset digest queue
+                                    digest: std::collections::VecDeque::new(),
                                     last_food_mem: a_snap.last_food_mem.to_vec2(),
                                     last_danger_mem: a_snap.last_danger_mem.to_vec2(),
                                     last_same_mem: a_snap.last_same_mem.to_vec2(),
@@ -209,20 +243,27 @@ pub async fn run_sim_menu(state: &mut crate::AppState) -> SimMenuResult {
                         }
                     }
                 }
-                // Reset cooldown after picker closes
-                click_cooldown = 0.15;
             } else if hovering_back {
-                //click_cooldown = 0.20;
-                // Wait for cooldown
-                let cooldown_start = get_time();
-                while get_time() - cooldown_start < 0.20 {
+                click_cooldown = 0.15;
+                
+                // Fade out effect
+                let fade_duration = 0.3;
+                let start_time = get_time();
+                while get_time() - start_time < fade_duration {
+                    let progress = (get_time() - start_time) / fade_duration;
+                    let alpha = 1.0 - progress as f32;
+                    
+                    particle_system.update();
+                    particle_system.draw();
+                    
+                    draw_rectangle(0.0, 0.0, w, h, Color::new(0.0, 0.0, 0.0, 1.0 - alpha));
                     next_frame().await;
                 }
+                
                 return SimMenuResult::BackToMain;
             }
         }
 
-        // Cooldown decrement
         if click_cooldown > 0.0 {
             click_cooldown = (click_cooldown - get_frame_time()).max(0.0);
         }

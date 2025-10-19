@@ -1,7 +1,7 @@
 use super::ui_menu::{MenuState, SimConfig, draw_menu};
 use macroquad::prelude::*;
 mod load_picker;
-mod particle_system;
+pub mod particle_system;
 
 use particle_system::ParticleSystem;
 
@@ -26,7 +26,13 @@ fn draw_button(x: f32, y: f32, w: f32, h: f32, text: &str, color: Color, font_si
 }
 
 fn draw_title(title: &str, size: f32, x: f32, y: f32) {
-    draw_text(title, x + 2.0, y + 2.0, size, Color::new(0.0, 0.0, 0.0, 0.5));
+    draw_text(
+        title,
+        x + 2.0,
+        y + 2.0,
+        size,
+        Color::new(0.0, 0.0, 0.0, 0.5),
+    );
     draw_text(title, x, y, size, Color::new(0.8, 0.9, 1.0, 1.0));
 }
 
@@ -80,7 +86,15 @@ pub async fn run_main_menu() -> MenuResult {
                 } else {
                     Color::new(0.2, 0.55, 0.25, 1.0)
                 };
-                draw_button(bx, by_simulate, btn_w, btn_h, "Simulate", simulate_color, 30.0);
+                draw_button(
+                    bx,
+                    by_simulate,
+                    btn_w,
+                    btn_h,
+                    "Simulate",
+                    simulate_color,
+                    30.0,
+                );
 
                 let exit_color = if exit_hover {
                     Color::new(0.75, 0.25, 0.25, 1.0)
@@ -105,8 +119,8 @@ pub async fn run_main_menu() -> MenuResult {
                         let start_time = get_time();
 
                         while get_time() - start_time < effect_duration {
-                            let t = ((get_time() - start_time) / effect_duration)
-                                .clamp(0.0, 1.0) as f32;
+                            let t = ((get_time() - start_time) / effect_duration).clamp(0.0, 1.0)
+                                as f32;
 
                             clear_background(Color::new(0.05, 0.06, 0.10, 1.0));
 
@@ -195,8 +209,10 @@ pub async fn run_main_menu() -> MenuResult {
                 let back_w = 180.0;
                 let back_h = 50.0;
                 let back_x = w * 0.5 - back_w * 0.5;
-                let back_hover =
-                    mx >= back_x && mx <= back_x + back_w && my >= by_back && my <= by_back + back_h;
+                let back_hover = mx >= back_x
+                    && mx <= back_x + back_w
+                    && my >= by_back
+                    && my <= by_back + back_h;
 
                 // Draw buttons
                 let create_color = if create_hover {
@@ -234,39 +250,146 @@ pub async fn run_main_menu() -> MenuResult {
                 } else {
                     Color::new(0.35, 0.35, 0.35, 1.0)
                 };
-                draw_button(
-                    back_x,
-                    by_back,
-                    back_w,
-                    back_h,
-                    "Back",
-                    back_color,
-                    24.0,
-                );
+                draw_button(back_x, by_back, back_w, back_h, "Back", back_color, 24.0);
 
                 // Click handling
                 if is_mouse_button_pressed(MouseButton::Left) && click_cooldown <= 0.0 {
                     if create_hover {
+                        let target_center = vec2(bx + btn_w / 2.0, by_create + btn_h / 2.0);
+                        particle_system.activate_pull(target_center, 0.5);
+                        click_cooldown = 0.20;
+
+                        let effect_duration = 0.8;
+                        let start_time = get_time();
+
+                        while get_time() - start_time < effect_duration {
+                            let t = ((get_time() - start_time) / effect_duration).clamp(0.0, 1.0)
+                                as f32;
+
+                            clear_background(Color::new(0.05, 0.06, 0.10, 1.0));
+
+                            particle_system.update();
+                            particle_system.draw();
+
+                            draw_title(title, title_size, tx, h * 0.18);
+                            draw_button(
+                                bx,
+                                by_create,
+                                btn_w,
+                                btn_h,
+                                "Create New Simulation",
+                                Color::new(0.2, 0.55, 0.55, 1.0),
+                                28.0,
+                            );
+                            draw_button(
+                                bx,
+                                by_load,
+                                btn_w,
+                                btn_h,
+                                "Load Saved Simulation",
+                                Color::new(0.55, 0.5, 0.25, 1.0),
+                                28.0,
+                            );
+                            draw_button(
+                                back_x,
+                                by_back,
+                                back_w,
+                                back_h,
+                                "Back",
+                                Color::new(0.35, 0.35, 0.35, 1.0),
+                                24.0,
+                            );
+
+                            draw_rectangle(
+                                0.0,
+                                0.0,
+                                screen_width(),
+                                screen_height(),
+                                Color::new(0.0, 0.0, 0.0, t * 0.8),
+                            );
+
+                            next_frame().await;
+                        }
+
                         let mut menu_state = MenuState::new();
-                        let config = loop {
-                            if let Some(cfg) = draw_menu(&mut menu_state) {
-                                break cfg;
+                        loop {
+                            if let Some(result) = draw_menu(&mut menu_state).await {
+                                match result {
+                                    crate::ui_menu::MenuResult::Config(cfg) => {
+                                        return MenuResult::New(cfg);
+                                    }
+                                    crate::ui_menu::MenuResult::Back => {
+                                        break;
+                                    }
+                                }
                             }
                             next_frame().await;
-                        };
-                        return MenuResult::New(config);
+                        }
+                        particle_system.reset(100);
+                        click_cooldown = 0.15;
                     }
 
                     if load_hover {
+                        let target_center = vec2(bx + btn_w / 2.0, by_load + btn_h / 2.0);
+                        particle_system.activate_pull(target_center, 0.5);
                         click_cooldown = 0.20;
-                        let cooldown_start = get_time();
-                        while get_time() - cooldown_start < 0.20 {
+
+                        let effect_duration = 0.8;
+                        let start_time = get_time();
+
+                        while get_time() - start_time < effect_duration {
+                            let t = ((get_time() - start_time) / effect_duration).clamp(0.0, 1.0)
+                                as f32;
+
+                            clear_background(Color::new(0.05, 0.06, 0.10, 1.0));
+
+                            particle_system.update();
+                            particle_system.draw();
+
+                            draw_title(title, title_size, tx, h * 0.18);
+                            draw_button(
+                                bx,
+                                by_create,
+                                btn_w,
+                                btn_h,
+                                "Create New Simulation",
+                                Color::new(0.2, 0.55, 0.55, 1.0),
+                                28.0,
+                            );
+                            draw_button(
+                                bx,
+                                by_load,
+                                btn_w,
+                                btn_h,
+                                "Load Saved Simulation",
+                                Color::new(0.55, 0.5, 0.25, 1.0),
+                                28.0,
+                            );
+                            draw_button(
+                                back_x,
+                                by_back,
+                                back_w,
+                                back_h,
+                                "Back",
+                                Color::new(0.35, 0.35, 0.35, 1.0),
+                                24.0,
+                            );
+
+                            draw_rectangle(
+                                0.0,
+                                0.0,
+                                screen_width(),
+                                screen_height(),
+                                Color::new(0.0, 0.0, 0.0, t * 0.8),
+                            );
+
                             next_frame().await;
                         }
 
                         if let Some(path) = load_picker::pick_snapshot().await {
                             return MenuResult::Load(path);
                         }
+                        particle_system.reset(100);
                         click_cooldown = 0.15;
                     }
 
@@ -279,8 +402,8 @@ pub async fn run_main_menu() -> MenuResult {
                         let start_time = get_time();
 
                         while get_time() - start_time < effect_duration {
-                            let t = ((get_time() - start_time) / effect_duration)
-                                .clamp(0.0, 1.0) as f32;
+                            let t = ((get_time() - start_time) / effect_duration).clamp(0.0, 1.0)
+                                as f32;
 
                             clear_background(Color::new(0.05, 0.06, 0.10, 1.0));
 
@@ -330,6 +453,7 @@ pub async fn run_main_menu() -> MenuResult {
                         particle_system.reset(100);
                         screen = MainScreen::MainMenu;
                         click_cooldown = 0.15;
+                        continue;
                     }
                 }
 

@@ -3,9 +3,14 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 use std::fs;
 
+mod particle_system;
+use particle_system::ParticleSystem;
+
 /// Show a combined save picker: allows entering a new filename or selecting an existing
 /// snapshot to overwrite. Returns Some(path_string) when user confirms a save path, or None on cancel.
 pub async fn pick_save(initial_name: Option<&str>) -> Option<String> {
+    let mut particle_system = ParticleSystem::new(150);
+    
     // Collect files
     let mut files: Vec<PathBuf> = Vec::new();
     if let Ok(entries) = std::fs::read_dir("snapshots") {
@@ -32,6 +37,11 @@ pub async fn pick_save(initial_name: Option<&str>) -> Option<String> {
 
     loop {
         clear_background(Color::new(0.05, 0.05, 0.08, 1.0));
+        
+        // Update and draw particles
+        particle_system.update();
+        particle_system.draw();
+        
         let w = screen_width();
         let h = screen_height();
 
@@ -56,7 +66,7 @@ pub async fn pick_save(initial_name: Option<&str>) -> Option<String> {
         let cancel_x = ib_x + ib_w - btn_w;
         let cancel_y = save_y;
 
-    // Draw list of existing files below
+        // Draw list of existing files below
         let list_x = ib_x;
         let list_y = save_y + btn_h + 18.0;
         let list_w = ib_w;
@@ -97,6 +107,20 @@ pub async fn pick_save(initial_name: Option<&str>) -> Option<String> {
                     // Ask for confirmation
                     confirm_delete = Some(p.clone());
                 } else if hovered && confirm_delete.is_none() {
+                    // Fade out effect
+                    let fade_duration = 0.3;
+                    let start_time = get_time();
+                    while get_time() - start_time < fade_duration {
+                        let progress = (get_time() - start_time) / fade_duration;
+                        let alpha = 1.0 - progress as f32;
+                        
+                        particle_system.update();
+                        particle_system.draw();
+                        
+                        draw_rectangle(0.0, 0.0, w, h, Color::new(0.0, 0.0, 0.0, 1.0 - alpha));
+                        next_frame().await;
+                    }
+                    
                     return Some(p.to_string_lossy().into_owned());
                 }
             }
@@ -133,7 +157,23 @@ pub async fn pick_save(initial_name: Option<&str>) -> Option<String> {
         draw_text("Cancel", cancel_x + 30.0, cancel_y + 26.0, 24.0, BLACK);
         if is_mouse_button_pressed(MouseButton::Left) {
             let (mx, my) = mouse_position();
-            if mx >= cancel_x && mx <= cancel_x + btn_w && my >= cancel_y && my <= cancel_y + btn_h { return None; }
+            if mx >= cancel_x && mx <= cancel_x + btn_w && my >= cancel_y && my <= cancel_y + btn_h {
+                // Fade out effect
+                let fade_duration = 0.3;
+                let start_time = get_time();
+                while get_time() - start_time < fade_duration {
+                    let progress = (get_time() - start_time) / fade_duration;
+                    let alpha = 1.0 - progress as f32;
+                    
+                    particle_system.update();
+                    particle_system.draw();
+                    
+                    draw_rectangle(0.0, 0.0, w, h, Color::new(0.0, 0.0, 0.0, 1.0 - alpha));
+                    next_frame().await;
+                }
+                
+                return None;
+            }
         }
 
         // Save button (uses input string)
@@ -144,6 +184,20 @@ pub async fn pick_save(initial_name: Option<&str>) -> Option<String> {
             let (mx, my) = mouse_position();
             if mx >= save_x && mx <= save_x + btn_w && my >= save_y && my <= save_y + btn_h {
                 if !input.trim().is_empty() {
+                    // Fade out effect
+                    let fade_duration = 0.3;
+                    let start_time = get_time();
+                    while get_time() - start_time < fade_duration {
+                        let progress = (get_time() - start_time) / fade_duration;
+                        let alpha = 1.0 - progress as f32;
+                        
+                        particle_system.update();
+                        particle_system.draw();
+                        
+                        draw_rectangle(0.0, 0.0, w, h, Color::new(0.0, 0.0, 0.0, 1.0 - alpha));
+                        next_frame().await;
+                    }
+                    
                     let filename = format!("snapshots/{}.json", input.trim());
                     return Some(filename);
                 }
@@ -205,9 +259,39 @@ pub async fn pick_save(initial_name: Option<&str>) -> Option<String> {
         } else {
             // Keyboard input handling (only when not in modal)
             if is_key_pressed(KeyCode::Backspace) { input.pop(); }
-            if is_key_pressed(KeyCode::Escape) { return None; }
+            if is_key_pressed(KeyCode::Escape) {
+                // Fade out effect
+                let fade_duration = 0.3;
+                let start_time = get_time();
+                while get_time() - start_time < fade_duration {
+                    let progress = (get_time() - start_time) / fade_duration;
+                    let alpha = 1.0 - progress as f32;
+                    
+                    particle_system.update();
+                    particle_system.draw();
+                    
+                    draw_rectangle(0.0, 0.0, w, h, Color::new(0.0, 0.0, 0.0, 1.0 - alpha));
+                    next_frame().await;
+                }
+                
+                return None;
+            }
             if is_key_pressed(KeyCode::Enter) {
                 if !input.trim().is_empty() {
+                    // Fade out effect
+                    let fade_duration = 0.3;
+                    let start_time = get_time();
+                    while get_time() - start_time < fade_duration {
+                        let progress = (get_time() - start_time) / fade_duration;
+                        let alpha = 1.0 - progress as f32;
+                        
+                        particle_system.update();
+                        particle_system.draw();
+                        
+                        draw_rectangle(0.0, 0.0, w, h, Color::new(0.0, 0.0, 0.0, 1.0 - alpha));
+                        next_frame().await;
+                    }
+                    
                     let filename = format!("snapshots/{}.json", input.trim());
                     return Some(filename);
                 }

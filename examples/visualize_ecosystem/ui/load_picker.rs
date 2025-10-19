@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 use std::fs;
 
+use crate::ui_main_menu::particle_system::ParticleSystem;
+
 /// Show a mouse-driven snapshot picker for files in `snapshots/`.
 /// Returns Some(path_string) when the user clicks a file, or None when cancelled.
 pub async fn pick_snapshot() -> Option<String> {
@@ -16,10 +18,15 @@ pub async fn pick_snapshot() -> Option<String> {
             }
         }
     }
+    
+    let mut particle_system = ParticleSystem::new(100);
+    
     if files.is_empty() {
         // Inform the user and return None on any key/click
         loop {
             clear_background(Color::new(0.05, 0.05, 0.08, 1.0));
+            particle_system.update();
+            particle_system.draw();
             let w = screen_width();
             let h = screen_height();
             draw_text("No snapshots found in snapshots/", w * 0.5 - 220.0, h * 0.5, 28.0, WHITE);
@@ -44,6 +51,9 @@ pub async fn pick_snapshot() -> Option<String> {
 
     loop {
         clear_background(Color::new(0.05, 0.05, 0.08, 1.0));
+        particle_system.update();
+        particle_system.draw();
+        
         let w = screen_width();
         let h = screen_height();
 
@@ -87,8 +97,39 @@ pub async fn pick_snapshot() -> Option<String> {
                 if del_hovered {
                     confirm_delete = Some(p.clone());
                 } else if hovered && confirm_delete.is_none() {
-                    // wait for release to avoid the same click being delivered to the caller
-                    while is_mouse_button_down(MouseButton::Left) { next_frame().await; }
+                    // File selected - play effect and return
+                    let target_center = vec2(rect_x + rect_w / 2.0, rect_y + rect_h / 2.0);
+                    particle_system.activate_pull(target_center, 0.5);
+
+                    let effect_duration = 0.8;
+                    let start_time = get_time();
+
+                    loop {
+                        if get_time() - start_time >= effect_duration {
+                            break;
+                        }
+                        
+                        let t = ((get_time() - start_time) / effect_duration).clamp(0.0, 1.0) as f32;
+
+                        clear_background(Color::new(0.05, 0.05, 0.08, 1.0));
+                        particle_system.update();
+                        particle_system.draw();
+
+                        // Draw picker UI fading out
+                        draw_text("Select snapshot to load", w * 0.5 - 180.0, h * 0.12, 36.0, Color::new(1.0, 1.0, 1.0, 1.0 - t * 0.8));
+
+                        // Fade overlay on top
+                        draw_rectangle(
+                            0.0,
+                            0.0,
+                            screen_width(),
+                            screen_height(),
+                            Color::new(0.0, 0.0, 0.0, t * 0.8),
+                        );
+
+                        next_frame().await;
+                    }
+                    
                     return Some(p.to_string_lossy().into_owned());
                 }
             }
@@ -128,7 +169,23 @@ pub async fn pick_snapshot() -> Option<String> {
         draw_text("Cancel", cancel_x + 30.0, controls_y + 26.0, 24.0, BLACK);
         if is_mouse_button_pressed(MouseButton::Left) {
             let (mx, my) = mouse_position();
-            if mx >= cancel_x && mx <= cancel_x + btn_w && my >= controls_y && my <= controls_y + btn_h { return None; }
+            if mx >= cancel_x && mx <= cancel_x + btn_w && my >= controls_y && my <= controls_y + btn_h {
+                // Fade out effect
+                let fade_duration = 0.3;
+                let start_time = get_time();
+                while get_time() - start_time < fade_duration {
+                    let progress = (get_time() - start_time) / fade_duration;
+                    let alpha = 1.0 - progress as f32;
+                    
+                    particle_system.update();
+                    particle_system.draw();
+                    
+                    draw_rectangle(0.0, 0.0, w, h, Color::new(0.0, 0.0, 0.0, 1.0 - alpha));
+                    next_frame().await;
+                }
+                
+                return None;
+            }
         }
 
         // Confirmation modal for deletion
