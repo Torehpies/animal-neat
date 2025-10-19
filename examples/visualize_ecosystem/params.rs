@@ -265,7 +265,8 @@ pub const SEASONAL_PERIOD_STEPS: usize = 4000; // higher = slower seasons
 pub const SEASONAL_AMPLITUDE: f32 = 0.35;      // 0.0..1.0; multiplies growth by (1 + A*sin(...))
 pub const BIOME_SEASON_PHASE: [f32; 3] = [0.0, 1.2, 2.4]; // radians offset per biome
 pub const FOOD_COUNT: usize = 500;
-pub const FOOD_RADIUS: f32 = 1.2;
+// Increased plant radius so the plant sprite appears larger and its collision/eating range matches the visual.
+pub const FOOD_RADIUS: f32 = 5.0;
 pub const FOOD_ENERGY: f32 = 60.0;
 
 // Plant/food dynamics

@@ -110,6 +110,8 @@ struct AppState {
     // Sprites (optional). If not present, fallback shapes are used.
     pub herb_tex: Option<Texture2D>,
     pub carn_tex: Option<Texture2D>,
+    pub plant_tex: Option<Texture2D>,
+    pub meat_tex: Option<Texture2D>,
     // Diagnostics
     show_fps: bool,
     ultra_mode: bool,
@@ -196,6 +198,8 @@ impl AppState {
             save_prefix,
             herb_tex: None,
             carn_tex: None,
+            plant_tex: None,
+            meat_tex: None,
             show_fps: true,
             ultra_mode: false,
             show_scoreboard_panel: false, // default: autoplay between episodes (no pause)
@@ -365,8 +369,14 @@ async fn main() {
         state.herb_tex = if first.is_some() { first } else { try_load(".vscode/assets/sheep.png").await };
         let firstc = try_load("assets/wolf.png").await;
         state.carn_tex = if firstc.is_some() { firstc } else { try_load(".vscode/assets/wolf.png").await };
+    let plant_first = try_load("assets/plant_1.png").await;
+    state.plant_tex = if plant_first.is_some() { plant_first } else { try_load(".vscode/assets/plant_1.png").await };
+    let meat_first = try_load("assets/meat.png").await;
+    state.meat_tex = if meat_first.is_some() { meat_first } else { try_load(".vscode/assets/meat.png").await };
         if state.herb_tex.is_none() { eprintln!("Warning: herbivore sprite not found (assets/sheep.png or .vscode/assets/sheep.png)"); }
         if state.carn_tex.is_none() { eprintln!("Warning: carnivore sprite not found (assets/wolf.png or .vscode/assets/wolf.png)"); }
+    if state.plant_tex.is_none() { eprintln!("Warning: plant sprite not found (assets/plant_1.png or .vscode/assets/plant_1.png)"); }
+    if state.meat_tex.is_none() { eprintln!("Warning: meat sprite not found (assets/meat.png or .vscode/assets/meat.png)"); }
         // If the main menu requested to load a snapshot, apply it now
         if let Some(path) = loaded_snapshot_path {
             if let Ok(snap) = snapshot::load_sim_snapshot(&path) {
@@ -837,6 +847,8 @@ async fn main() {
             state.color_by_species,
             state.herb_tex.as_ref(),
             state.carn_tex.as_ref(),
+                state.plant_tex.as_ref(),
+                state.meat_tex.as_ref(),
         );
     ui_hud::draw_hud(hud_area, &mut state, &mut running, &mut fast_mode);
         // Draw graphs overlay on top of HUD/world when enabled

@@ -22,6 +22,8 @@ pub fn draw_world(
     color_by_species: bool,
     herb_tex: Option<&Texture2D>,
     carn_tex: Option<&Texture2D>,
+    plant_tex: Option<&Texture2D>,
+    meat_tex: Option<&Texture2D>,
 ) {
     let fitted = fit_world_rect(area);
     let world_w = crate::world::get_world_w();
@@ -94,7 +96,14 @@ pub fn draw_world(
     for p in &episode.food {
         let (px, py) = world_to_screen(fitted, *p);
         let r = (FOOD_RADIUS * px_per_world).max(2.0);
-        draw_circle(px, py, r, YELLOW);
+        // Draw plant sprite if available, otherwise fallback to circle
+        if let Some(tex) = plant_tex {
+            let size = r * 2.0;
+            let params = DrawTextureParams { dest_size: Some(vec2(size, size)), ..Default::default() };
+            draw_texture_ex(tex, px - size * 0.5, py - size * 0.5, WHITE, params);
+        } else {
+            draw_circle(px, py, r, YELLOW);
+        }
         if show_collision_radii {
             // High-contrast collision radius for food (white ring)
             draw_circle_lines(px, py, (FOOD_RADIUS * px_per_world).max(1.0), 2.0, Color::new(1.0, 1.0, 1.0, 0.95));
@@ -176,8 +185,15 @@ pub fn draw_world(
         } else {
             // If corpse is fully consumed or flagged consumed, skip rendering
             if a.consumed || a.corpse_energy <= 0.1 { continue; }
-            let fill = Color::new(0.25, 0.25, 0.25, 0.9);
-            draw_circle(px, py, agent_r, fill);
+            // Draw meat sprite for corpse if available; otherwise fallback to gray circle
+            if let Some(meat) = meat_tex {
+                let size = agent_r * 2.0;
+                let params = DrawTextureParams { dest_size: Some(vec2(size, size)), ..Default::default() };
+                draw_texture_ex(meat, px - size * 0.5, py - size * 0.5, WHITE, params);
+            } else {
+                let fill = Color::new(0.25, 0.25, 0.25, 0.9);
+                draw_circle(px, py, agent_r, fill);
+            }
         }
     // outline disabled - was: draw_circle_lines(px, py, agent_r, 2.0, Color::new(0.2, 0.2, 0.2, 0.6));
         if show_collision_radii {
