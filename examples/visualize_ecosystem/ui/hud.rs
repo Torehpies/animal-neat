@@ -9,7 +9,7 @@ use crate::ui_network::{draw_network_panel, draw_network_panel_activations};
 use crate::ui_graphs::draw_graphs_panel;
 
 // Compact HUD with essential stats; best-network panel retained.
-pub fn draw_hud(area: Rect, state: &mut AppState, running: bool, fast_mode: bool) {
+pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode: &mut bool) {
     // Main panel
     draw_panel(area, PANEL_BG, PANEL_BORDER, 2.0);
 
@@ -130,9 +130,6 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: bool, fast_mode: bool
             // Left column rows
             let mut yl = y;
             let left_rows: &[( &str, &str, bool )] = &[
-                ("[P]", "Pause/Resume", !running),
-                ("[F]", "Fast Mode", fast_mode),
-                ("[X]", "Ultra Mode", state.ultra_mode),
                 ("[R]", "Reset Episode", false),
                 ("[Esc]", "Clear Focus", state.focused_agent.is_some()),
                 ("[CLK]", "Focus Agent", state.focused_agent.is_some()),
@@ -211,6 +208,46 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: bool, fast_mode: bool
         if y <= max_y {
             let hint = "[H] Show Controls";
             let _ = draw_text_wrapped(hint, x, y, 16.0, GRAY, max_w, GAP);
+        }
+    }
+
+    // Bottom-left: vertical stacked toggle buttons (top-to-bottom): Ultra, Fast, Pause
+    {
+        let h = screen_height();
+        let btn_h = 34.0;
+        let spacing = 8.0;
+        let labels = ["Ultra", "Fast", "Pause"];
+        let states = [state.ultra_mode, *fast_mode, !*running];
+        let start_x = 16.0;
+        // compute equal width based on widest label
+        let mut max_tw = 0.0f32;
+        for l in labels.iter() {
+            let w = measure_text(l, None, 16u16, 1.0).width;
+            if w > max_tw { max_tw = w; }
+        }
+        let btn_padding_x = 14.0;
+        let btn_w = max_tw + btn_padding_x * 2.0;
+        // compute starting y so the stack sits above the bottom margin
+        let total_h = labels.len() as f32 * btn_h + (labels.len() as f32 - 1.0) * spacing;
+        let start_y = h - total_h - 18.0;
+        for (i, label) in labels.iter().enumerate() {
+            let cx = start_x;
+            let cy = start_y + i as f32 * (btn_h + spacing);
+            let (mx, my) = mouse_position();
+            let hovering = mx >= cx && mx <= cx + btn_w && my >= cy && my <= cy + btn_h;
+            let on = states[i];
+            let bg = if on { Color::new(0.22, 0.58, 0.95, 1.0) } else if hovering { Color::new(0.18, 0.18, 0.18, 1.0) } else { Color::new(0.12, 0.12, 0.12, 0.9) };
+            draw_rectangle(cx, cy, btn_w, btn_h, bg);
+            draw_rectangle_lines(cx, cy, btn_w, btn_h, 1.0, Color::new(0.6,0.6,0.6,0.8));
+            draw_text(label, cx + btn_padding_x, cy + (btn_h * 0.65), 16.0, WHITE);
+            if hovering && is_mouse_button_pressed(MouseButton::Left) {
+                match i {
+                    0 => state.ultra_mode = !state.ultra_mode,
+                    1 => *fast_mode = !*fast_mode,
+                    2 => *running = !*running,
+                    _ => {}
+                }
+            }
         }
     }
 
@@ -310,7 +347,7 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: bool, fast_mode: bool
     }
 
     // If paused, draw a centered semi-transparent overlay with "Paused"
-    if !running {
+    if !*running {
         let w = screen_width();
         let h = screen_height();
         // dim the world a bit

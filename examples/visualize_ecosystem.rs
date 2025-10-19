@@ -789,7 +789,7 @@ async fn main() {
             state.herb_tex.as_ref(),
             state.carn_tex.as_ref(),
         );
-    ui_hud::draw_hud(hud_area, &mut state, running, fast_mode);
+    ui_hud::draw_hud(hud_area, &mut state, &mut running, &mut fast_mode);
         // Scoreboard panel: shown after episodes only when toggle is ON
         if state.scoreboard_pending && state.show_scoreboard_panel {
             let fullscreen = Rect { x: 0.0, y: 0.0, w, h };
