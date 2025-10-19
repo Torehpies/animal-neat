@@ -18,13 +18,21 @@ pub async fn run_sim_menu(state: &mut crate::AppState) -> SimMenuResult {
         let h = screen_height();
         draw_rectangle(0.0, 0.0, w, h, Color::new(0.0, 0.0, 0.0, 0.7));
 
-        // Panel
-        let panel_w = 460.0;
-        let panel_h = 280.0;
-        let cx = w * 0.5;
-        let cy = h * 0.5;
-        let panel_x = cx - panel_w * 0.5;
-        let panel_y = cy - panel_h * 0.5;
+    // Panel
+    let panel_w = 460.0f32;
+    // Compute button metrics first so we can size the panel to fit vertically
+    let btn_h = 48.0f32;
+    let gap = 15.0f32;
+    let buttons_count = 4.0f32; // Resume, Save, Load, Back
+    let top_offset = 80.0f32; // space above first button (includes title)
+    let bottom_margin = 30.0f32;
+    let mut panel_h = top_offset + buttons_count * btn_h + (buttons_count - 1.0) * gap + bottom_margin;
+    // Clamp to sensible bounds
+    panel_h = panel_h.clamp(240.0f32, h - 80.0f32);
+    let cx = w * 0.5;
+    let cy = h * 0.5;
+    let panel_x = cx - panel_w * 0.5;
+    let panel_y = cy - panel_h * 0.5;
         draw_rectangle(panel_x, panel_y, panel_w, panel_h, Color::new(0.06, 0.06, 0.08, 0.96));
         draw_rectangle_lines(panel_x, panel_y, panel_w, panel_h, 2.0, WHITE);
 
@@ -34,65 +42,67 @@ pub async fn run_sim_menu(state: &mut crate::AppState) -> SimMenuResult {
         let title_w = measure_text(title, None, title_size as u16, 1.0).width;
         draw_text(title, panel_x + (panel_w - title_w) / 2.0, panel_y + 45.0, title_size, WHITE);
 
-        // Buttons
-        let padding = 30.0;
-        let mut by = panel_y + 80.0;
-        let btn_w = 130.0;
-        let btn_h = 48.0;
-        let gap = 15.0;
+    // Buttons (vertical stack, equal-sized)
+    let padding = 30.0f32;
+    let mut by = panel_y + 80.0f32;
+    let btn_w = panel_w - 2.0 * padding; // full width within padding
 
-        let (mx, my) = mouse_position();
+    let (mx, my) = mouse_position();
 
-        let total_btn_w = btn_w * 3.0 + gap * 2.0;
-        let start_x = panel_x + (panel_w - total_btn_w) / 2.0;
+    let start_x = panel_x + padding;
 
-        // Resume
-        let resume_x = start_x;
-        let resume_y = by;
-        let hovering_resume = mx >= resume_x && mx <= resume_x + btn_w && my >= resume_y && my <= resume_y + btn_h;
-        let resume_col = if hovering_resume { Color::new(0.25, 0.7, 0.25, 1.0) } else { Color::new(0.18, 0.5, 0.18, 1.0) };
-        draw_rectangle(resume_x, resume_y, btn_w, btn_h, resume_col);
-        draw_rectangle_lines(resume_x, resume_y, btn_w, btn_h, 2.0, WHITE);
-        let txt = "Resume";
-        let txt_size = 22.0;
-        let tw = measure_text(txt, None, txt_size as u16, 1.0).width;
-        draw_text(txt, resume_x + (btn_w - tw) / 2.0, resume_y + (btn_h + txt_size) / 2.0 - 4.0, txt_size, WHITE);
+    let txt_size = 22.0f32;
 
-        // Save
-        let save_x = resume_x + btn_w + gap;
-        let save_y = by;
-        let hovering_save = mx >= save_x && mx <= save_x + btn_w && my >= save_y && my <= save_y + btn_h;
-        let save_col = if hovering_save { Color::new(0.25, 0.6, 0.9, 1.0) } else { Color::new(0.15, 0.45, 0.75, 1.0) };
-        draw_rectangle(save_x, save_y, btn_w, btn_h, save_col);
-        draw_rectangle_lines(save_x, save_y, btn_w, btn_h, 2.0, WHITE);
-        let txt = "Save";
-        let tw = measure_text(txt, None, txt_size as u16, 1.0).width;
-        draw_text(txt, save_x + (btn_w - tw) / 2.0, save_y + (btn_h + txt_size) / 2.0 - 4.0, txt_size, WHITE);
+    // Resume
+    let resume_x = start_x;
+    let resume_y = by;
+    let hovering_resume = mx >= resume_x && mx <= resume_x + btn_w && my >= resume_y && my <= resume_y + btn_h;
+    let resume_col = if hovering_resume { Color::new(0.25, 0.7, 0.25, 1.0) } else { Color::new(0.18, 0.5, 0.18, 1.0) };
+    draw_rectangle(resume_x, resume_y, btn_w, btn_h, resume_col);
+    draw_rectangle_lines(resume_x, resume_y, btn_w, btn_h, 2.0, WHITE);
+    let txt_resume = "Resume";
+    let tw_resume = measure_text(txt_resume, None, txt_size as u16, 1.0).width;
+    draw_text(txt_resume, resume_x + (btn_w - tw_resume) / 2.0, resume_y + (btn_h + txt_size) / 2.0 - 4.0, txt_size, WHITE);
 
-        // Load
-        let load_x = save_x + btn_w + gap;
-        let load_y = by;
-        let hovering_load = mx >= load_x && mx <= load_x + btn_w && my >= load_y && my <= load_y + btn_h;
-        let load_col = if hovering_load { Color::new(0.9, 0.6, 0.25, 1.0) } else { Color::new(0.7, 0.45, 0.12, 1.0) };
-        draw_rectangle(load_x, load_y, btn_w, btn_h, load_col);
-        draw_rectangle_lines(load_x, load_y, btn_w, btn_h, 2.0, WHITE);
-        let txt = "Load";
-        let tw = measure_text(txt, None, txt_size as u16, 1.0).width;
-        draw_text(txt, load_x + (btn_w - tw) / 2.0, load_y + (btn_h + txt_size) / 2.0 - 4.0, txt_size, WHITE);
+    by += btn_h + gap;
 
-        by += btn_h + 24.0;
+    // Save
+    let save_x = start_x;
+    let save_y = by;
+    let hovering_save = mx >= save_x && mx <= save_x + btn_w && my >= save_y && my <= save_y + btn_h;
+    let save_col = if hovering_save { Color::new(0.25, 0.6, 0.9, 1.0) } else { Color::new(0.15, 0.45, 0.75, 1.0) };
+    draw_rectangle(save_x, save_y, btn_w, btn_h, save_col);
+    draw_rectangle_lines(save_x, save_y, btn_w, btn_h, 2.0, WHITE);
+    let txt_save = "Save";
+    let tw_save = measure_text(txt_save, None, txt_size as u16, 1.0).width;
+    draw_text(txt_save, save_x + (btn_w - tw_save) / 2.0, save_y + (btn_h + txt_size) / 2.0 - 4.0, txt_size, WHITE);
 
-        // Back to Main Menu
-        let back_x = panel_x + padding;
-        let back_y = by;
-        let back_w = panel_w - 2.0 * padding;
-        let hovering_back = mx >= back_x && mx <= back_x + back_w && my >= back_y && my <= back_y + btn_h;
-        let back_col = if hovering_back { Color::new(0.8, 0.25, 0.25, 1.0) } else { Color::new(0.6, 0.18, 0.18, 1.0) };
-        draw_rectangle(back_x, back_y, back_w, btn_h, back_col);
-        draw_rectangle_lines(back_x, back_y, back_w, btn_h, 2.0, WHITE);
-        let txt = "Back to Main Menu";
-        let tw = measure_text(txt, None, txt_size as u16, 1.0).width;
-        draw_text(txt, back_x + (back_w - tw) / 2.0, back_y + (btn_h + txt_size) / 2.0 - 4.0, txt_size, WHITE);
+    by += btn_h + gap;
+
+    // Load
+    let load_x = start_x;
+    let load_y = by;
+    let hovering_load = mx >= load_x && mx <= load_x + btn_w && my >= load_y && my <= load_y + btn_h;
+    let load_col = if hovering_load { Color::new(0.9, 0.6, 0.25, 1.0) } else { Color::new(0.7, 0.45, 0.12, 1.0) };
+    draw_rectangle(load_x, load_y, btn_w, btn_h, load_col);
+    draw_rectangle_lines(load_x, load_y, btn_w, btn_h, 2.0, WHITE);
+    let txt_load = "Load";
+    let tw_load = measure_text(txt_load, None, txt_size as u16, 1.0).width;
+    draw_text(txt_load, load_x + (btn_w - tw_load) / 2.0, load_y + (btn_h + txt_size) / 2.0 - 4.0, txt_size, WHITE);
+
+    by += btn_h + gap;
+
+    // Back to Main Menu (same size)
+    let back_x = start_x;
+    let back_y = by;
+    let back_w = btn_w;
+    let hovering_back = mx >= back_x && mx <= back_x + back_w && my >= back_y && my <= back_y + btn_h;
+    let back_col = if hovering_back { Color::new(0.8, 0.25, 0.25, 1.0) } else { Color::new(0.6, 0.18, 0.18, 1.0) };
+    draw_rectangle(back_x, back_y, back_w, btn_h, back_col);
+    draw_rectangle_lines(back_x, back_y, back_w, btn_h, 2.0, WHITE);
+    let txt_back = "Back to Main Menu";
+    let tw_back = measure_text(txt_back, None, txt_size as u16, 1.0).width;
+    draw_text(txt_back, back_x + (back_w - tw_back) / 2.0, back_y + (btn_h + txt_size) / 2.0 - 4.0, txt_size, WHITE);
 
         // Input handling
         if is_mouse_button_pressed(MouseButton::Left) && click_cooldown <= 0.0 {
