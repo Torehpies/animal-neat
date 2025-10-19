@@ -682,10 +682,17 @@ async fn main() {
                         let alive_ct = state.episode.agents.iter().filter(|a| a.energy > 0.0).count() as f32;
                         let species_ct = state.speciator.get_species().len() as f32;
                         let deaths_ct = state.episode.agents.iter().filter(|a| a.energy <= 0.0 && !a.consumed).count() as f32;
+                        // Per-kind deaths
+                        let deaths_herb = state.episode.agents.iter().filter(|a| matches!(a.kind, crate::sim::AgentKind::Herbivore) && a.energy <= 0.0 && !a.consumed).count() as f32;
+                        let deaths_carn = state.episode.agents.iter().filter(|a| matches!(a.kind, crate::sim::AgentKind::Carnivore) && a.energy <= 0.0 && !a.consumed).count() as f32;
                         state.graphs.pop.push(alive_ct);
                         state.graphs.species.push(species_ct);
                         state.graphs.births.push(state.episode.births_this_episode as f32);
                         state.graphs.deaths.push(deaths_ct);
+                        state.graphs.births_herb.push(state.episode.births_herb as f32);
+                        state.graphs.births_carn.push(state.episode.births_carn as f32);
+                        state.graphs.deaths_herb.push(deaths_herb);
+                        state.graphs.deaths_carn.push(deaths_carn);
                     }
                     let _ = spawn_offspring_if_needed(
                         &mut state.population,
@@ -712,10 +719,16 @@ async fn main() {
                     let alive_ct = state.episode.agents.iter().filter(|a| a.energy > 0.0).count() as f32;
                     let species_ct = state.speciator.get_species().len() as f32;
                     let deaths_ct = state.episode.agents.iter().filter(|a| a.energy <= 0.0 && !a.consumed).count() as f32;
+                    let deaths_herb = state.episode.agents.iter().filter(|a| matches!(a.kind, crate::sim::AgentKind::Herbivore) && a.energy <= 0.0 && !a.consumed).count() as f32;
+                    let deaths_carn = state.episode.agents.iter().filter(|a| matches!(a.kind, crate::sim::AgentKind::Carnivore) && a.energy <= 0.0 && !a.consumed).count() as f32;
                     state.graphs.pop.push(alive_ct);
                     state.graphs.species.push(species_ct);
                     state.graphs.births.push(state.episode.births_this_episode as f32);
                     state.graphs.deaths.push(deaths_ct);
+                    state.graphs.births_herb.push(state.episode.births_herb as f32);
+                    state.graphs.births_carn.push(state.episode.births_carn as f32);
+                    state.graphs.deaths_herb.push(deaths_herb);
+                    state.graphs.deaths_carn.push(deaths_carn);
                         if ECO_CONTINUOUS {
                             let _ = spawn_offspring_if_needed(
                                 &mut state.population,
@@ -738,10 +751,16 @@ async fn main() {
                         let alive_ct = state.episode.agents.iter().filter(|a| a.energy > 0.0).count() as f32;
                         let species_ct = state.speciator.get_species().len() as f32;
                         let deaths_ct = state.episode.agents.iter().filter(|a| a.energy <= 0.0 && !a.consumed).count() as f32;
+                        let deaths_herb = state.episode.agents.iter().filter(|a| matches!(a.kind, crate::sim::AgentKind::Herbivore) && a.energy <= 0.0 && !a.consumed).count() as f32;
+                        let deaths_carn = state.episode.agents.iter().filter(|a| matches!(a.kind, crate::sim::AgentKind::Carnivore) && a.energy <= 0.0 && !a.consumed).count() as f32;
                         state.graphs.pop.push(alive_ct);
                         state.graphs.species.push(species_ct);
                         state.graphs.births.push(state.episode.births_this_episode as f32);
                         state.graphs.deaths.push(deaths_ct);
+                        state.graphs.births_herb.push(state.episode.births_herb as f32);
+                        state.graphs.births_carn.push(state.episode.births_carn as f32);
+                        state.graphs.deaths_herb.push(deaths_herb);
+                        state.graphs.deaths_carn.push(deaths_carn);
                         if ECO_CONTINUOUS {
                             let _ = spawn_offspring_if_needed(
                                 &mut state.population,
@@ -1246,6 +1265,10 @@ fn spawn_offspring_if_needed<R: Rng>(
         // Extend comm fitness accumulator to match agents length
         episode.comm_fitness_accum.push(0.0);
         episode.births_this_episode += 1;
+        match child_kind {
+            crate::sim::AgentKind::Herbivore => { episode.births_herb += 1; }
+            crate::sim::AgentKind::Carnivore => { episode.births_carn += 1; }
+        }
 
         // Apply costs and cooldowns to parents; then push them apart to reduce clustering after birth
         {

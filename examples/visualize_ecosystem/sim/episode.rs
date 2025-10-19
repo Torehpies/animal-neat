@@ -12,6 +12,8 @@ pub struct Episode {
     pub steps: usize,
     pub first_eat_step: Option<usize>,
     pub births_this_episode: usize,
+    pub births_herb: usize,
+    pub births_carn: usize,
     // Motor usage stats (for HUD): aggregated over agent-steps this episode
     pub total_agent_steps: usize,
     pub avg_speed_accum: f32,
@@ -79,6 +81,8 @@ impl Episode {
             steps: 0,
             first_eat_step: None,
             births_this_episode: 0,
+            births_herb: 0,
+            births_carn: 0,
             total_agent_steps: 0,
             avg_speed_accum: 0.0,
             heading_change_accum: 0.0,

@@ -25,11 +25,27 @@ pub struct Trends {
     pub mean: Series,   // appended per generation/episode end
     pub births: Series,
     pub deaths: Series,
+    pub births_herb: Series,
+    pub deaths_herb: Series,
+    pub births_carn: Series,
+    pub deaths_carn: Series,
     // Intelligence proxy (behavior shaping signals), appended per episode end
     pub intel_best: Series,
     pub intel_mean: Series,
 }
-impl Trends { pub fn new() -> Self { Self::default() } pub fn reset_episode(&mut self) { self.pop.clear(); self.species.clear(); self.births.clear(); self.deaths.clear(); } }
+impl Trends {
+    pub fn new() -> Self { Self::default() }
+    pub fn reset_episode(&mut self) {
+        self.pop.clear();
+        self.species.clear();
+        self.births.clear();
+        self.deaths.clear();
+        self.births_herb.clear();
+        self.deaths_herb.clear();
+        self.births_carn.clear();
+        self.deaths_carn.clear();
+    }
+}
 
 // Tabs for the graphs overlay
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -247,19 +263,96 @@ fn draw_fitness_panel(area: Rect, trends: &Trends) {
 }
 
 fn draw_births_deaths_panel(area: Rect, trends: &Trends) {
-    draw_axes(area);
-    draw_line_series(area, &trends.births, Color::new(0.6, 0.9, 0.6, 0.95));
-    draw_line_series(area, &trends.deaths, Color::new(0.95, 0.5, 0.5, 0.95));
-    draw_text("Births / Deaths (per-episode)", area.x + 6.0, area.y + 18.0, 16.0, LIGHTGRAY);
-    let mut ly = area.y + 36.0;
-    fn legend_entry(x: f32, y: f32, text: &str, col: Color) -> f32 {
-        let box_w = 12.0; let box_h = 8.0;
-        draw_rectangle(x, y - box_h + 3.0, box_w, box_h, col);
-        draw_text(text, x + box_w + 6.0, y + 3.0, 14.0, LIGHTGRAY);
-        y + 16.0
+    // Helpers
+    fn last(series: &Series) -> f32 { series.data.last().copied().unwrap_or(0.0) }
+    fn draw_bars(area: Rect, title: &str, labels: &[&str], values: &[f32], colors: &[Color]) {
+        // Panel frame and title
+        draw_rectangle_lines(area.x, area.y, area.w, area.h, 1.0, Color::new(1.0, 1.0, 1.0, 0.12));
+        draw_text(title, area.x + 6.0, area.y + 18.0, 16.0, LIGHTGRAY);
+        let inner = Rect { x: area.x + 8.0, y: area.y + 28.0, w: area.w - 16.0, h: area.h - 36.0 };
+        // Compute scale
+        let max_v = values.iter().cloned().fold(0.0f32, f32::max).max(1.0);
+        let n = values.len().max(1) as f32;
+        let gap = 10.0f32;
+        let bar_w = ((inner.w - gap * (n + 1.0)) / n).max(4.0);
+        for (i, v) in values.iter().enumerate() {
+            let x = inner.x + gap + i as f32 * (bar_w + gap);
+            let h = if max_v > 0.0 { inner.h * (*v / max_v) } else { 0.0 };
+            let y = inner.y + inner.h - h;
+            draw_rectangle(x, y, bar_w, h, colors.get(i).copied().unwrap_or(WHITE));
+            // label and value
+            let lbl = labels.get(i).copied().unwrap_or("");
+            let tw = measure_text(lbl, None, 12u16, 1.0).width;
+            draw_text(lbl, x + (bar_w - tw) * 0.5, inner.y + inner.h + 12.0, 12.0, GRAY);
+            let val_txt = format!("{:.0}", *v);
+            let vw = measure_text(&val_txt, None, 12u16, 1.0).width;
+            draw_text(&val_txt, x + (bar_w - vw) * 0.5, y - 4.0, 12.0, LIGHTGRAY);
+        }
     }
-    ly = legend_entry(area.x + 6.0, ly, "Births", Color::new(0.6, 0.9, 0.6, 0.95));
-    ly = legend_entry(area.x + 6.0, ly, "Deaths", Color::new(0.95, 0.5, 0.5, 0.95));
+
+    // Precompute values from the latest sample
+    let births_all = last(&trends.births).max(0.0);
+    let deaths_all = last(&trends.deaths).max(0.0);
+    let births_herb = last(&trends.births_herb).max(0.0);
+    let births_carn = last(&trends.births_carn).max(0.0);
+    let deaths_herb = last(&trends.deaths_herb).max(0.0);
+    let deaths_carn = last(&trends.deaths_carn).max(0.0);
+
+    // Layout: two charts on the top row, three charts on the bottom row
+    let gap = GAP;
+    let top_h = (area.h - gap) * 0.5;
+    let bot_h = area.h - gap - top_h;
+
+    // Top row areas
+    let top_w = (area.w - gap) * 0.5;
+    let top_left = Rect { x: area.x, y: area.y, w: top_w, h: top_h };
+    let top_right = Rect { x: area.x + top_w + gap, y: area.y, w: top_w, h: top_h };
+
+    // Bottom row areas (three columns)
+    let bot_col_w = (area.w - gap * 2.0) / 3.0;
+    let bot_y = area.y + top_h + gap;
+    let bot1 = Rect { x: area.x, y: bot_y, w: bot_col_w, h: bot_h };
+    let bot2 = Rect { x: area.x + bot_col_w + gap, y: bot_y, w: bot_col_w, h: bot_h };
+    let bot3 = Rect { x: area.x + (bot_col_w + gap) * 2.0, y: bot_y, w: bot_col_w, h: bot_h };
+
+    // Draw top: births comparison, deaths comparison
+    draw_bars(
+        top_left,
+        "Births (episode totals)",
+        &["All", "Herb", "Carn"],
+        &[births_all, births_herb, births_carn],
+        &[Color::new(0.55, 0.95, 0.65, 0.95), Color::new(0.50, 0.85, 0.60, 0.95), Color::new(0.45, 0.80, 0.55, 0.95)],
+    );
+    draw_bars(
+        top_right,
+        "Deaths (episode)",
+        &["All", "Herb", "Carn"],
+        &[deaths_all, deaths_herb, deaths_carn],
+        &[Color::new(0.95, 0.55, 0.55, 0.95), Color::new(0.95, 0.65, 0.55, 0.95), Color::new(0.95, 0.45, 0.45, 0.95)],
+    );
+
+    // Draw bottom: births vs deaths for each category
+    draw_bars(
+        bot1,
+        "All: Births vs Deaths",
+        &["Births", "Deaths"],
+        &[births_all, deaths_all],
+        &[Color::new(0.55, 0.95, 0.65, 0.95), Color::new(0.95, 0.55, 0.55, 0.95)],
+    );
+    draw_bars(
+        bot2,
+        "Herb: Births vs Deaths",
+        &["Births", "Deaths"],
+        &[births_herb, deaths_herb],
+        &[Color::new(0.50, 0.85, 0.60, 0.95), Color::new(0.95, 0.65, 0.55, 0.95)],
+    );
+    draw_bars(
+        bot3,
+        "Carn: Births vs Deaths",
+        &["Births", "Deaths"],
+        &[births_carn, deaths_carn],
+        &[Color::new(0.45, 0.80, 0.55, 0.95), Color::new(0.95, 0.45, 0.45, 0.95)],
+    );
 }
 
 fn draw_intelligence_panel(area: Rect, trends: &Trends) {
