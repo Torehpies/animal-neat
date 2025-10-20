@@ -61,6 +61,8 @@ mod ui_load_picker;
 mod ui_save_picker;
 #[path = "visualize_ecosystem/ui/sim_menu.rs"]
 mod ui_sim_menu;
+#[path = "visualize_ecosystem/ui/controls.rs"]
+mod ui_controls;
 use sim::{Episode, Agent, AgentId};
 use ::rand::Rng;
 use params::*;
@@ -440,189 +442,21 @@ async fn main() {
             let hud_area = Rect { x: world_area.x + world_area.w + margin, y: margin, w: hud_w, h: world_h };
 
         // Controls
-            if is_key_pressed(KeyCode::P) { running = !running; }
-            if is_key_pressed(KeyCode::F) { fast_mode = !fast_mode; }
-            if is_key_pressed(KeyCode::R) { let mut rng = ::rand::rng(); state.episode = Episode::new(&mut rng, state.population.len()); }
-        if is_key_pressed(KeyCode::V) { state.show_cones = !state.show_cones; }
-            if is_key_pressed(KeyCode::U) { state.show_unified_overlay = !state.show_unified_overlay; }
-            if is_key_pressed(KeyCode::E) { state.show_energy_overlay = !state.show_energy_overlay; }
-        // 'C' key: if scoreboard is open, it acts as Continue; otherwise it's for collision radii toggle
-        if is_key_pressed(KeyCode::C) {
-            if state.scoreboard_pending {
-                let mut rng = ::rand::rng();
-                finalize_end_of_episode(&mut state, &mut rng);
-                running = true; // resume autoplay
-            } else {
-                state.show_collision_radii = !state.show_collision_radii;
-            }
-        }
-        if is_key_pressed(KeyCode::G) { state.show_grid = !state.show_grid; }
-    if is_key_pressed(KeyCode::N) { state.show_best_network_panel = !state.show_best_network_panel; }
-        if is_key_pressed(KeyCode::H) { state.show_controls = !state.show_controls; }
-        if is_key_pressed(KeyCode::K) { state.color_by_species = !state.color_by_species; }
-    // Z: toggle graphs overlay (replaces old HUD graphs panel)
-    if is_key_pressed(KeyCode::Z) { state.show_graphs_overlay = !state.show_graphs_overlay; }
-        // Tab switching while graphs overlay is open
-        if state.show_graphs_overlay {
-            if is_key_pressed(KeyCode::Right) {
-                state.graphs_tab = match state.graphs_tab {
-                    ui_graphs::GraphTab::Population => ui_graphs::GraphTab::Fitness,
-                    ui_graphs::GraphTab::Fitness => ui_graphs::GraphTab::BirthsDeaths,
-                    ui_graphs::GraphTab::BirthsDeaths => ui_graphs::GraphTab::Intelligence,
-                    ui_graphs::GraphTab::Intelligence => ui_graphs::GraphTab::Population,
-                }
-            }
-            if is_key_pressed(KeyCode::Left) {
-                state.graphs_tab = match state.graphs_tab {
-                    ui_graphs::GraphTab::Population => ui_graphs::GraphTab::Intelligence,
-                    ui_graphs::GraphTab::Fitness => ui_graphs::GraphTab::Population,
-                    ui_graphs::GraphTab::BirthsDeaths => ui_graphs::GraphTab::Fitness,
-                    ui_graphs::GraphTab::Intelligence => ui_graphs::GraphTab::BirthsDeaths,
-                }
-            }
-            if is_key_pressed(KeyCode::Key1) { state.graphs_tab = ui_graphs::GraphTab::Population; }
-            if is_key_pressed(KeyCode::Key2) { state.graphs_tab = ui_graphs::GraphTab::Fitness; }
-            if is_key_pressed(KeyCode::Key3) { state.graphs_tab = ui_graphs::GraphTab::BirthsDeaths; }
-            if is_key_pressed(KeyCode::Key4) { state.graphs_tab = ui_graphs::GraphTab::Intelligence; }
-        }
-        if is_key_pressed(KeyCode::X) { state.ultra_mode = !state.ultra_mode; }
-        // Scoreboard toggle (T):
-        // - Pressing T toggles the preference: when ON, the app pauses at episode end and shows the scoreboard;
-        //   when OFF, episodes autoplay between generations and the scoreboard is not shown.
-        // - When the scoreboard is currently open, T only toggles the preference for future episodes; it does NOT close or continue.
-        if is_key_pressed(KeyCode::T) {
-            if !state.scoreboard_pending {
-                state.show_scoreboard_panel = !state.show_scoreboard_panel;
-            } else {
-                // Toggle preference only; keep scoreboard open until 'C' or button click
-                state.show_scoreboard_panel = !state.show_scoreboard_panel;
-            }
-        }
-        // Save snapshot (S) and Load most-recent snapshot (O)
-        if is_key_pressed(KeyCode::S) {
-            // Quick-save (overwrite) per-session file
-            let filename = format!("{}__quicksave.json", state.save_prefix);
-            if let Err(e) = snapshot::save_sim_snapshot(&filename, state.generation, &state.population, &state.innov, &state.episode, &state.member_species) {
-                eprintln!("Failed to quick-save sim snapshot: {}", e);
-                state.hud_toast = Some((format!("Save failed: {}", e), 3.5));
-            } else {
-                println!("Quick-saved sim snapshot to {}", filename);
-                state.hud_toast = Some((format!("Saved: {}", filename), 2.5));
-            }
-        }
-        if is_key_pressed(KeyCode::L) {
-            // Find the most-recent *.json file in snapshots/ and attempt to load it
-            let mut latest: Option<(std::path::PathBuf, std::time::SystemTime)> = None;
-            if let Ok(entries) = std::fs::read_dir("snapshots") {
-                for entry in entries.flatten() {
-                    let p = entry.path();
-                    if p.extension().and_then(|s| s.to_str()) == Some("json") {
-                        if let Ok(meta) = entry.metadata() {
-                            if let Ok(mtime) = meta.modified() {
-                                if latest.is_none() || mtime > latest.as_ref().unwrap().1 {
-                                    latest = Some((p, mtime));
-                                }
-                            }
-                        }
+            match ui_controls::handle_keyboard(&mut state, &mut running, &mut fast_mode, &mut click_cooldown) {
+                ui_controls::ControlsAction::None => {}
+                ui_controls::ControlsAction::OpenMenu => {
+                    let prev_running_state = running;
+                    match ui_sim_menu::run_sim_menu(&mut state).await {
+                        ui_sim_menu::SimMenuResult::Resume => { running = prev_running_state; }
+                        ui_sim_menu::SimMenuResult::BackToMain => { break 'sim_loop; }
                     }
                 }
-            }
-            if let Some((path, _)) = latest {
-                // Try loading as full sim snapshot first
-                match snapshot::load_sim_snapshot(path.to_str().unwrap()) {
-                    Ok(snap) => {
-                        state.population = snap.population;
-                        state.generation = snap.generation;
-                        state.innov = snap.innovation;
-                        // restore world/episode state
-                        state.episode.food = snap.food.iter().map(|v| v.to_vec2()).collect();
-                        // rebuild agents from snapshots (leave transient fields defaulted)
-                        state.episode.agents.clear();
-                        for (i, a_snap) in snap.agents.iter().enumerate() {
-                            let body = crate::body::Body { pos: a_snap.body_pos.to_vec2(), vel: a_snap.body_vel.to_vec2(), radius: AGENT_COLLISION_RADIUS };
-                            state.episode.agents.push(Agent {
-                                id: AgentId(i),
-                                kind: a_snap.kind,
-                                body,
-                                theta: a_snap.theta,
-                                energy: a_snap.energy,
-                                health: a_snap.health,
-                                max_health: a_snap.max_health,
-                                invuln_steps: a_snap.invuln_steps,
-                                alive_steps: a_snap.alive_steps,
-                                eaten: a_snap.eaten,
-                                consumed: a_snap.consumed,
-                                kills: a_snap.kills,
-                                predation_flash_steps: a_snap.predation_flash_steps,
-                                dead_since: a_snap.dead_since,
-                                corpse_energy: a_snap.corpse_energy,
-                                digest: std::collections::VecDeque::new(),
-                                last_food_mem: a_snap.last_food_mem.to_vec2(),
-                                last_danger_mem: a_snap.last_danger_mem.to_vec2(),
-                                last_same_mem: a_snap.last_same_mem.to_vec2(),
-                                last_other_mem: a_snap.last_other_mem.to_vec2(),
-                                species_id: a_snap.species_id,
-                                age_steps: a_snap.age_steps,
-                                call_intensity: a_snap.call_intensity,
-                                heard_sectors: a_snap.heard_sectors,
-                                repro_cooldown: a_snap.repro_cooldown,
-                                offspring_count: a_snap.offspring_count,
-                                attack_hits: a_snap.attack_hits,
-                                kills_caused: a_snap.kills_caused,
-                                idle_anchor: a_snap.idle_anchor.to_vec2(),
-                                idle_steps: a_snap.idle_steps,
-                                total_idle_penalty: a_snap.total_idle_penalty,
-                                total_idle_steps: 0,
-                                input_buf: Vec::new(),
-                                energy_accum: 0.0,
-                                herding_units: 0.0,
-                                approach_food_units: 0.0,
-                                chase_other_units: 0.0,
-                                chase_same_units: 0.0,
-                            });
-                        }
-                        state.episode.steps = snap.episode_steps;
-                        // rebuild speciator and member_species mapping
-                        state.speciator.get_species_mut().clear();
-                        state.speciator.speciate(&state.population);
-                        state.member_species = snap.member_species;
-                        println!("Loaded sim snapshot from {}", path.display());
-                        state.hud_toast = Some((format!("Loaded: {}", path.display()), 2.5));
-                    }
-                    Err(_) => {
-                        // fallback: try legacy population-only snapshot
-                        match io::load_population_snapshot(path.to_str().unwrap()) {
-                            Ok(snap) => {
-                                state.population = snap.population;
-                                state.generation = snap.generation;
-                                state.innov = snap.innovation;
-                                // Rebuild speciator and member_species mapping
-                                state.speciator.get_species_mut().clear();
-                                state.speciator.speciate(&state.population);
-                                state.member_species = {
-                                    let mut map = vec![0usize; state.population.len()];
-                                    for (sidx, s) in state.speciator.get_species().iter().enumerate() {
-                                        for &m in &s.members { if m < state.population.len() { map[m] = sidx; } }
-                                    }
-                                    map
-                                };
-                                let mut rng = ::rand::rng();
-                                state.episode = Episode::new(&mut rng, state.population.len());
-                                println!("Loaded population snapshot from {}", path.display());
-                                state.hud_toast = Some((format!("Loaded population: {}", path.display()), 2.5));
-                            }
-                            Err(e) => {
-                                eprintln!("Failed to load snapshot {}: {}", path.display(), e);
-                                state.hud_toast = Some((format!("Load failed: {}", e), 3.5));
-                            }
-                        }
-                    }
+                ui_controls::ControlsAction::FinalizeEndOfEpisode => {
+                    let mut rng = ::rand::rng();
+                    finalize_end_of_episode(&mut state, &mut rng);
+                    running = true;
                 }
-            } else {
-                eprintln!("No snapshot files found in snapshots/");
-                state.hud_toast = Some(("No snapshots found".to_string(), 2.5));
             }
-        }
     // 'O' key: (removed) FPS counter is always displayed now
         
         // ESC: if focused on an agent, clear focus; otherwise open the in-sim menu
@@ -787,26 +621,8 @@ async fn main() {
         Some(screen_to_world(fitted, mx, my))
     } else { None };
 
-    // Agent focus selection on left click
-    if is_mouse_button_pressed(MouseButton::Left) {
-        if let Some(mw) = mouse_world {
-            // Find nearest alive agent within a pick radius in world units
-            let pick_r = AGENT_RADIUS * 3.5; // generous
-            let mut best: Option<(usize, f32)> = None;
-            for (i, a) in state.episode.agents.iter().enumerate() {
-                if a.energy <= 0.0 && a.health <= DEATH_HEALTH_THRESHOLD { continue; }
-                let dx = a.body.pos.x - mw.x; let dy = a.body.pos.y - mw.y; let d2 = dx*dx + dy*dy;
-                if d2 <= pick_r * pick_r {
-                    if let Some((_, bd2)) = best { if d2 < bd2 { best = Some((i, d2)); } } else { best = Some((i, d2)); }
-                }
-            }
-            state.focused_agent = best.map(|(i, _)| i);
-        }
-    }
-    // Right click clears focus (unfocus)
-    if is_mouse_button_pressed(MouseButton::Right) {
-        state.focused_agent = None;
-    }
+    // Mouse-driven focus handling
+    ui_controls::handle_mouse_buttons(&mut state, mouse_world);
     // (mouse_world already defined above)
 
     if !state.ultra_mode {
