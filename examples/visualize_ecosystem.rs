@@ -20,7 +20,6 @@ use neat::neat::{
     evolution,
     genome::Genome,
     innovation_tracker::InnovationTracker,
-    io,
     speciator::Speciator,
 };
 #[path = "visualize_ecosystem/params.rs"]
@@ -63,6 +62,8 @@ mod ui_save_picker;
 mod ui_sim_menu;
 #[path = "visualize_ecosystem/ui/controls.rs"]
 mod ui_controls;
+#[path = "visualize_ecosystem/ui/assets.rs"]
+mod ui_assets;
 use sim::{Episode, Agent, AgentId};
 use ::rand::Rng;
 use params::*;
@@ -124,7 +125,6 @@ struct AppState {
     scoreboard_rows: Vec<scoreboard::ScoreEntry>,
     // HUD quick-save feedback
     hud_toast: Option<(String, f32)>, // (message, remaining_secs)
-    hud_save_cooldown: f32,
 }
 
 // ScoreEntry moved to `scoreboard.rs`
@@ -190,7 +190,6 @@ impl AppState {
             scoreboard_pending: false,    // no scoreboard open
             scoreboard_rows: Vec::new(),
             hud_toast: None,
-            hud_save_cooldown: 0.0,
         }
     }
 
@@ -341,26 +340,16 @@ async fn main() {
         );
         
         let mut state = AppState::new(sim_config);
-        // Try load sprites (optional). Try a couple of common locations so editor-specific
-        // folders (like .vscode/assets) still work when running from the project root.
-        async fn try_load(path: &str) -> Option<Texture2D> {
-            match load_texture(path).await {
-                Ok(t) => { t.set_filter(FilterMode::Nearest); Some(t) }
-                Err(_) => None,
-            }
-        }
-        let first = try_load("assets/sheep.png").await;
-        state.herb_tex = if first.is_some() { first } else { try_load(".vscode/assets/sheep.png").await };
-        let firstc = try_load("assets/wolf.png").await;
-        state.carn_tex = if firstc.is_some() { firstc } else { try_load(".vscode/assets/wolf.png").await };
-    let plant_first = try_load("assets/plant_1.png").await;
-    state.plant_tex = if plant_first.is_some() { plant_first } else { try_load(".vscode/assets/plant_1.png").await };
-    let meat_first = try_load("assets/meat.png").await;
-    state.meat_tex = if meat_first.is_some() { meat_first } else { try_load(".vscode/assets/meat.png").await };
+        // Preload textures (optional); use new assets helper which tries common locations.
+        let assets = ui_assets::preload_textures().await;
+        state.herb_tex = assets.herb;
+        state.carn_tex = assets.carn;
+        state.plant_tex = assets.plant;
+        state.meat_tex = assets.meat;
         if state.herb_tex.is_none() { eprintln!("Warning: herbivore sprite not found (assets/sheep.png or .vscode/assets/sheep.png)"); }
         if state.carn_tex.is_none() { eprintln!("Warning: carnivore sprite not found (assets/wolf.png or .vscode/assets/wolf.png)"); }
-    if state.plant_tex.is_none() { eprintln!("Warning: plant sprite not found (assets/plant_1.png or .vscode/assets/plant_1.png)"); }
-    if state.meat_tex.is_none() { eprintln!("Warning: meat sprite not found (assets/meat.png or .vscode/assets/meat.png)"); }
+        if state.plant_tex.is_none() { eprintln!("Warning: plant sprite not found (assets/plant_1.png or .vscode/assets/plant_1.png)"); }
+        if state.meat_tex.is_none() { eprintln!("Warning: meat sprite not found (assets/meat.png or .vscode/assets/meat.png)"); }
         // If the main menu requested to load a snapshot, apply it now
         if let Some(path) = loaded_snapshot_path {
             if let Ok(snap) = snapshot::load_sim_snapshot(&path) {
@@ -680,6 +669,9 @@ async fn main() {
         click_cooldown -= get_frame_time();
         if click_cooldown < 0.0 { click_cooldown = 0.0; }
     }
+
+    // Tick HUD toast timer
+    ui_assets::tick_hud_toast(&mut state);
 
     // modal menu handled by ui_sim_menu when ESC is pressed
 
