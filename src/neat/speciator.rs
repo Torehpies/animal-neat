@@ -25,8 +25,20 @@ impl Speciator {
     }
 
     pub fn speciate(&mut self, population: &[Genome]) {
+        // If there is no population, clear any existing species and return early.
+        if population.is_empty() {
+            self.species.clear();
+            return;
+        }
+
+        // Ensure existing species structures don't contain stale representative indices
+        // (which can happen if the population was resized/culled or a snapshot was loaded).
         for s in &mut self.species {
             s.clear_members();
+            if s.representative >= population.len() {
+                // Clamp to a valid index in the new population to avoid panics below.
+                s.representative = population.len() - 1;
+            }
         }
 
         for (i, genome) in population.iter().enumerate() {
