@@ -130,8 +130,6 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
             let mut yl = y;
             let left_rows: &[( &str, &str, bool )] = &[
                 ("[R]", "Reset Episode", false),
-                ("[Esc]", "Clear Focus", state.focused_agent.is_some()),
-                ("[CLK]", "Focus Agent", state.focused_agent.is_some()),
                 ("[N]", "Best Network", state.show_best_network_panel),
                 ("[H]", "Toggle Controls", state.show_controls),
             ];
