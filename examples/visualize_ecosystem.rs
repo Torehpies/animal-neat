@@ -856,7 +856,7 @@ async fn main() {
                     match a.kind { crate::sim::AgentKind::Herbivore => herb += 1, crate::sim::AgentKind::Carnivore => carn += 1 }
                 }
             }
-            ui_graphs::draw_graphs_overlay(fullscreen, &state.graphs, &mut state.graphs_tab, (herb, carn));
+            ui_graphs::draw_graphs_overlay(fullscreen, &state.graphs, &mut state.graphs_tab, (herb, carn), &mut state.show_graphs_overlay);
         }
         // Scoreboard panel: shown after episodes only when toggle is ON
         if state.scoreboard_pending && state.show_scoreboard_panel {

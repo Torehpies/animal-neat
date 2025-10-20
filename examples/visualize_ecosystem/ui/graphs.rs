@@ -372,7 +372,7 @@ fn draw_intelligence_panel(area: Rect, trends: &Trends) {
 }
 
 /// Draw a modal/fullscreen overlay with the graphs panel centered and a dim background.
-pub fn draw_graphs_overlay(fullscreen: Rect, trends: &Trends, active_tab: &mut GraphTab, herb_carn_counts: (usize, usize)) {
+pub fn draw_graphs_overlay(fullscreen: Rect, trends: &Trends, active_tab: &mut GraphTab, herb_carn_counts: (usize, usize), open: &mut bool) {
     // Dim background
     draw_rectangle(fullscreen.x, fullscreen.y, fullscreen.w, fullscreen.h, Color::new(0.0, 0.0, 0.0, 0.6));
     // Panel size relative to screen
@@ -385,13 +385,36 @@ pub fn draw_graphs_overlay(fullscreen: Rect, trends: &Trends, active_tab: &mut G
     draw_panel(area, SUBPANEL_BG, PANEL_BORDER, 2.0);
     let inner = Rect { x: area.x + PAD*0.5, y: area.y + PAD*0.5, w: area.w - PAD, h: area.h - PAD };
 
+    // Nav bar (title + close)
+    let nav_h = 40.0f32;
+    let nav_y = inner.y;
+    // Title
+    let title = "Graphs";
+    draw_text(title, inner.x + 6.0, nav_y + nav_h * 0.62, 22.0, LIGHTGRAY);
+    // Close button (square with X)
+    let close_w = 30.0f32;
+    let close_h = 26.0f32;
+    let close_x = inner.x + inner.w - close_w - 6.0;
+    let close_y = nav_y + (nav_h - close_h) * 0.5;
+    let (mx, my) = mouse_position();
+    let mouse = Vec2::new(mx, my);
+    let close_hover = mouse.x >= close_x && mouse.x <= close_x + close_w && mouse.y >= close_y && mouse.y <= close_y + close_h;
+    let close_bg = if close_hover { Color::new(0.9, 0.2, 0.2, 0.95) } else { Color::new(0.7, 0.15, 0.15, 0.85) };
+    draw_rectangle(close_x, close_y, close_w, close_h, close_bg);
+    draw_rectangle_lines(close_x, close_y, close_w, close_h, 1.0, Color::new(1.0, 1.0, 1.0, 0.18));
+    // Draw an 'X' inside the close button
+    let pad = 8.0;
+    draw_line(close_x + pad, close_y + pad, close_x + close_w - pad, close_y + close_h - pad, 2.0, WHITE);
+    draw_line(close_x + pad, close_y + close_h - pad, close_x + close_w - pad, close_y + pad, 2.0, WHITE);
+    if is_mouse_button_pressed(MouseButton::Left) && close_hover {
+        *open = false;
+    }
+
     // Draw tab bar
     let tabs = [GraphTab::Population, GraphTab::Fitness, GraphTab::BirthsDeaths, GraphTab::Intelligence];
     let tab_h = 36.0f32;
-    let tab_y = inner.y;
+    let tab_y = inner.y + nav_h + 6.0;
     let tab_w = inner.w / tabs.len() as f32;
-    let (mx, my) = mouse_position();
-    let mouse = Vec2::new(mx, my);
     for (i, t) in tabs.iter().enumerate() {
         let tx = inner.x + i as f32 * tab_w;
         let tr = Rect { x: tx, y: tab_y, w: tab_w, h: tab_h };
@@ -410,8 +433,8 @@ pub fn draw_graphs_overlay(fullscreen: Rect, trends: &Trends, active_tab: &mut G
         }
     }
 
-    // Content area below tabs
-    let content = Rect { x: inner.x, y: inner.y + tab_h + GAP, w: inner.w, h: inner.h - tab_h - GAP };
+    // Content area below nav+tabs
+    let content = Rect { x: inner.x, y: tab_y + tab_h + GAP, w: inner.w, h: inner.h - (tab_y - inner.y) - tab_h - GAP };
     // Render selected tab into content
     match active_tab {
         GraphTab::Population => {
