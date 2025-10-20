@@ -1,6 +1,7 @@
 use macroquad::prelude::*;
 use crate::ui_common::{draw_panel, section_title, draw_text_clamped, PANEL_BG, PANEL_BORDER, PAD, GAP};
-use crate::{AppState, ScoreEntry};
+use crate::scoreboard;
+use crate::AppState;
 use std::fs;
 use std::cell::RefCell;
 
@@ -8,7 +9,7 @@ thread_local! {
     static EXPORT_STATE: RefCell<(Option<String>, f32)> = RefCell::new((None, 0.0));
 }
 
-pub fn draw_scoreboard(_fullscreen: Rect, state: &AppState, rows: &[ScoreEntry], modal: bool) -> bool {
+pub fn draw_scoreboard(_fullscreen: Rect, state: &AppState, rows: &[scoreboard::ScoreEntry], modal: bool) -> bool {
     // Returns true if user clicked Continue
     let w = screen_width();
     let h = screen_height();
