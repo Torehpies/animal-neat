@@ -47,7 +47,7 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
         (min_e, sum / state.episode.agents.len() as f32, max_e)
     } else { (0.0, 0.0, 0.0) };
 
-    // Top-right: FPS pill (always visible)
+    // Top-right: FPS pill (always shown)
     {
         let fs = 14.0;
         let fps = get_fps();
@@ -171,6 +171,7 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
                 ("[E]", "Energy Bar", state.show_energy_overlay),
                 ("[G]", "Exploration Grid", state.show_grid),
                 ("[Z]", "Graphs Panel", state.show_graphs_panel),
+                // FPS counter is always displayed now; removed toggle row
                 ("[S]", "Quick Save (HUD)", false),
                 ("[L]", "Load Latest", false),
                 ("[K]", "Color by Species", state.color_by_species),

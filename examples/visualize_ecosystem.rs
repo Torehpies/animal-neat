@@ -112,7 +112,7 @@ struct AppState {
     pub plant_tex: Option<Texture2D>,
     pub meat_tex: Option<Texture2D>,
     // Diagnostics
-    // FPS counter is always shown now (no toggle)
+    // FPS is always shown in HUD (no toggle)
     ultra_mode: bool,
     // Scoreboard modal
     show_scoreboard_panel: bool,  // user toggle (T): enable/disable pause + scoreboard at episode end, default off
@@ -638,8 +638,7 @@ async fn main() {
                 state.hud_toast = Some(("No snapshots found".to_string(), 2.5));
             }
         }
-    // 'O' key: toggle FPS pill in HUD
-    // FPS counter is always visible; removed toggle (formerly KeyCode::O)
+    // 'O' key: (removed) FPS counter is always displayed now
         
         // ESC: if focused on an agent, clear focus; otherwise open the in-sim menu
         if is_key_pressed(KeyCode::Escape) {
