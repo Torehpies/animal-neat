@@ -89,7 +89,6 @@ struct AppState {
     show_grid: bool,
     // HUD/network & focus controls
     show_best_network_panel: bool,
-    show_live_network: bool,
     focused_agent: Option<usize>,
     // Eco mode helpers
     eco_episode_counter: usize,
@@ -113,7 +112,7 @@ struct AppState {
     pub plant_tex: Option<Texture2D>,
     pub meat_tex: Option<Texture2D>,
     // Diagnostics
-    show_fps: bool,
+    // FPS counter is always shown now (no toggle)
     ultra_mode: bool,
     // Scoreboard modal
     show_scoreboard_panel: bool,  // user toggle (T): enable/disable pause + scoreboard at episode end, default off
@@ -185,7 +184,6 @@ impl AppState {
             show_collision_radii: false,
             show_grid: false,
             show_best_network_panel: false,
-            show_live_network: false,
             focused_agent: None,
             eco_episode_counter: 0,
             show_controls: true,
@@ -200,7 +198,6 @@ impl AppState {
             carn_tex: None,
             plant_tex: None,
             meat_tex: None,
-            show_fps: true,
             ultra_mode: false,
             show_scoreboard_panel: false, // default: autoplay between episodes (no pause)
             scoreboard_pending: false,    // no scoreboard open
@@ -475,8 +472,7 @@ async fn main() {
             }
         }
         if is_key_pressed(KeyCode::G) { state.show_grid = !state.show_grid; }
-        if is_key_pressed(KeyCode::N) { state.show_best_network_panel = !state.show_best_network_panel; }
-        if is_key_pressed(KeyCode::M) { state.show_live_network = !state.show_live_network; }
+    if is_key_pressed(KeyCode::N) { state.show_best_network_panel = !state.show_best_network_panel; }
         if is_key_pressed(KeyCode::H) { state.show_controls = !state.show_controls; }
         if is_key_pressed(KeyCode::K) { state.color_by_species = !state.color_by_species; }
     // Z: toggle graphs overlay (replaces old HUD graphs panel)
@@ -643,7 +639,7 @@ async fn main() {
             }
         }
     // 'O' key: toggle FPS pill in HUD
-    if is_key_pressed(KeyCode::O) { state.show_fps = !state.show_fps; }
+    // FPS counter is always visible; removed toggle (formerly KeyCode::O)
         
         // ESC: if focused on an agent, clear focus; otherwise open the in-sim menu
         if is_key_pressed(KeyCode::Escape) {

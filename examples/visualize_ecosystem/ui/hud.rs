@@ -5,7 +5,7 @@ use crate::ui_common::{
     draw_text_clamped, draw_text_wrapped, draw_panel, section_title, draw_divider,
     PANEL_BG, PANEL_BORDER, SUBPANEL_BG, PAD, GAP, FONT,
 };
-use crate::ui_network::{draw_network_panel, draw_network_panel_activations};
+use crate::ui_network::{draw_network_panel};
 use crate::ui_graphs::draw_graphs_panel;
 
 // Compact HUD with essential stats; best-network panel retained.
@@ -19,7 +19,7 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
     // Reserve bottom portion for network panel; can be hidden via toggles
     // Graphs are now shown in a separate overlay; reserve no HUD space
     let graphs_h = 0.0;
-    let network_h = if state.show_best_network_panel || state.show_live_network { (area.h * 0.542).clamp(160.0, 380.0) } else { 0.0 };
+    let network_h = if state.show_best_network_panel { (area.h * 0.542).clamp(160.0, 380.0) } else { 0.0 };
     let reserved_h = graphs_h + network_h;
     let max_y = area.y + area.h - PAD - reserved_h - 8.0;
     let max_w = area.w - (x - area.x) - PAD;
@@ -47,22 +47,20 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
         (min_e, sum / state.episode.agents.len() as f32, max_e)
     } else { (0.0, 0.0, 0.0) };
 
-    // Top-right: optional FPS pill (status mode removed)
+    // Top-right: FPS pill (always visible)
     {
         let fs = 14.0;
-        if state.show_fps {
-            let fps = get_fps();
-            let fps_txt = format!("{} fps", fps);
-            let pad_x = 8.0; let pad_y = 4.0;
-            let dims2 = measure_text(&fps_txt, None, fs as u16, 1.0);
-            let pill_w2 = dims2.width + 2.0 * pad_x;
-            let pill_h2 = fs + 2.0 * pad_y;
-            let px2 = area.x + area.w - PAD - pill_w2;
-            let py2 = area.y + 6.0;
-            draw_rectangle(px2, py2, pill_w2, pill_h2, Color::new(0.15, 0.18, 0.22, 0.25));
-            draw_rectangle_lines(px2, py2, pill_w2, pill_h2, 1.0, Color::new(0.45, 0.55, 0.70, 0.55));
-            draw_text(&fps_txt, px2 + pad_x, py2 + fs, fs, Color::new(0.85, 0.9, 0.95, 1.0));
-        }
+        let fps = get_fps();
+        let fps_txt = format!("{} fps", fps);
+        let pad_x = 8.0; let pad_y = 4.0;
+        let dims2 = measure_text(&fps_txt, None, fs as u16, 1.0);
+        let pill_w2 = dims2.width + 2.0 * pad_x;
+        let pill_h2 = fs + 2.0 * pad_y;
+        let px2 = area.x + area.w - PAD - pill_w2;
+        let py2 = area.y + 6.0;
+        draw_rectangle(px2, py2, pill_w2, pill_h2, Color::new(0.15, 0.18, 0.22, 0.25));
+        draw_rectangle_lines(px2, py2, pill_w2, pill_h2, 1.0, Color::new(0.45, 0.55, 0.70, 0.55));
+        draw_text(&fps_txt, px2 + pad_x, py2 + fs, fs, Color::new(0.85, 0.9, 0.95, 1.0));
     }
 
     // Essentials block
@@ -135,7 +133,6 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
                 ("[Esc]", "Clear Focus", state.focused_agent.is_some()),
                 ("[CLK]", "Focus Agent", state.focused_agent.is_some()),
                 ("[N]", "Best Network", state.show_best_network_panel),
-                ("[M]", "Live Network", state.show_live_network),
                 ("[H]", "Toggle Controls", state.show_controls),
             ];
             // Compute dynamic key slot width for left column
@@ -174,7 +171,6 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
                 ("[E]", "Energy Bar", state.show_energy_overlay),
                 ("[G]", "Exploration Grid", state.show_grid),
                 ("[Z]", "Graphs Panel", state.show_graphs_panel),
-                ("[O]", "FPS Counter", state.show_fps),
                 ("[S]", "Quick Save (HUD)", false),
                 ("[L]", "Load Latest", false),
                 ("[K]", "Color by Species", state.color_by_species),
@@ -259,38 +255,11 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
     }
 
     // Network panel area (for best or live activations)
-    if (state.show_best_network_panel || state.show_live_network) && network_h > 0.0 {
+    if state.show_best_network_panel && network_h > 0.0 {
         let panel = Rect { x: area.x + 8.0, y: area.y + area.h - network_h + 8.0, w: area.w - 16.0, h: network_h - 16.0 };
         let frame = Rect { x: panel.x - 4.0, y: panel.y - 4.0, w: panel.w + 8.0, h: panel.h + 8.0 };
         draw_panel(frame, SUBPANEL_BG, PANEL_BORDER, 2.0);
-        if state.show_live_network {
-            // Live activations for the focused agent, if any
-            if let Some(fi) = state.focused_agent {
-                if let Some(agent) = state.episode.agents.get(fi) {
-                    if fi < state.population.len() {
-                        // Build current inputs and evaluate activations
-                        use crate::sensing;
-                        let energy_in = (agent.energy / crate::params::get_max_energy()).clamp(0.0, 1.0);
-                        // Minimal snapshot for inputs: use agent states from episode
-                        let snapshot: Vec<(Vec2, bool, bool, usize, bool)> = state.episode.agents.iter().map(|a| {
-                            let alive = a.energy > 0.0 && a.health > DEATH_HEALTH_THRESHOLD;
-                            let is_corpse = !alive && !a.consumed && a.corpse_energy > 0.1;
-                            (a.body.pos, alive, a.consumed, a.species_id, is_corpse)
-                        }).collect();
-                        let inputs_arr = sensing::build_inputs(agent.body.pos, agent.theta, &state.episode.food, energy_in, agent.last_food_mem, agent.last_same_mem, agent.last_other_mem, &snapshot, fi, agent.species_id, agent.heard_sectors);
-                        let inputs: Vec<f32> = inputs_arr.to_vec();
-                        let genome = &state.population[fi];
-                        let acts = genome.evaluate_with_activations_slice(&inputs);
-                        draw_text_clamped("Live network (focused agent)", panel.x, panel.y - 8.0, 18.0, LIGHTGRAY, panel.w - 8.0);
-                        draw_network_panel_activations(panel, genome, &acts);
-                    }
-                }
-            } else {
-                let msg = "Live network: click an agent in the world to focus it";
-                draw_text_clamped(msg, panel.x, panel.y - 8.0, 18.0, LIGHTGRAY, panel.w - 8.0);
-                draw_text_clamped("No agent focused", panel.x, panel.y + panel.h * 0.5, 16.0, GRAY, panel.w - 8.0);
-            }
-        } else if state.show_best_network_panel {
+        if state.show_best_network_panel {
             // If an agent is focused, prefer showing its network in the panel so clicking an agent
             // displays that agent's network (keeps the visual layout unchanged).
             if let Some(fi) = state.focused_agent {
