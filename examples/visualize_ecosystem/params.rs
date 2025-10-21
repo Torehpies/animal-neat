@@ -37,6 +37,8 @@ thread_local! {
     static RUNTIME_FIT_ATTACKS_WEIGHT_HERB: Cell<f32> = Cell::new(10.0);
     static RUNTIME_FIT_KILLS_WEIGHT_HERB: Cell<f32> = Cell::new(20.0);
     static RUNTIME_FIT_HERDING_WEIGHT_HERB: Cell<f32> = Cell::new(0.3);
+    // New: reward resting while content (helps learn eat+rest cycle)
+    static RUNTIME_FIT_REST_CONTENT_WEIGHT_HERB: Cell<f32> = Cell::new(0.2);
     // Carnivore
     static RUNTIME_FIT_LIFETIME_WEIGHT_CARN: Cell<f32> = Cell::new(0.05);
     static RUNTIME_FIT_ENERGY_WEIGHT_CARN: Cell<f32> = Cell::new(5.0);
@@ -48,6 +50,7 @@ thread_local! {
     static RUNTIME_FIT_ATTACKS_WEIGHT_CARN: Cell<f32> = Cell::new(10.0);
     static RUNTIME_FIT_KILLS_WEIGHT_CARN: Cell<f32> = Cell::new(20.0);
     static RUNTIME_FIT_HERDING_WEIGHT_CARN: Cell<f32> = Cell::new(0.3);
+    static RUNTIME_FIT_REST_CONTENT_WEIGHT_CARN: Cell<f32> = Cell::new(0.2);
     // Behavior shaping weights (per kind)
     static RUNTIME_FIT_APPROACH_FOOD_WEIGHT_HERB: Cell<f32> = Cell::new(0.1);
     static RUNTIME_FIT_CHASE_OTHER_WEIGHT_HERB: Cell<f32> = Cell::new(0.3);
@@ -86,6 +89,15 @@ pub fn get_fit_herding_weight(kind: Kind) -> f32 { match kind { Kind::Herb => RU
 pub fn get_fit_approach_food_weight(kind: Kind) -> f32 { match kind { Kind::Herb => RUNTIME_FIT_APPROACH_FOOD_WEIGHT_HERB.with(|c| c.get()), Kind::Carn => RUNTIME_FIT_APPROACH_FOOD_WEIGHT_CARN.with(|c| c.get()) } }
 pub fn get_fit_chase_other_weight(kind: Kind) -> f32 { match kind { Kind::Herb => RUNTIME_FIT_CHASE_OTHER_WEIGHT_HERB.with(|c| c.get()), Kind::Carn => RUNTIME_FIT_CHASE_OTHER_WEIGHT_CARN.with(|c| c.get()) } }
 pub fn get_fit_chase_same_weight(kind: Kind) -> f32 { match kind { Kind::Herb => RUNTIME_FIT_CHASE_SAME_WEIGHT_HERB.with(|c| c.get()), Kind::Carn => RUNTIME_FIT_CHASE_SAME_WEIGHT_CARN.with(|c| c.get()) } }
+pub fn get_fit_rest_content_weight(kind: Kind) -> f32 { match kind { Kind::Herb => RUNTIME_FIT_REST_CONTENT_WEIGHT_HERB.with(|c| c.get()), Kind::Carn => RUNTIME_FIT_REST_CONTENT_WEIGHT_CARN.with(|c| c.get()) } }
+
+// =====================
+// Contentment (hunger is derived)
+// =====================
+// Hunger is derived as 1 - contentment; contentment changes with activity/rest.
+pub const CONTENTMENT_RECHARGE_RATE: f32 = 0.002; // fraction of energy regained per step while resting/content (also used as contentment recharge rate scale)
+pub const CONTENTMENT_DECAY_RATE: f32 = 0.005; // rate at which contentment decays while active/moving
+
 
 
 

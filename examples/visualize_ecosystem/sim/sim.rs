@@ -1,19 +1,15 @@
-use macroquad::prelude::*;
-
-use crate::sim::{Agent, AgentKind, DigestEvent};
+use crate::sim::{Agent, AgentKind};
 use crate::params::*;
 
 
 
-// Apply digestion for one agent, returning energy gained this tick
+// Apply digestion for one agent. Digestion no longer restores energy; queue is retained for possible future effects.
 pub fn apply_digestion(agent: &mut Agent) {
     if agent.digest.is_empty() { return; }
-    let mut gained = 0.0f32;
     for ev in agent.digest.iter_mut() {
-        if ev.remaining > 0 { gained += ev.per_step; ev.remaining -= 1; }
+        if ev.remaining > 0 { ev.remaining -= 1; }
     }
     agent.digest.retain(|ev| ev.remaining > 0);
-    agent.energy = (agent.energy + gained).min(crate::params::get_max_energy());
 }
 
 // Resolve predation/scavenging interactions using a snapshot of positions and life states
@@ -51,11 +47,10 @@ pub fn resolve_predation(
                     agents[j].energy = 0.0; // energy drained on death
                 }
             } else {
-                // Scavenge OR second predation hit on dead body -> consume corpse energy
+                // Scavenge OR second predation hit on dead body -> consume corpse energy (no energy restoration)
                 if agents[j].corpse_energy > 0.0 {
-                    let gain = agents[j].corpse_energy.min(MEAT_ENERGY);
-                    if DIGEST_STEPS_MEAT > 0 { agents[i].digest.push_back(DigestEvent { remaining: DIGEST_STEPS_MEAT, per_step: gain / (DIGEST_STEPS_MEAT as f32) }); }
-                    else { agents[i].energy = (agents[i].energy + gain).min(crate::params::get_max_energy()); }
+                    // Previously, energy was granted here (immediate or via digestion). Now, we do NOT add energy.
+                    // Still apply small healing bonus and touch damage side-effects, and mark corpse consumed.
                     // Healing bonus from meat
                     agents[i].health = (agents[i].health + MEAT_HEAL_BONUS).min(agents[i].max_health);
                     // Apply a small touch damage to scavenger to add risk to corpse consumption
@@ -64,6 +59,8 @@ pub fn resolve_predation(
                     }
                     agents[i].eaten += 1;
                     agents[i].kills += 1; // counts scavenged meat as kill-equivalent for diet tint
+                    // Eating meat refreshes contentment (hunger is derived as 1 - contentment)
+                    agents[i].contentment = 1.0;
                     agents[j].corpse_energy = 0.0;
                     agents[j].consumed = true;
                 }

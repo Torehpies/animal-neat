@@ -106,6 +106,8 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
                     format!("Health {:.0}/{:.0}", a.health.max(0.0), a.max_health),
                     format!("Alive steps {}", a.alive_steps),
                     stats_line,
+                    format!("Hunger {:.0}%", (a.hunger * 100.0).clamp(0.0, 100.0)),
+                    format!("Contentment {:.0}%", (a.contentment * 100.0).clamp(0.0, 100.0)),
                 ];
                 for line in lines.iter() { if y > max_y { break; } y = draw_text_wrapped(line, x+4.0, y, 16.0, GRAY, max_w, 4.0); }
             }

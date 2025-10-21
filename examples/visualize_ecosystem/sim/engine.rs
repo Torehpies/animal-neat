@@ -5,7 +5,7 @@ use neat::genome::Genome;
 use ::rand::Rng;
 use sim::{resolve_predation, decay_corpses_and_flashes};
 
-use crate::{params::*, sensing, sim::{self, CommSignal, Agent, AgentKind, DigestEvent, dir_from_theta, grid_index}, world::{self, wrap_to_world}};
+use crate::{params::*, sensing, sim::{self, CommSignal, Agent, AgentKind, dir_from_theta, grid_index}, world::{self, wrap_to_world}};
 use crate::body::{resolve_collision, Body};
 
 // Phase 1 output: neural decision + precomputed inputs we still need in phase 2
@@ -324,13 +324,9 @@ pub fn tick_step<R: Rng>(
             reward = reward.clamp(0.0, APPROACH_MAX_DELTA_PER_STEP);
             if reward > APPROACH_EPS { a.chase_same_units += reward; }
         }
-        // Eating: only Herbivores eat plants
+        // Eating: only Herbivores eat plants. Eating no longer restores energy; it only resets hunger/contentment via `ate` flag.
     let ate = if matches!(a.kind, AgentKind::Herbivore) && world::eat_if_near(food, food_lifetime, &a.body) {
-            if DIGEST_STEPS_PLANT > 0 { a.digest.push_back(DigestEvent { remaining: DIGEST_STEPS_PLANT, per_step: FOOD_ENERGY / (DIGEST_STEPS_PLANT as f32) }); }
-            else {
-                let k = crate::params::Kind::Herb;
-                a.energy = (a.energy + FOOD_ENERGY).min(crate::params::get_max_energy_for(k));
-            }
+            // Do not add energy or schedule digestion; just record the event.
             a.eaten += 1; if let Some(ref mut hook) = first_eat_step { if hook.is_none() { **hook = Some(step_idx); } } true } else { false };
         // Predation candidate scan via spatial grid
         if PREDATION_ENABLED || SCAVENGE_ENABLED {
@@ -420,6 +416,42 @@ pub fn tick_step<R: Rng>(
             energy_cost += TURN_ENERGY_SCALE * intent.raw_turn.abs().min(1.0);
         }
         if COMMUNICATION_ENABLED { energy_cost += a.call_intensity * CALL_COST; }
+
+        // ----- Contentment-only model (hunger is derived) -----
+        if ate {
+            a.contentment = 1.0;
+        } else {
+            // Activity reduces contentment; idling increases it
+            let moving = if USE_INERTIA { a.body.vel.length() > 0.01 } else { intent.raw_thrust.abs() > 0.01 };
+            let turning = intent.turn_delta.abs() > 1e-3;
+            if moving || turning {
+                a.contentment = (a.contentment - crate::params::CONTENTMENT_DECAY_RATE * 1.2).clamp(0.0, 1.0);
+            } else {
+                a.contentment = (a.contentment + crate::params::CONTENTMENT_RECHARGE_RATE * 1.5).clamp(0.0, 1.0);
+            }
+        }
+        // Derive hunger as the inverse of contentment
+        a.hunger = (1.0 - a.contentment).clamp(0.0, 1.0);
+
+        // If content and resting, allow passive energy recharge to model restful recovery.
+        // Gate on higher contentment so eating (which sets contentment=1) enables strong regen.
+        if a.contentment > 0.7 {
+            let resting = if USE_INERTIA { a.body.vel.length() < 0.03 && intent.turn_delta.abs() < 5e-4 } else { intent.raw_thrust.abs() < 0.03 && intent.turn_delta.abs() < 5e-4 };
+            if resting {
+                let k = match a.kind { AgentKind::Herbivore => crate::params::Kind::Herb, AgentKind::Carnivore => crate::params::Kind::Carn };
+                // Scale recharge by how content the agent is (quadratic to emphasize high contentment)
+                let c = a.contentment.clamp(0.0, 1.0);
+                // Increase conversion value so resting is worthwhile: base 0.004 of max energy per step at full content,
+                // tapering down quadratically with contentment. Example: max_energy=5000 -> ~20 energy/step at c=1.
+                let base = 0.004; // was ~0.002 via CONTENTMENT_RECHARGE_RATE scale
+                let regen = base * (0.25 + 0.75*c*c) * crate::params::get_max_energy_for(k);
+                a.energy = (a.energy + regen).min(crate::params::get_max_energy_for(k));
+                // Accumulate rest-with-contentment shaping units (normalized per step)
+                a.rest_content_units += c;
+            }
+        }
+
+        // Apply energy drain after any passive regen
         a.energy -= energy_cost; if a.energy <= 0.0 || a.health <= DEATH_HEALTH_THRESHOLD { if a.dead_since.is_none() { a.dead_since = Some(step_idx); a.corpse_energy = CORPSE_INITIAL_ENERGY; } }
         if a.energy > 0.0 && a.health > DEATH_HEALTH_THRESHOLD {
             let k = match a.kind { AgentKind::Herbivore => crate::params::Kind::Herb, AgentKind::Carnivore => crate::params::Kind::Carn };

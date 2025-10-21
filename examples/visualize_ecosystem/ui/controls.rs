@@ -200,6 +200,9 @@ pub fn handle_keyboard(
                             approach_food_units: 0.0,
                             chase_other_units: 0.0,
                             chase_same_units: 0.0,
+                            hunger: 0.0,
+                            contentment: 1.0,
+                            rest_content_units: 0.0,
                         });
                     }
                     state.episode.steps = snap.episode_steps;
