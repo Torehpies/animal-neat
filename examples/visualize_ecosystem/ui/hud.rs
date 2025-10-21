@@ -148,7 +148,38 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
                 if hovering && is_mouse_button_pressed(MouseButton::Left) {
                     match i {
                         0 => {
-                            // Reset episode
+                            // Reset episode and re-apply runtime config from the UI so reset obeys user settings
+                            let sc = &state.sim_config;
+                            crate::world::set_runtime_config(sc.world_width, sc.world_height, sc.max_food, sc.food_respawn_prob);
+                            crate::params::set_runtime_energy_config_per_kind(
+                                sc.initial_energy_herb,
+                                sc.max_energy_herb,
+                                sc.energy_drain_per_step_herb,
+                                sc.initial_energy_carn,
+                                sc.max_energy_carn,
+                                sc.energy_drain_per_step_carn,
+                            );
+                            crate::params::set_runtime_population_size(sc.population_size);
+                            // Recreate population if requested population size changed
+                            if sc.population_size != state.population.len() {
+                                let num_inputs = crate::params::INPUTS as u32;
+                                let num_outputs = crate::params::OUTPUTS as u32;
+                                state.population = neat::neat::genome::Genome::create_initial_population(
+                                    sc.population_size,
+                                    num_inputs,
+                                    num_outputs,
+                                    &mut state.innov,
+                                );
+                                state.speciator.get_species_mut().clear();
+                                state.speciator.speciate(&state.population);
+                                state.member_species = {
+                                    let mut map = vec![0usize; state.population.len()];
+                                    for (sidx, s) in state.speciator.get_species().iter().enumerate() {
+                                        for &m in &s.members { if m < state.population.len() { map[m] = sidx; } }
+                                    }
+                                    map
+                                };
+                            }
                             let mut rng = ::rand::rng();
                             state.episode = crate::sim::Episode::new(&mut rng, state.population.len());
                             state.focused_agent = None;

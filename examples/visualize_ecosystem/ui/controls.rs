@@ -23,7 +23,47 @@ pub fn handle_keyboard(
     // Basic toggles
     if is_key_pressed(KeyCode::P) { *running = !*running; }
     if is_key_pressed(KeyCode::F) { *fast_mode = !*fast_mode; }
-    if is_key_pressed(KeyCode::R) { let mut rng = ::rand::rng(); state.episode = crate::sim::Episode::new(&mut rng, state.population.len()); }
+    if is_key_pressed(KeyCode::R) {
+        // Re-apply runtime configuration from the UI SimConfig so a keyboard reset follows
+        // the user's chosen world/population/energy settings.
+        let sc = &state.sim_config;
+        crate::world::set_runtime_config(sc.world_width, sc.world_height, sc.max_food, sc.food_respawn_prob);
+        // per-kind energy and population size setters live in params
+        crate::params::set_runtime_energy_config_per_kind(
+            sc.initial_energy_herb,
+            sc.max_energy_herb,
+            sc.energy_drain_per_step_herb,
+            sc.initial_energy_carn,
+            sc.max_energy_carn,
+            sc.energy_drain_per_step_carn,
+        );
+        crate::params::set_runtime_population_size(sc.population_size);
+        // If the user changed population size in the SimConfig, recreate the population
+        // so the new episode uses the requested number of agents/genomes.
+        if sc.population_size != state.population.len() {
+            // Recreate population using existing innovation tracker
+            let num_inputs = crate::params::INPUTS as u32;
+            let num_outputs = crate::params::OUTPUTS as u32;
+            state.population = neat::neat::genome::Genome::create_initial_population(
+                sc.population_size,
+                num_inputs,
+                num_outputs,
+                &mut state.innov,
+            );
+            // Respeciate for coloring/metadata
+            state.speciator.get_species_mut().clear();
+            state.speciator.speciate(&state.population);
+            state.member_species = {
+                let mut map = vec![0usize; state.population.len()];
+                for (sidx, s) in state.speciator.get_species().iter().enumerate() {
+                    for &m in &s.members { if m < state.population.len() { map[m] = sidx; } }
+                }
+                map
+            };
+        }
+        let mut rng = ::rand::rng();
+        state.episode = crate::sim::Episode::new(&mut rng, state.population.len());
+    }
     if is_key_pressed(KeyCode::V) { state.show_cones = !state.show_cones; }
     if is_key_pressed(KeyCode::U) { state.show_unified_overlay = !state.show_unified_overlay; }
     if is_key_pressed(KeyCode::E) { state.show_energy_overlay = !state.show_energy_overlay; }

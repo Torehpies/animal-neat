@@ -90,6 +90,17 @@ impl AppState {
             }
             map
         };
+        // Ensure runtime world and energy/population settings reflect the provided SimConfig
+        crate::world::set_runtime_config(sim_config.world_width, sim_config.world_height, sim_config.max_food, sim_config.food_respawn_prob);
+        crate::params::set_runtime_energy_config_per_kind(
+            sim_config.initial_energy_herb,
+            sim_config.max_energy_herb,
+            sim_config.energy_drain_per_step_herb,
+            sim_config.initial_energy_carn,
+            sim_config.max_energy_carn,
+            sim_config.energy_drain_per_step_carn,
+        );
+        crate::params::set_runtime_population_size(sim_config.population_size);
         let episode = Episode::new(&mut rng, pop_size);
         // Create a unique save prefix per simulation using system time
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
@@ -184,6 +195,18 @@ impl AppState {
             map
         };
         self.generation += 1;
+        // Re-apply runtime config in case sim_config changed before creating the episode
+        let sc = &self.sim_config;
+        crate::world::set_runtime_config(sc.world_width, sc.world_height, sc.max_food, sc.food_respawn_prob);
+        crate::params::set_runtime_energy_config_per_kind(
+            sc.initial_energy_herb,
+            sc.max_energy_herb,
+            sc.energy_drain_per_step_herb,
+            sc.initial_energy_carn,
+            sc.max_energy_carn,
+            sc.energy_drain_per_step_carn,
+        );
+        crate::params::set_runtime_population_size(sc.population_size);
         let mut rng = ::rand::rng();
         self.episode = Episode::new(&mut rng, self.population.len());
         // Clear focused agent because indices now refer to new episode
