@@ -113,7 +113,8 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
     }
 
     // Controls (toggleable) rendered as clickable buttons instead of keybind labels
-    if state.show_controls {
+    // Hide regular HUD controls when the standalone "best network" panel is open
+    if state.show_controls && !state.show_best_network_panel {
         if y <= max_y {
             y = section_title("Controls", x, y, max_w);
             let col_gap = 12.0;
