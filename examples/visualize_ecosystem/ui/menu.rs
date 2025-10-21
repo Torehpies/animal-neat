@@ -354,6 +354,9 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
         // Left column
         if let Some(t) = draw_field_row(state, "World Width", EditField::WorldWidth, format!("{:.0}", state.config.world_width), state.config.world_width, field_x1, value_x1, &mut y1, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
         if let Some(t) = draw_field_row(state, "World Height", EditField::WorldHeight, format!("{:.0}", state.config.world_height), state.config.world_height, field_x1, value_x1, &mut y1, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+    // Population split controls (moved from Fitness screen for easier access)
+    if let Some(t) = draw_field_row(state, "Herbivores", EditField::Herbivores, format!("{}", state.config.herbivore_count), state.config.herbivore_count as f32, field_x1, value_x1, &mut y1, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+    if let Some(t) = draw_field_row(state, "Carnivores", EditField::Carnivores, format!("{}", state.config.carnivore_count), state.config.carnivore_count as f32, field_x1, value_x1, &mut y1, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
 
         // Right column
         if let Some(t) = draw_field_row(state, "Max Food", EditField::MaxFood, format!("{}", state.config.max_food), state.config.max_food as f32, field_x2, value_x2, &mut y2, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
@@ -381,8 +384,7 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
         let herb_header_y = y;
         draw_text("Fitness Weights (Herbivore)", herb_x, herb_header_y, label_size, LIGHTGRAY);
         let mut yh = herb_header_y + line_h;
-        // Herbivore-specific population and energy controls at top
-        if let Some(t) = draw_field_row(state, "Herbivores", EditField::Herbivores, format!("{}", state.config.herbivore_count), state.config.herbivore_count as f32, herb_label_x, herb_value_x, &mut yh, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+    // Herbivore-specific energy controls at top
         if let Some(t) = draw_field_row(state, "Init Energy (Herb)", EditField::InitialEnergyHerb, format!("{:.1}", state.config.initial_energy_herb), state.config.initial_energy_herb, herb_label_x, herb_value_x, &mut yh, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
         if let Some(t) = draw_field_row(state, "Max Energy (Herb)", EditField::MaxEnergyHerb, format!("{:.1}", state.config.max_energy_herb), state.config.max_energy_herb, herb_label_x, herb_value_x, &mut yh, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
         if let Some(t) = draw_field_row(state, "Drain/Step (Herb)", EditField::EnergyDrainHerb, format!("{:.3}", state.config.energy_drain_per_step_herb), state.config.energy_drain_per_step_herb, herb_label_x, herb_value_x, &mut yh, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
@@ -408,8 +410,7 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
         let carn_header_y = y;
         draw_text("Fitness Weights (Carnivore)", carn_x, carn_header_y, label_size, LIGHTGRAY);
         let mut yc = carn_header_y + line_h;
-        // Carnivore-specific population and energy controls at top
-        if let Some(t) = draw_field_row(state, "Carnivores", EditField::Carnivores, format!("{}", state.config.carnivore_count), state.config.carnivore_count as f32, carn_label_x, carn_value_x, &mut yc, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
+    // Carnivore-specific energy controls at top
         if let Some(t) = draw_field_row(state, "Init Energy (Carn)", EditField::InitialEnergyCarn, format!("{:.1}", state.config.initial_energy_carn), state.config.initial_energy_carn, carn_label_x, carn_value_x, &mut yc, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
         if let Some(t) = draw_field_row(state, "Max Energy (Carn)", EditField::MaxEnergyCarn, format!("{:.1}", state.config.max_energy_carn), state.config.max_energy_carn, carn_label_x, carn_value_x, &mut yc, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
         if let Some(t) = draw_field_row(state, "Drain/Step (Carn)", EditField::EnergyDrainCarn, format!("{:.3}", state.config.energy_drain_per_step_carn), state.config.energy_drain_per_step_carn, carn_label_x, carn_value_x, &mut yc, label_size, value_size, line_h, ui_scale) { deferred_tooltips.push(t); }
