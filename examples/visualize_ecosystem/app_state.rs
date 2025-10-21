@@ -103,8 +103,9 @@ impl AppState {
             sim_config.max_energy_carn,
             sim_config.energy_drain_per_step_carn,
         );
-        crate::params::set_runtime_population_size(sim_config.population_size);
-        let episode = Episode::new(&mut rng, pop_size);
+    crate::params::set_runtime_population_size(sim_config.population_size);
+    crate::params::set_runtime_species_counts(sim_config.herbivore_count, sim_config.carnivore_count);
+    let episode = Episode::new(&mut rng, sim_config.herbivore_count, sim_config.carnivore_count);
         // Create a unique save prefix per simulation using system time
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
         let save_prefix = format!("snapshots/sim_{}_{:09}", now.as_secs(), now.subsec_nanos());
@@ -213,7 +214,9 @@ impl AppState {
         );
         crate::params::set_runtime_population_size(sc.population_size);
         let mut rng = ::rand::rng();
-        self.episode = Episode::new(&mut rng, self.population.len());
+    let sc = &self.sim_config;
+    crate::params::set_runtime_species_counts(sc.herbivore_count, sc.carnivore_count);
+    self.episode = Episode::new(&mut rng, sc.herbivore_count, sc.carnivore_count);
         // Clear focused agent because indices now refer to new episode
         self.focused_agent = None;
         // Optional periodic snapshotting after evolution completes this generation

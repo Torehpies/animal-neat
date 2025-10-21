@@ -51,14 +51,18 @@ pub fn finalize_end_of_episode(state: &mut crate::AppState, rng: &mut impl ::ran
         if intel_best.is_finite() { state.graphs.intel_best.push(intel_best); }
         if intel_mean.is_finite() { state.graphs.intel_mean.push(intel_mean); }
         state.graphs.reset_episode();
-        state.episode = Episode::new(rng, state.population.len());
+    let sc = &state.sim_config;
+    crate::params::set_runtime_species_counts(sc.herbivore_count, sc.carnivore_count);
+    state.episode = Episode::new(rng, sc.herbivore_count, sc.carnivore_count);
     } else {
         // Log intelligence proxy for this episode (before resetting)
         if intel_best.is_finite() { state.graphs.intel_best.push(intel_best); }
         if intel_mean.is_finite() { state.graphs.intel_mean.push(intel_mean); }
         state.evolve_one_generation();
         state.graphs.reset_episode();
-        state.episode = Episode::new(rng, state.population.len());
+    let sc = &state.sim_config;
+    crate::params::set_runtime_species_counts(sc.herbivore_count, sc.carnivore_count);
+    state.episode = Episode::new(rng, sc.herbivore_count, sc.carnivore_count);
         if state.last_best.is_finite() { state.graphs.best.push(state.last_best); state.graphs.mean.push(state.last_avg); }
     }
     state.scoreboard_pending = false;

@@ -160,6 +160,7 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
                                 sc.energy_drain_per_step_carn,
                             );
                             crate::params::set_runtime_population_size(sc.population_size);
+                            crate::params::set_runtime_species_counts(sc.herbivore_count, sc.carnivore_count);
                             // Recreate population if requested population size changed
                             if sc.population_size != state.population.len() {
                                 let num_inputs = crate::params::INPUTS as u32;
@@ -181,7 +182,7 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
                                 };
                             }
                             let mut rng = ::rand::rng();
-                            state.episode = crate::sim::Episode::new(&mut rng, state.population.len());
+                                state.episode = crate::sim::Episode::new(&mut rng, sc.herbivore_count, sc.carnivore_count);
                             state.focused_agent = None;
                             state.hud_toast = Some(("Episode reset".to_string(), 1.6));
                         }

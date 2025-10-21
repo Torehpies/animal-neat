@@ -4,6 +4,7 @@ use ::rand::Rng;
 use std::collections::VecDeque;
 use neat::genome::Genome;
 use crate::{params::*, sim::{Agent, AgentKind, CommSignal, StepDelta, tick_step, AgentId}, body::Body, world};
+use rand::seq::SliceRandom;
 
 pub struct Episode {
     pub food: Vec<Vec2>,
@@ -23,20 +24,19 @@ pub struct Episode {
 }
 
 impl Episode {
-    pub fn new<R: Rng>(rng: &mut R, agent_count: usize) -> Self {
+    pub fn new<R: Rng>(rng: &mut R, herb_count: usize, carn_count: usize) -> Self {
+        let agent_count = herb_count.saturating_add(carn_count);
         let mut agents = Vec::with_capacity(agent_count);
-        for i in 0..agent_count {
-            // Uniform random spawn across the world for all agents (no species clustering)
+
+        // First create the requested number of herbivores, then carnivores.
+        for i in 0..herb_count {
             let pos = world::rand_pos(rng);
             agents.push(Agent {
                 id: AgentId(i),
-                kind: if i % 2 == 0 { AgentKind::Herbivore } else { AgentKind::Carnivore },
+                kind: AgentKind::Herbivore,
                 body: Body { pos, vel: Vec2::new(0.0, 0.0), radius: AGENT_COLLISION_RADIUS },
                 theta: -std::f32::consts::FRAC_PI_2,
-                energy: {
-                    let k = match i % 2 { 0 => crate::params::Kind::Herb, _ => crate::params::Kind::Carn };
-                    crate::params::get_initial_energy_for(k).min(crate::params::get_max_energy_for(k))
-                },
+                energy: crate::params::get_initial_energy_for(crate::params::Kind::Herb).min(crate::params::get_max_energy_for(crate::params::Kind::Herb)),
                 health: AGENT_BASE_HEALTH,
                 max_health: AGENT_BASE_HEALTH,
                 invuln_steps: 0,
@@ -53,7 +53,7 @@ impl Episode {
                 last_same_mem: Vec2 { x: 0.0, y: 0.0 },
                 last_other_mem: Vec2 { x: 0.0, y: 0.0 },
                 // Two fixed ecological species: 0 = Herbivore, 1 = Carnivore
-                species_id: if i % 2 == 0 { 0 } else { 1 },
+                species_id: 0,
                 age_steps: 0,
                 call_intensity: 0.0, heard_sectors: [0.0;3],
                 repro_cooldown: 0,
@@ -71,6 +71,58 @@ impl Episode {
                 chase_other_units: 0.0,
                 chase_same_units: 0.0,
             });
+        }
+        for j in 0..carn_count {
+            let i = herb_count + j;
+            let pos = world::rand_pos(rng);
+            agents.push(Agent {
+                id: AgentId(i),
+                kind: AgentKind::Carnivore,
+                body: Body { pos, vel: Vec2::new(0.0, 0.0), radius: AGENT_COLLISION_RADIUS },
+                theta: -std::f32::consts::FRAC_PI_2,
+                energy: crate::params::get_initial_energy_for(crate::params::Kind::Carn).min(crate::params::get_max_energy_for(crate::params::Kind::Carn)),
+                health: AGENT_BASE_HEALTH,
+                max_health: AGENT_BASE_HEALTH,
+                invuln_steps: 0,
+                alive_steps: 0,
+                eaten: 0,
+                consumed: false,
+                kills: 0,
+                predation_flash_steps: 0,
+                dead_since: None,
+                corpse_energy: 0.0,
+                digest: VecDeque::new(),
+                last_food_mem: Vec2 { x: 0.0, y: 0.0 },
+                last_danger_mem: Vec2 { x: 0.0, y: 0.0 },
+                last_same_mem: Vec2 { x: 0.0, y: 0.0 },
+                last_other_mem: Vec2 { x: 0.0, y: 0.0 },
+                species_id: 1,
+                age_steps: 0,
+                call_intensity: 0.0, heard_sectors: [0.0;3],
+                repro_cooldown: 0,
+                offspring_count: 0,
+                attack_hits: 0,
+                kills_caused: 0,
+                idle_anchor: world::rand_pos(rng),
+                idle_steps: 0,
+                total_idle_steps: 0,
+                total_idle_penalty: 0.0,
+                input_buf: vec![0.0; crate::params::INPUTS],
+                energy_accum: 0.0,
+                herding_units: 0.0,
+                approach_food_units: 0.0,
+                chase_other_units: 0.0,
+                chase_same_units: 0.0,
+            });
+        }
+
+        // Shuffle spawn order so indices aren't grouped by kind (keeps UI/speciation coloring stable)
+        if agent_count > 1 {
+            agents.shuffle(rng);
+            // reassign stable AgentId indices after shuffle
+            for (idx, a) in agents.iter_mut().enumerate() {
+                a.id = AgentId(idx);
+            }
         }
         let food = world::build_world(rng);
         let food_lifetime = world::init_food_lifetimes(&food, rng);

@@ -38,6 +38,7 @@ pub fn handle_keyboard(
             sc.energy_drain_per_step_carn,
         );
         crate::params::set_runtime_population_size(sc.population_size);
+    crate::params::set_runtime_species_counts(sc.herbivore_count, sc.carnivore_count);
         // If the user changed population size in the SimConfig, recreate the population
         // so the new episode uses the requested number of agents/genomes.
         if sc.population_size != state.population.len() {
@@ -61,8 +62,8 @@ pub fn handle_keyboard(
                 map
             };
         }
-        let mut rng = ::rand::rng();
-        state.episode = crate::sim::Episode::new(&mut rng, state.population.len());
+    let mut rng = ::rand::rng();
+    state.episode = crate::sim::Episode::new(&mut rng, sc.herbivore_count, sc.carnivore_count);
     }
     if is_key_pressed(KeyCode::V) { state.show_cones = !state.show_cones; }
     if is_key_pressed(KeyCode::U) { state.show_unified_overlay = !state.show_unified_overlay; }
@@ -205,6 +206,21 @@ pub fn handle_keyboard(
                     state.speciator.get_species_mut().clear();
                     state.speciator.speciate(&state.population);
                     state.member_species = snap.member_species;
+                    // Derive species counts from loaded episode agents when available; otherwise fall back to SimConfig
+                    let mut herb_count = 0usize;
+                    let mut carn_count = 0usize;
+                    for a in state.episode.agents.iter() {
+                        match a.kind {
+                            crate::sim::AgentKind::Herbivore => herb_count += 1,
+                            crate::sim::AgentKind::Carnivore => carn_count += 1,
+                        }
+                    }
+                    if herb_count + carn_count == 0 {
+                        herb_count = state.sim_config.herbivore_count;
+                        carn_count = state.sim_config.carnivore_count;
+                    }
+                    crate::params::set_runtime_species_counts(herb_count, carn_count);
+                    state.episode = crate::sim::Episode::new(&mut ::rand::rng(), herb_count, carn_count);
                     println!("Loaded sim snapshot from {}", path.display());
                     state.hud_toast = Some((format!("Loaded: {}", path.display()), 2.5));
                 }
@@ -225,7 +241,11 @@ pub fn handle_keyboard(
                                 map
                             };
                             let mut rng = ::rand::rng();
-                            state.episode = crate::sim::Episode::new(&mut rng, state.population.len());
+                            let sc = &state.sim_config;
+                            let herb_count = sc.herbivore_count;
+                            let carn_count = sc.carnivore_count;
+                            crate::params::set_runtime_species_counts(herb_count, carn_count);
+                            state.episode = crate::sim::Episode::new(&mut rng, herb_count, carn_count);
                             println!("Loaded population snapshot from {}", path.display());
                             state.hud_toast = Some((format!("Loaded population: {}", path.display()), 2.5));
                         }
