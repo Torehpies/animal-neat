@@ -66,6 +66,8 @@ pub struct AppState {
     pub scoreboard_rows: Vec<scoreboard::ScoreEntry>,
     // HUD quick-save feedback
     pub hud_toast: Option<(String, f32)>, // (message, remaining_secs)
+    // Compact modal for less-important view toggles
+    pub show_view_options_overlay: bool,
 }
 
 impl AppState {
@@ -129,6 +131,7 @@ impl AppState {
             scoreboard_pending: false,
             scoreboard_rows: Vec::new(),
             hud_toast: None,
+            show_view_options_overlay: false,
         }
     }
 

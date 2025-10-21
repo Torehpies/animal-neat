@@ -171,16 +171,11 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
                 yl += btn_h + 8.0;
             }
 
-            // Right column: Pause at end, Collision/Continue, Vision, Unified, Energy, Grid, Graphs, QuickSave, LoadLatest, ColorBySpecies
+            // Right column: compact primary controls + View Options button
             let mut yr = y;
             let right_x = x + 6.0 + col_w + col_gap;
             let right = [
-                "Pause at End",
-                "Collision / Continue",
-                "Vision Rays",
-                "Unified Overlay",
-                "Energy Bar",
-                "Exploration Grid",
+                "View Options",
                 "Graphs Panel",
                 "Quick Save",
                 "Load Latest",
@@ -194,16 +189,11 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
                 let (mx, my) = mouse_position();
                 let hovering = mx >= bx && mx <= bx + bw && my >= by && my <= by + btn_h;
                 let on = match i {
-                    0 => state.show_scoreboard_panel,
-                    1 => { if state.scoreboard_pending { false } else { state.show_collision_radii } }
-                    2 => state.show_cones,
-                    3 => state.show_unified_overlay,
-                    4 => state.show_energy_overlay,
-                    5 => state.show_grid,
-                    6 => state.show_graphs_overlay,
-                    7 => false,
-                    8 => false,
-                    9 => state.color_by_species,
+                    0 => false, // View Options (action)
+                    1 => state.show_graphs_overlay,
+                    2 => false,
+                    3 => false,
+                    4 => state.color_by_species,
                     _ => false,
                 };
                 let bg = if on { Color::new(0.22, 0.58, 0.95, 1.0) } else if hovering { Color::new(0.18, 0.18, 0.18, 1.0) } else { Color::new(0.12, 0.12, 0.12, 0.9) };
@@ -212,34 +202,21 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
                 draw_text(label, bx + btn_pad_x, by + (btn_h * 0.65), fs, WHITE);
                 if hovering && is_mouse_button_pressed(MouseButton::Left) {
                     match i {
-                        0 => { state.show_scoreboard_panel = !state.show_scoreboard_panel; }
-                        1 => {
-                            if state.scoreboard_pending { state.scoreboard_pending = false; state.hud_toast = Some(("Continuing...".to_string(), 1.2)); }
-                            else { state.show_collision_radii = !state.show_collision_radii; }
-                        }
-                        2 => { state.show_cones = !state.show_cones; }
-                        3 => { state.show_unified_overlay = !state.show_unified_overlay; }
-                        4 => { state.show_energy_overlay = !state.show_energy_overlay; }
-                        5 => { state.show_grid = !state.show_grid; }
-                        6 => { state.show_graphs_overlay = !state.show_graphs_overlay; }
-                        7 => { state.hud_toast = Some(("Quick save not implemented in HUD".to_string(), 2.0)); }
-                        8 => { state.hud_toast = Some(("Load latest not implemented".to_string(), 2.0)); }
-                        9 => { state.color_by_species = !state.color_by_species; }
+                        0 => { state.show_view_options_overlay = !state.show_view_options_overlay; }
+                        1 => { state.show_graphs_overlay = !state.show_graphs_overlay; }
+                        2 => { state.hud_toast = Some(("Quick save not implemented in HUD".to_string(), 2.0)); }
+                        3 => { state.hud_toast = Some(("Load latest not implemented".to_string(), 2.0)); }
+                        4 => { state.color_by_species = !state.color_by_species; }
                         _ => {}
                     }
                 }
                 // optional small help text under the label
                 let help = match i {
-                    0 => "Pause when episode ends",
-                    1 => if state.scoreboard_pending { "Click to continue" } else { "Toggle collision debug" },
-                    2 => "Show vision rays for agents",
-                    3 => "Overlay unified sensor visualization",
-                    4 => "Show energy bars above agents",
-                    5 => "Show exploration grid overlay",
-                    6 => "Open graphs panel overlay",
-                    7 => "Save a quick snapshot of the sim",
-                    8 => "Load the most recent quicksave",
-                    9 => "Color agents by species",
+                    0 => "Open the View Options modal",
+                    1 => "Open graphs panel overlay",
+                    2 => "Save a quick snapshot of the sim",
+                    3 => "Load the most recent quicksave",
+                    4 => "Color agents by species",
                     _ => "",
                 };
                 draw_text_clamped(help, bx + bw + 8.0, yr, 13.0, GRAY, (x + max_w) - (bx + bw + 8.0));
@@ -377,5 +354,79 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
         // y coordinate for draw_text is baseline, so center vertically roughly by adding half font size
         let ty = (h * 0.5) + (fs * 0.5);
         draw_text(label, tx, ty, fs, WHITE);
+    }
+
+    // View Options overlay modal (contains the less-important toggles)
+    if state.show_view_options_overlay {
+        let w = screen_width();
+        let h = screen_height();
+        // dim background
+        draw_rectangle(0.0, 0.0, w, h, Color::new(0.0, 0.0, 0.0, 0.5));
+
+        let modal_w = 520.0f32;
+        let modal_h = 320.0f32;
+        let mx = (w - modal_w) * 0.5;
+        let my = (h - modal_h) * 0.5;
+        let frame = Rect { x: mx - 6.0, y: my - 6.0, w: modal_w + 12.0, h: modal_h + 12.0 };
+        draw_panel(frame, SUBPANEL_BG, PANEL_BORDER, 2.0);
+
+        // Title
+        draw_text_clamped("View Options", mx + 12.0, my + 8.0, 22.0, LIGHTGRAY, modal_w - 24.0);
+        // Description
+        draw_text_clamped("Less-important display toggles (move to overlay for compact HUD)", mx + 12.0, my + 36.0, 14.0, GRAY, modal_w - 24.0);
+
+        // Buttons (2 columns × 3 rows)
+        let col_gap = 18.0;
+        let col_w = (modal_w - 24.0 - col_gap) * 0.5;
+    let btn_fs = 18.0;
+    let btn_h = btn_fs + 12.0;
+    let start_x = mx + 12.0;
+    let by = my + 76.0;
+
+    let opts: Vec<(&str, Box<dyn Fn(&AppState) -> bool>, Box<dyn Fn(&mut AppState)>)> = vec![
+            ("Pause at End", Box::new(|s: &AppState| { s.show_scoreboard_panel }), Box::new(|s: &mut AppState| { s.show_scoreboard_panel = !s.show_scoreboard_panel })),
+            ("Collision", Box::new(|s: &AppState| { s.show_collision_radii }), Box::new(|s: &mut AppState| { s.show_collision_radii = !s.show_collision_radii })),
+            ("Vision Rays", Box::new(|s: &AppState| { s.show_cones }), Box::new(|s: &mut AppState| { s.show_cones = !s.show_cones })),
+            ("Unified Overlay", Box::new(|s: &AppState| { s.show_unified_overlay }), Box::new(|s: &mut AppState| { s.show_unified_overlay = !s.show_unified_overlay })),
+            ("Energy Bar", Box::new(|s: &AppState| { s.show_energy_overlay }), Box::new(|s: &mut AppState| { s.show_energy_overlay = !s.show_energy_overlay })),
+            ("Exploration Grid", Box::new(|s: &AppState| { s.show_grid }), Box::new(|s: &mut AppState| { s.show_grid = !s.show_grid })),
+        ];
+
+        for col in 0..2 {
+            let bx = start_x + col as f32 * (col_w + col_gap);
+            let mut row_y = by;
+            for row in 0..3 {
+                let idx = col * 3 + row;
+                if idx >= opts.len() { break; }
+                let (label, getter, _) = &opts[idx];
+                let on = getter(&*state);
+                let (mx_mouse, my_mouse) = mouse_position();
+                let hovering = mx_mouse >= bx && mx_mouse <= bx + col_w && my_mouse >= row_y && my_mouse <= row_y + btn_h;
+                let bg = if on { Color::new(0.22, 0.58, 0.95, 1.0) } else if hovering { Color::new(0.18, 0.18, 0.18, 1.0) } else { Color::new(0.12, 0.12, 0.12, 0.9) };
+                draw_rectangle(bx, row_y, col_w, btn_h, bg);
+                draw_rectangle_lines(bx, row_y, col_w, btn_h, 1.0, Color::new(0.6,0.6,0.6,0.8));
+                draw_text(label, bx + 12.0, row_y + (btn_h * 0.68), btn_fs, WHITE);
+                if hovering && is_mouse_button_pressed(MouseButton::Left) {
+                    let (_, _, setter) = &opts[idx];
+                    setter(state);
+                }
+                row_y += btn_h + 12.0;
+            }
+        }
+
+        // Close button
+        let close_w = 120.0;
+        let close_h = 36.0;
+        let cx = mx + modal_w - close_w - 16.0;
+        let cy = my + modal_h - close_h - 16.0;
+        let (mx_mouse, my_mouse) = mouse_position();
+        let hovering_close = mx_mouse >= cx && mx_mouse <= cx + close_w && my_mouse >= cy && my_mouse <= cy + close_h;
+        let close_bg = if hovering_close { Color::new(0.18, 0.18, 0.18, 1.0) } else { Color::new(0.12, 0.12, 0.12, 0.9) };
+        draw_rectangle(cx, cy, close_w, close_h, close_bg);
+        draw_rectangle_lines(cx, cy, close_w, close_h, 1.0, Color::new(0.6,0.6,0.6,0.8));
+        draw_text("Close", cx + 20.0, cy + (close_h * 0.68), 20.0, WHITE);
+        if hovering_close && is_mouse_button_pressed(MouseButton::Left) {
+            state.show_view_options_overlay = false;
+        }
     }
 }
