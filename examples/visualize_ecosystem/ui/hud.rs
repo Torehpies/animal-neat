@@ -209,6 +209,7 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
             let right = [
                 "View Options",
                 "Graphs Panel",
+                "HELP",
                 "Quick Save",
                 "Load Latest",
             ];
@@ -222,8 +223,9 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
                 let on = match i {
                     0 => false, // View Options (action)
                     1 => state.show_graphs_overlay,
-                    2 => false,
+                    2 => state.show_help_overlay,
                     3 => false,
+                    4 => false,
                     _ => false,
                 };
                 let bg = if on { Color::new(0.22, 0.58, 0.95, 1.0) } else if hovering { Color::new(0.18, 0.18, 0.18, 1.0) } else { Color::new(0.12, 0.12, 0.12, 0.9) };
@@ -234,8 +236,9 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
                     match i {
                         0 => { state.show_view_options_overlay = !state.show_view_options_overlay; }
                         1 => { state.show_graphs_overlay = !state.show_graphs_overlay; }
-                        2 => { state.hud_toast = Some(("Quick save not implemented in HUD".to_string(), 2.0)); }
-                        3 => { state.hud_toast = Some(("Load latest not implemented".to_string(), 2.0)); }
+                        2 => { state.show_help_overlay = !state.show_help_overlay; }
+                        3 => { state.hud_toast = Some(("Quick save not implemented in HUD".to_string(), 2.0)); }
+                        4 => { state.hud_toast = Some(("Load latest not implemented".to_string(), 2.0)); }
                         _ => {}
                     }
                 }
@@ -243,8 +246,9 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
                 let help = match i {
                     0 => "Open the View Options modal",
                     1 => "Open graphs panel overlay",
-                    2 => "Save a quick snapshot of the sim",
-                    3 => "Load the most recent quicksave",
+                    2 => "Show the interactive help guide",
+                    3 => "Save a quick snapshot of the sim",
+                    4 => "Load the most recent quicksave",
                     _ => "",
                 };
                 draw_text_clamped(help, bx + bw + 8.0, yr, 13.0, GRAY, (x + max_w) - (bx + bw + 8.0));

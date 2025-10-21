@@ -68,6 +68,9 @@ pub struct AppState {
     pub hud_toast: Option<(String, f32)>, // (message, remaining_secs)
     // Compact modal for less-important view toggles
     pub show_view_options_overlay: bool,
+    // Help guide overlay
+    pub show_help_overlay: bool,
+    pub help_slide_idx: usize,
 }
 
 impl AppState {
@@ -143,6 +146,8 @@ impl AppState {
             scoreboard_rows: Vec::new(),
             hud_toast: None,
             show_view_options_overlay: false,
+            show_help_overlay: false,
+            help_slide_idx: 0,
         }
     }
 

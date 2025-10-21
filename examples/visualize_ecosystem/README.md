@@ -44,3 +44,15 @@ HUD tips
 - Start with fewer agents or lower `MAX_FOOD` for performance tests.
 - Tune survival/exploration weights small to keep behavior diverse.
 - Disable modalities you’re not testing with `ENABLE_*` for cleaner ablations.
+
+## Help Guide slides (in-sim)
+The in-simulation Help overlay can show screenshots or diagrams alongside short descriptions.
+
+- Put PNG images in one of these folders (project root relative):
+	- `.vscode/assets/guide/` (recommended for repo-local dev assets)
+	- `assets/guide/` (alternative path if you prefer a generic assets folder)
+- Default filenames referenced by the guide:
+	- `overview.png`, `controls.png`, `agents.png`, `graphs.png`
+- Missing images are fine — a placeholder frame will be shown.
+- To change the slide list or filenames, edit `ui/help_guide.rs` → `preload_help_slides()`.
+	Each slide is declared with a title, a description, and an optional image name.
