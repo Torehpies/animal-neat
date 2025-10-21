@@ -62,6 +62,8 @@ pub struct Agent {
     pub approach_food_units: f32,   // closing distance towards plant/carcass
     pub chase_other_units: f32,     // closing distance towards other-species agents
     pub chase_same_units: f32,      // closing distance towards same-species agents
+    // New: accumulated flee units (moving away from other-species agents; e.g., herbivores from carnivores)
+    pub flee_other_units: f32,
     // Hunger/contentment model
     pub hunger: f32,                // 0.0 = sated, 1.0 = very hungry
     pub contentment: f32,           // 0.0 = not content (seeking), 1.0 = fully content (resting)

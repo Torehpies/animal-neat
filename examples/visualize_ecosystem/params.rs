@@ -1,7 +1,13 @@
 #![allow(dead_code)]
 // Centralized simulation parameters
 //
-// This file groups knobs by domain: world, plants, perception, movement,
+// This file groups knobs by domain: world, perception, movement, ecology, fitness/shaping,
+// digestion, evolution/speciation. Where possible, keep names stable to avoid touching call sites.
+// Offspring reproduction getters
+pub fn get_offspring_energy(kind: Kind) -> f32 { match kind { Kind::Herb => RUNTIME_OFFSPRING_ENERGY_HERB.with(|c| c.get()), Kind::Carn => RUNTIME_OFFSPRING_ENERGY_CARN.with(|c| c.get()) } }
+pub fn get_offspring_cooldown(kind: Kind) -> usize { match kind { Kind::Herb => RUNTIME_OFFSPRING_COOLDOWN_HERB.with(|c| c.get()), Kind::Carn => RUNTIME_OFFSPRING_COOLDOWN_CARN.with(|c| c.get()) } }
+
+// ===================== plants, perception, movement,
 // ecology, sensing/memory, fitness/shaping, digestion, evolution/speciation.
 // Where possible, keep names stable to avoid touching call sites.
 
@@ -58,9 +64,17 @@ thread_local! {
     static RUNTIME_FIT_APPROACH_FOOD_WEIGHT_HERB: Cell<f32> = Cell::new(0.1);
     static RUNTIME_FIT_CHASE_OTHER_WEIGHT_HERB: Cell<f32> = Cell::new(0.3);
     static RUNTIME_FIT_CHASE_SAME_WEIGHT_HERB: Cell<f32> = Cell::new(0.4);
+    // New: fleeing other (e.g., herbivore fleeing carnivore)
+    static RUNTIME_FIT_FLEE_OTHER_WEIGHT_HERB: Cell<f32> = Cell::new(0.6);
     static RUNTIME_FIT_APPROACH_FOOD_WEIGHT_CARN: Cell<f32> = Cell::new(0.1);
     static RUNTIME_FIT_CHASE_OTHER_WEIGHT_CARN: Cell<f32> = Cell::new(0.3);
     static RUNTIME_FIT_CHASE_SAME_WEIGHT_CARN: Cell<f32> = Cell::new(0.4);
+    static RUNTIME_FIT_FLEE_OTHER_WEIGHT_CARN: Cell<f32> = Cell::new(0.0);
+    // Offspring reproduction parameters (per kind)
+    static RUNTIME_OFFSPRING_ENERGY_HERB: Cell<f32> = Cell::new(250.0);
+    static RUNTIME_OFFSPRING_ENERGY_CARN: Cell<f32> = Cell::new(250.0);
+    static RUNTIME_OFFSPRING_COOLDOWN_HERB: Cell<usize> = Cell::new(50);
+    static RUNTIME_OFFSPRING_COOLDOWN_CARN: Cell<usize> = Cell::new(100);
 }
 // Getters for runtime energy config (global)
 pub fn get_initial_energy() -> f32 { RUNTIME_INITIAL_ENERGY.with(|c| c.get()) }
@@ -92,6 +106,7 @@ pub fn get_fit_herding_weight(kind: Kind) -> f32 { match kind { Kind::Herb => RU
 pub fn get_fit_approach_food_weight(kind: Kind) -> f32 { match kind { Kind::Herb => RUNTIME_FIT_APPROACH_FOOD_WEIGHT_HERB.with(|c| c.get()), Kind::Carn => RUNTIME_FIT_APPROACH_FOOD_WEIGHT_CARN.with(|c| c.get()) } }
 pub fn get_fit_chase_other_weight(kind: Kind) -> f32 { match kind { Kind::Herb => RUNTIME_FIT_CHASE_OTHER_WEIGHT_HERB.with(|c| c.get()), Kind::Carn => RUNTIME_FIT_CHASE_OTHER_WEIGHT_CARN.with(|c| c.get()) } }
 pub fn get_fit_chase_same_weight(kind: Kind) -> f32 { match kind { Kind::Herb => RUNTIME_FIT_CHASE_SAME_WEIGHT_HERB.with(|c| c.get()), Kind::Carn => RUNTIME_FIT_CHASE_SAME_WEIGHT_CARN.with(|c| c.get()) } }
+pub fn get_fit_flee_other_weight(kind: Kind) -> f32 { match kind { Kind::Herb => RUNTIME_FIT_FLEE_OTHER_WEIGHT_HERB.with(|c| c.get()), Kind::Carn => RUNTIME_FIT_FLEE_OTHER_WEIGHT_CARN.with(|c| c.get()) } }
 pub fn get_fit_rest_content_weight(kind: Kind) -> f32 { match kind { Kind::Herb => RUNTIME_FIT_REST_CONTENT_WEIGHT_HERB.with(|c| c.get()), Kind::Carn => RUNTIME_FIT_REST_CONTENT_WEIGHT_CARN.with(|c| c.get()) } }
 pub fn get_fit_eat_early_weight(kind: Kind) -> f32 { match kind { Kind::Herb => RUNTIME_FIT_EAT_EARLY_WEIGHT_HERB.with(|c| c.get()), Kind::Carn => RUNTIME_FIT_EAT_EARLY_WEIGHT_CARN.with(|c| c.get()) } }
 
@@ -205,17 +220,23 @@ pub fn set_behavior_weights_per_kind(
     approach_food_herb: f32,
     chase_other_herb: f32,
     chase_same_herb: f32,
+    // herbivore flee
+    flee_other_herb: f32,
     // carnivore
     approach_food_carn: f32,
     chase_other_carn: f32,
     chase_same_carn: f32,
+    // carnivore flee (usually 0)
+    flee_other_carn: f32,
 ) {
     RUNTIME_FIT_APPROACH_FOOD_WEIGHT_HERB.with(|c| c.set(approach_food_herb));
     RUNTIME_FIT_CHASE_OTHER_WEIGHT_HERB.with(|c| c.set(chase_other_herb));
     RUNTIME_FIT_CHASE_SAME_WEIGHT_HERB.with(|c| c.set(chase_same_herb));
+    RUNTIME_FIT_FLEE_OTHER_WEIGHT_HERB.with(|c| c.set(flee_other_herb));
     RUNTIME_FIT_APPROACH_FOOD_WEIGHT_CARN.with(|c| c.set(approach_food_carn));
     RUNTIME_FIT_CHASE_OTHER_WEIGHT_CARN.with(|c| c.set(chase_other_carn));
     RUNTIME_FIT_CHASE_SAME_WEIGHT_CARN.with(|c| c.set(chase_same_carn));
+    RUNTIME_FIT_FLEE_OTHER_WEIGHT_CARN.with(|c| c.set(flee_other_carn));
 }
 
 // Parameters for approach/chase reward shaping
@@ -408,9 +429,13 @@ pub const ECO_MAX_POP: usize = 250;                 // maximum concurrent agents
 pub const ECO_MIN_POP: usize = 10;                 // minimum seeding on reset if all die
 pub const ECO_BIRTH_ENERGY_THRESHOLD: f32 = 75.0; // minimum energy to allow birth
 pub const ECO_BIRTH_ENERGY_COST: f32 = 75.0;      // energy deducted from parent per birth
-pub const ECO_BIRTH_COOLDOWN_STEPS: usize = 50;    // steps before the same parent can reproduce again
+pub const ECO_BIRTH_COOLDOWN_STEPS: usize = 50;    // steps before the same parent can reproduce again (base value, deprecated - use per-kind)
+pub const ECO_BIRTH_COOLDOWN_HERB: usize = 50;    // herbivore reproduction cooldown
+pub const ECO_BIRTH_COOLDOWN_CARN: usize = 100;   // carnivore reproduction cooldown (longer than herbivores)
 pub const ECO_MAX_OFFSPRING_PER_AGENT: usize = 100;  // per-episode cap
-pub const ECO_NEWBORN_ENERGY: f32 = 250.0;         // initial energy for newborns
+pub const ECO_NEWBORN_ENERGY: f32 = 250.0;         // initial energy for newborns (deprecated - use per-kind)
+pub const ECO_NEWBORN_ENERGY_HERB: f32 = 250.0;   // initial energy for herbivore offspring
+pub const ECO_NEWBORN_ENERGY_CARN: f32 = 250.0;   // initial energy for carnivore offspring
 pub const ECO_NEWBORN_HEALTH: f32 = AGENT_BASE_HEALTH / 1.5;
 /// Distance within which two eligible parents can mate to produce an offspring
 /// Note: Mating is allowed across species if genomes are sufficiently similar (see ECO_MATE_COMPATIBILITY_THRESHOLD).

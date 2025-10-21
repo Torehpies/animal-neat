@@ -51,6 +51,7 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         approach_food_units: 0.0,
         chase_other_units: 0.0,
         chase_same_units: 0.0,
+        flee_other_units: 0.0,
         hunger: 0.0,
         contentment: 1.0,
         eat_early_units: 0.0,
@@ -93,7 +94,8 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         let w_approach = crate::params::get_fit_approach_food_weight(kind);
         let w_chase = crate::params::get_fit_chase_other_weight(kind);
         let w_chase_same = crate::params::get_fit_chase_same_weight(kind);
-        let w_restc = crate::params::get_fit_rest_content_weight(kind);
+    let w_restc = crate::params::get_fit_rest_content_weight(kind);
+    let w_flee = crate::params::get_fit_flee_other_weight(kind);
         let w_eearly = crate::params::get_fit_eat_early_weight(kind);
         // Per-kind fitness weights
         let w_life = crate::params::get_fit_lifetime_weight(kind);
@@ -122,6 +124,7 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         let approach_units = a.approach_food_units;
     let chase_units = a.chase_other_units;
     let chase_same_units = a.chase_same_units;
+    let flee_units = a.flee_other_units;
         let mut s = w_life * lifetime_score
             + w_energy * avg_energy_norm
             + w_off * offspring_score
@@ -136,6 +139,7 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             + w_chase * chase_units
             + w_chase_same * chase_same_units
             + w_restc * a.rest_content_units
+            + w_flee * flee_units
             + w_eearly * a.eat_early_units;
         if complexity_penalty > 0.0 {
             // Penalize number of enabled connections in the genome

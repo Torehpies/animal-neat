@@ -146,10 +146,13 @@ async fn main() {
             sim_config.w_approach_herb,
             sim_config.w_chase_herb,
             sim_config.w_chase_same_herb,
+            // new flee weight defaults
+            0.6,
             // carnivore
             sim_config.w_approach_carn,
             sim_config.w_chase_carn,
             sim_config.w_chase_same_carn,
+            0.0,
         );
         
     let mut state = AppState::new(sim_config);
@@ -214,6 +217,7 @@ async fn main() {
                         approach_food_units: 0.0,
                         chase_other_units: 0.0,
                         chase_same_units: 0.0,
+                        flee_other_units: 0.0,
                         hunger: 0.0,
                         contentment: 1.0,
                         rest_content_units: 0.0,

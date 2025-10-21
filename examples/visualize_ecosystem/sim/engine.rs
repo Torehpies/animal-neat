@@ -306,6 +306,35 @@ pub fn tick_step<R: Rng>(
             reward = reward.clamp(0.0, APPROACH_MAX_DELTA_PER_STEP);
             if reward > APPROACH_EPS { a.chase_other_units += reward; }
         }
+        // Flee other-species (herbivores only): reward moving in any direction that increases distance from nearest carnivore
+        // "if herbivores see a carnivore at their vision they will flee to any direction where they dont see any other carnivores"
+        if matches!(a.kind, AgentKind::Herbivore) {
+            if crate::params::get_fit_flee_other_weight(k) != 0.0 {
+                let v = a.last_other_mem; // local frame (x=right, y=forward); magnitude indicates proximity
+                let threat_strength = (v.x * v.x + v.y * v.y).sqrt();
+                
+                if threat_strength > APPROACH_EPS {
+                    // Compute motion factor
+                    let forward = intent.dir;
+                    let motion_factor = if USE_INERTIA {
+                        let fwd_speed = a.body.vel.dot(forward).max(0.0);
+                        (fwd_speed / MAX_VELOCITY).clamp(0.0, 1.0)
+                    } else {
+                        let mut t = intent.raw_thrust;
+                        if t.abs() < THRUST_DEADZONE { t = 0.0; }
+                        t.max(0.0).clamp(0.0, 1.0)
+                    };
+                    
+                    // Reward fleeing when carnivore is visible (ahead: v.y > 0)
+                    // The herbivore should move in ANY direction away from the threat
+                    // Simple heuristic: if threat is in forward vision, reward movement (any direction works)
+                    let flee_urgency = v.y.max(0.0); // only flee from threats ahead (in vision)
+                    let mut reward = flee_urgency * motion_factor * threat_strength;
+                    reward = reward.clamp(0.0, APPROACH_MAX_DELTA_PER_STEP);
+                    if reward > APPROACH_EPS { a.flee_other_units += reward; }
+                }
+            }
+        }
         // Chase same-species: reward if moving towards nearest same-species agent
     if crate::params::get_fit_chase_same_weight(k) != 0.0 {
             let v = a.last_same_mem; // local frame (x=right, y=forward), strength attenuated by distance

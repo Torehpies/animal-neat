@@ -127,7 +127,7 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
 
             // Left column: Reset, Best Network, Toggle Controls
             let mut yl = y;
-            let left = ["Reset", "Best Network", "Controls"];
+            let left = ["Reset", "Best Network","Controls","Quick Save" ];
             for (i, label) in left.iter().enumerate() {
                 if yl > max_y { break; }
                 let bx = x + 6.0;
@@ -200,6 +200,7 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
                     0 => "Restart the episode (randomized spawns)",
                     1 => "Show best network in panel",
                     2 => "Hide/show these controls",
+                    3 => "Quick Save",
                     _ => "",
                 };
                 draw_text_clamped(desc, desc_x, yl, 14.0, LIGHTGRAY, desc_w);
@@ -213,7 +214,6 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
                 "View Options",
                 "Graphs Panel",
                 "HELP",
-                "Quick Save",
                 "Load Latest",
             ];
             for (i, label) in right.iter().enumerate() {
@@ -250,8 +250,7 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
                     0 => "Open the View Options modal",
                     1 => "Open graphs panel overlay",
                     2 => "Show the interactive help guide",
-                    3 => "Save a quick snapshot of the sim",
-                    4 => "Load the most recent quicksave",
+                    3 => "Load the most recent quicksave",
                     _ => "",
                 };
                 draw_text_clamped(help, bx + bw + 8.0, yr, 13.0, GRAY, (x + max_w) - (bx + bw + 8.0));

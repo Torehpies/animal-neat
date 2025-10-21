@@ -56,7 +56,8 @@ pub fn draw_scoreboard(_fullscreen: Rect, state: &AppState, rows: &[scoreboard::
         ("Herd", 70.0),
         ("Appr", 70.0),
         ("Chs", 70.0),
-        ("ChsS", 70.0),
+    ("ChsS", 70.0),
+    ("Flee", 70.0),
     ];
     let base_sum: f32 = cols.iter().map(|(_, w)| *w).sum();
     let scale = if base_sum > max_w { (max_w / base_sum).clamp(0.4, 1.0) } else { 1.0 };
@@ -131,6 +132,7 @@ pub fn draw_scoreboard(_fullscreen: Rect, state: &AppState, rows: &[scoreboard::
             13 => ca.approach_value.partial_cmp(&cb.approach_value).unwrap_or(std::cmp::Ordering::Equal),
             14 => ca.chase_value.partial_cmp(&cb.chase_value).unwrap_or(std::cmp::Ordering::Equal),
             15 => ca.chase_same_value.partial_cmp(&cb.chase_same_value).unwrap_or(std::cmp::Ordering::Equal),
+            16 => ca.flee_value.partial_cmp(&cb.flee_value).unwrap_or(std::cmp::Ordering::Equal),
             _ => std::cmp::Ordering::Equal,
         };
         if asc { ord } else { ord.reverse() }
@@ -167,7 +169,8 @@ pub fn draw_scoreboard(_fullscreen: Rect, state: &AppState, rows: &[scoreboard::
         draw_text_clamped(&format!("{:.2}", row.herd_value), cx, yrow, fs, color, cw[12] - 8.0); cx += cw[12];
         draw_text_clamped(&format!("{:.2}", row.approach_value), cx, yrow, fs, color, cw[13] - 8.0); cx += cw[13];
         draw_text_clamped(&format!("{:.2}", row.chase_value), cx, yrow, fs, color, cw[14] - 8.0); cx += cw[14];
-        draw_text_clamped(&format!("{:.2}", row.chase_same_value), cx, yrow, fs, color, cw[15] - 8.0);
+    draw_text_clamped(&format!("{:.2}", row.chase_same_value), cx, yrow, fs, color, cw[15] - 8.0); cx += cw[15];
+    draw_text_clamped(&format!("{:.2}", row.flee_value), cx, yrow, fs, color, cw[16] - 8.0);
     }
 
     // Scrollbar
@@ -225,7 +228,7 @@ pub fn draw_scoreboard(_fullscreen: Rect, state: &AppState, rows: &[scoreboard::
         let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
         let path = format!("snapshots/scoreboard_{}.csv", secs);
         let mut out = String::new();
-        out.push_str("rank,idx,species,score,plants,meat,offspring,alive_steps,idle_penalty,attack_hits,kills,avg_energy,herd,approach,chase,chase_same\n");
+    out.push_str("rank,idx,species,score,plants,meat,offspring,alive_steps,idle_penalty,attack_hits,kills,avg_energy,herd,approach,chase,chase_same,flee\n");
         let mut idxs: Vec<usize> = (0..rows.len()).collect();
         let (sort_col, asc) = unsafe { (SORT_COL, SORT_ASC) };
         idxs.sort_by(|&a, &b| {
@@ -248,14 +251,15 @@ pub fn draw_scoreboard(_fullscreen: Rect, state: &AppState, rows: &[scoreboard::
                 13 => ca.approach_value.partial_cmp(&cb.approach_value).unwrap_or(std::cmp::Ordering::Equal),
                 14 => ca.chase_value.partial_cmp(&cb.chase_value).unwrap_or(std::cmp::Ordering::Equal),
                 15 => ca.chase_same_value.partial_cmp(&cb.chase_same_value).unwrap_or(std::cmp::Ordering::Equal),
+                16 => ca.flee_value.partial_cmp(&cb.flee_value).unwrap_or(std::cmp::Ordering::Equal),
                 _ => std::cmp::Ordering::Equal,
             }; if asc { ord } else { ord.reverse() }
         });
         for (rank, &i) in idxs.iter().enumerate() {
             let r = &rows[i];
-            out.push_str(&format!("{},{} ,{} ,{:.4},{},{},{},{},-{:.4},{},{},{:.4},{:.4},{:.4},{:.4},{:.4}\n",
+            out.push_str(&format!("{},{} ,{} ,{:.4},{},{},{},{},-{:.4},{},{},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4}\n",
                 rank+1, r.idx, r.species, r.score, r.eaten_plants, r.eaten_meat, r.offspring, r.alive_steps,
-                r.idle_penalty_value, r.attack_hits, r.kills_caused, r.avg_energy_norm, r.herd_value, r.approach_value, r.chase_value, r.chase_same_value));
+                r.idle_penalty_value, r.attack_hits, r.kills_caused, r.avg_energy_norm, r.herd_value, r.approach_value, r.chase_value, r.chase_same_value, r.flee_value));
         }
         if let Some(parent) = std::path::Path::new(&path).parent() { let _ = fs::create_dir_all(parent); }
         match fs::write(&path, out) {

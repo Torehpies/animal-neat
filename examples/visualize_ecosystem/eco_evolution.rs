@@ -29,11 +29,13 @@ pub fn finalize_end_of_episode(state: &mut crate::AppState, rng: &mut impl ::ran
             let w_chase = crate::params::get_fit_chase_other_weight(kind);
             let w_chase_same = crate::params::get_fit_chase_same_weight(kind);
             let w_herd = crate::params::get_fit_herding_weight(kind);
+            let w_flee = crate::params::get_fit_flee_other_weight(kind);
             let w_restc = crate::params::get_fit_rest_content_weight(kind);
             let v = w_herd * a.herding_units
                 + w_approach * a.approach_food_units
                 + w_chase * a.chase_other_units
-                + w_chase_same * a.chase_same_units;
+                + w_chase_same * a.chase_same_units
+                + w_flee * a.flee_other_units;
             if v.is_finite() {
                 if v > best { best = v; }
                 sum += v; count += 1;
@@ -93,6 +95,7 @@ pub fn eco_cull_population_by_fitness(state: &mut crate::AppState) {
             let w_chase = crate::params::get_fit_chase_other_weight(kind);
             let w_chase_same = crate::params::get_fit_chase_same_weight(kind);
             let w_restc = crate::params::get_fit_rest_content_weight(kind);
+            let w_flee = crate::params::get_fit_flee_other_weight(kind);
             let w_eearly = crate::params::get_fit_eat_early_weight(kind);
             let lifetime_score = (a.alive_steps as f32) / (params::MAX_STEPS as f32);
             let avg_energy_norm = if a.alive_steps > 0 { (a.energy_accum / a.alive_steps as f32) / crate::params::get_max_energy_for(kind) } else { 0.0 };
@@ -107,6 +110,7 @@ pub fn eco_cull_population_by_fitness(state: &mut crate::AppState) {
             let approach_units = a.approach_food_units;
             let chase_units = a.chase_other_units;
             let chase_same_units = a.chase_same_units;
+            let flee_units = a.flee_other_units;
             let mut s = w_life * lifetime_score
                 + w_energy * avg_energy_norm
                 + w_off * offspring_score
@@ -121,6 +125,7 @@ pub fn eco_cull_population_by_fitness(state: &mut crate::AppState) {
                 + w_chase * chase_units
                 + w_chase_same * chase_same_units
                 + w_restc * a.rest_content_units
+                + w_flee * flee_units
                 + w_eearly * a.eat_early_units;
             if complexity_penalty > 0.0 {
                 let enabled = state.population[i].connections.iter().filter(|c| c.enabled).count() as f32;
@@ -291,7 +296,7 @@ pub fn spawn_offspring_if_needed<R: Rng>(
             kind: child_kind,
             body,
             theta: -std::f32::consts::FRAC_PI_2,
-            energy: params::ECO_NEWBORN_ENERGY.min(params::MAX_ENERGY),
+            energy: params::get_offspring_energy(match child_kind { crate::sim::AgentKind::Herbivore => params::Kind::Herb, crate::sim::AgentKind::Carnivore => params::Kind::Carn }).min(params::MAX_ENERGY),
             health: params::ECO_NEWBORN_HEALTH,
             max_health: params::ECO_NEWBORN_HEALTH,
             invuln_steps: 0,
@@ -312,7 +317,7 @@ pub fn spawn_offspring_if_needed<R: Rng>(
             age_steps: 0,
             call_intensity: 0.0,
             heard_sectors: [0.0;3],
-            repro_cooldown: params::ECO_BIRTH_COOLDOWN_STEPS,
+            repro_cooldown: params::get_offspring_cooldown(match child_kind { crate::sim::AgentKind::Herbivore => params::Kind::Herb, crate::sim::AgentKind::Carnivore => params::Kind::Carn }),
             offspring_count: 0,
             attack_hits: 0,
             kills_caused: 0,
@@ -326,6 +331,7 @@ pub fn spawn_offspring_if_needed<R: Rng>(
             approach_food_units: 0.0,
             chase_other_units: 0.0,
             chase_same_units: 0.0,
+            flee_other_units: 0.0,
             hunger: 0.0,
             contentment: 1.0,
             rest_content_units: 0.0,
@@ -349,9 +355,11 @@ pub fn spawn_offspring_if_needed<R: Rng>(
             pb.energy = (pb.energy - cost * 0.5).max(0.0);
             pa.offspring_count += 1;
             pb.offspring_count += 1;
-            // Scale cooldown by current offspring count to space repeated births
-            pa.repro_cooldown = params::ECO_BIRTH_COOLDOWN_STEPS + (pa.offspring_count * (params::ECO_BIRTH_COOLDOWN_STEPS / 2));
-            pb.repro_cooldown = params::ECO_BIRTH_COOLDOWN_STEPS + (pb.offspring_count * (params::ECO_BIRTH_COOLDOWN_STEPS / 2));
+            // Scale cooldown by current offspring count to space repeated births (use per-kind cooldown)
+            let pa_cooldown_base = params::get_offspring_cooldown(match pa.kind { crate::sim::AgentKind::Herbivore => params::Kind::Herb, crate::sim::AgentKind::Carnivore => params::Kind::Carn });
+            let pb_cooldown_base = params::get_offspring_cooldown(match pb.kind { crate::sim::AgentKind::Herbivore => params::Kind::Herb, crate::sim::AgentKind::Carnivore => params::Kind::Carn });
+            pa.repro_cooldown = pa_cooldown_base + (pa.offspring_count * (pa_cooldown_base / 2));
+            pb.repro_cooldown = pb_cooldown_base + (pb.offspring_count * (pb_cooldown_base / 2));
             // Separation impulse to reduce clustering after birth
             let sep_ab = pa.body.pos - pb.body.pos;
             let len = sep_ab.length();

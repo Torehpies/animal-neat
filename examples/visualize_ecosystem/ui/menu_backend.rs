@@ -49,6 +49,11 @@ pub struct SimConfig {
     pub w_approach_carn: f32,
     pub w_chase_carn: f32,
     pub w_chase_same_carn: f32,
+    // Offspring reproduction parameters (per kind)
+    pub offspring_energy_herb: f32,
+    pub offspring_energy_carn: f32,
+    pub offspring_cooldown_herb: usize,
+    pub offspring_cooldown_carn: usize,
 }
 
 impl Default for SimConfig {
@@ -68,33 +73,41 @@ impl Default for SimConfig {
             initial_energy_carn: 500.0,
             max_energy_carn: 5000.0,
             energy_drain_per_step_carn: 0.05,
-            // Defaults: start both kinds with the same weights as before; users can tweak separately
+            // Defaults: herbivores flee and eat plants; carnivores hunt and eat meat
+            // Herbivores: no meat/attacks/kills/chase (they flee instead)
             w_lifetime_herb: 0.05,
             w_energy_herb: 5.0,
             w_offspring_herb: 10.0,
             w_comm_herb: 0.0,
             w_idle_penalty_herb: 0.6,
             w_plant_herb: 2.0,
-            w_meat_herb: 20.0,
-            w_attacks_herb: 10.0,
-            w_kills_herb: 20.0,
+            w_meat_herb: 0.0,        // Herbivores don't eat meat
+            w_attacks_herb: 0.0,     // Herbivores don't attack
+            w_kills_herb: 0.0,       // Herbivores don't kill
             w_herding_herb: 0.5,
+            // Carnivores: no plants (they hunt meat only)
             w_lifetime_carn: 0.05,
             w_energy_carn: 5.0,
             w_offspring_carn: 10.0,
             w_comm_carn: 0.0,
             w_idle_penalty_carn: 0.6,
-            w_plant_carn: 2.0,
+            w_plant_carn: 0.0,       // Carnivores don't eat plants
             w_meat_carn: 20.0,
             w_attacks_carn: 10.0,
             w_kills_carn: 20.0,
             w_herding_carn: 0.5,
-            w_approach_herb: 0.1,
-            w_chase_herb: 0.3,
-            w_chase_same_herb: 0.4,
-            w_approach_carn: 0.1,
-            w_chase_carn: 0.3,
-            w_chase_same_carn: 0.4,
+            // Behavior shaping: herbivores flee (not chase), carnivores hunt (chase other species)
+            w_approach_herb: 0.0,    // Herbivores don't approach meat/carnivores
+            w_chase_herb: 0.0,       // Herbivores don't chase (they flee instead)
+            w_chase_same_herb: 0.4,  // Herbivores can still follow their own kind (herding)
+            w_approach_carn: 0.0,    // Carnivores don't approach plants
+            w_chase_carn: 0.3,       // Carnivores chase herbivores (hunt)
+            w_chase_same_carn: 0.4,  // Carnivores can coordinate with pack
+            // Offspring reproduction: herbivores reproduce faster, carnivores need longer cooldown
+            offspring_energy_herb: 250.0,
+            offspring_energy_carn: 250.0,
+            offspring_cooldown_herb: 50,
+            offspring_cooldown_carn: 100, // Carnivores have longer reproduction cooldown
         }
     }
 }

@@ -16,6 +16,7 @@ pub struct ScoreEntry {
     pub approach_value: f32,
     pub chase_value: f32,
     pub chase_same_value: f32,
+    pub flee_value: f32,
     pub rest_content_value: f32,
     pub eat_early_value: f32,
     pub attack_hits: usize,
@@ -24,7 +25,7 @@ pub struct ScoreEntry {
 }
 
 // Compute episode scores similar to eco_cull, without side effects
-pub fn compute_episode_score(a: &Agent, comm_fit: f32) -> (f32, i32, i32, f32, f32, f32, f32, f32, f32, f32, f32) {
+pub fn compute_episode_score(a: &Agent, comm_fit: f32) -> (f32, i32, i32, f32, f32, f32, f32, f32, f32, f32, f32, f32, usize, usize, f32) {
     use crate::params::*;
     // Scoreboard score aligns with eval.rs weighted formula
     let kind = match a.kind { sim::AgentKind::Herbivore => Kind::Herb, sim::AgentKind::Carnivore => Kind::Carn };
@@ -52,6 +53,7 @@ pub fn compute_episode_score(a: &Agent, comm_fit: f32) -> (f32, i32, i32, f32, f
     let w_chase_same = crate::params::get_fit_chase_same_weight(kind);
     let w_restc = crate::params::get_fit_rest_content_weight(kind);
     let w_eearly = crate::params::get_fit_eat_early_weight(kind);
+    let w_flee = crate::params::get_fit_flee_other_weight(kind);
     let score = w_life * lifetime_score
         + w_energy * avg_energy_norm
         + w_off * offspring_score
@@ -65,7 +67,8 @@ pub fn compute_episode_score(a: &Agent, comm_fit: f32) -> (f32, i32, i32, f32, f
         + w_approach * a.approach_food_units
         + w_chase * a.chase_other_units
         + w_chase_same * a.chase_same_units
-        + w_restc * a.rest_content_units
+    + w_restc * a.rest_content_units
+    + w_flee * a.flee_other_units
         + w_eearly * a.eat_early_units;
     // Keep plant/meat counts for display only
     let eaten_plants = a.eaten.saturating_sub(a.kills) as i32;
@@ -75,9 +78,10 @@ pub fn compute_episode_score(a: &Agent, comm_fit: f32) -> (f32, i32, i32, f32, f
     let approach_value = w_approach * a.approach_food_units;
     let chase_value = w_chase * a.chase_other_units;
     let chase_same_value = w_chase_same * a.chase_same_units;
+    let flee_value = w_flee * a.flee_other_units;
     let rest_content_value = w_restc * a.rest_content_units;
     let eat_early_value = w_eearly * a.eat_early_units;
-    (score, eaten_plants, eaten_meat, avg_energy_norm, idle_penalty_value, herd_value, approach_value, chase_value, chase_same_value, rest_content_value, eat_early_value)
+    (score, eaten_plants, eaten_meat, avg_energy_norm, idle_penalty_value, herd_value, approach_value, chase_value, chase_same_value, flee_value, rest_content_value, eat_early_value, a.attack_hits, a.kills_caused, avg_energy_norm)
 }
 
 pub fn prepare_scoreboard(state: &mut crate::AppState) {
@@ -85,7 +89,7 @@ pub fn prepare_scoreboard(state: &mut crate::AppState) {
     let mut rows: Vec<ScoreEntry> = Vec::with_capacity(state.episode.agents.len());
     for (i, a) in state.episode.agents.iter().enumerate() {
         let comm_fit = state.episode.comm_fitness_accum.get(i).copied().unwrap_or(0.0);
-        let (score, plants, meat, avg_energy_norm, idle_penalty_value, herd_value, approach_value, chase_value, chase_same_value, rest_content_value, eat_early_value) = compute_episode_score(a, comm_fit);
+    let (score, plants, meat, avg_energy_norm, idle_penalty_value, herd_value, approach_value, chase_value, chase_same_value, flee_value, rest_content_value, eat_early_value, _attack_hits, _kills_caused, _avg_energy_repeat) = compute_episode_score(a, comm_fit);
         rows.push(ScoreEntry {
             idx: i,
             species: a.species_id,
@@ -99,6 +103,7 @@ pub fn prepare_scoreboard(state: &mut crate::AppState) {
             approach_value,
             chase_value,
             chase_same_value,
+            flee_value,
             rest_content_value,
             eat_early_value,
             attack_hits: a.attack_hits,
