@@ -57,6 +57,8 @@ mod ui_sim_menu;
 mod ui_controls;
 #[path = "visualize_ecosystem/ui/assets.rs"]
 mod ui_assets;
+#[path = "visualize_ecosystem/ui/help_guide.rs"]
+mod ui_help_guide;
 #[path = "visualize_ecosystem/eco_evolution.rs"]
 mod eco_evolution;
 use eco_evolution::*;
@@ -150,9 +152,11 @@ async fn main() {
             sim_config.w_chase_same_carn,
         );
         
-        let mut state = AppState::new(sim_config);
+    let mut state = AppState::new(sim_config);
         // Preload textures (optional); use new assets helper which tries common locations.
         let assets = ui_assets::preload_textures().await;
+    // Preload help slides (images are optional; code handles missing files).
+    let mut help_slides = ui_help_guide::preload_help_slides().await;
         state.herb_tex = assets.herb;
         state.carn_tex = assets.carn;
         state.plant_tex = assets.plant;
@@ -426,7 +430,7 @@ async fn main() {
     // (mouse_world already defined above)
 
     if !state.ultra_mode {
-        ui_world_view::draw_world(
+            ui_world_view::draw_world(
             world_area,
             &state.episode,
             state.show_cones,
@@ -447,6 +451,11 @@ async fn main() {
                 state.meat_tex.as_ref(),
         );
     ui_hud::draw_hud(hud_area, &mut state, &mut running, &mut fast_mode);
+        // Help overlay (fullscreen modal)
+        if state.show_help_overlay {
+            let fullscreen = Rect { x: 0.0, y: 0.0, w, h };
+            ui_help_guide::draw_help_overlay(fullscreen, &mut help_slides, &mut state.help_slide_idx, &mut state.show_help_overlay);
+        }
         // Draw graphs overlay on top of HUD/world when enabled
         if state.show_graphs_overlay {
             let fullscreen = Rect { x: 0.0, y: 0.0, w, h };
