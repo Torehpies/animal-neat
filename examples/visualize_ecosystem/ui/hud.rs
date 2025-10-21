@@ -112,90 +112,138 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
         }
     }
 
-    // Controls (toggleable) with two columns, one control per row, short descriptions
+    // Controls (toggleable) rendered as clickable buttons instead of keybind labels
     if state.show_controls {
         if y <= max_y {
             y = section_title("Controls", x, y, max_w);
-            // Simple square indicator for toggles: filled when ON, outline when OFF
-            let ind_on = Color::new(0.95, 0.8, 0.25, 1.0);
-            let ind_off = Color::new(0.45, 0.5, 0.6, 1.0);
             let col_gap = 12.0;
             let col_w = (max_w - col_gap) * 0.5;
-            let fs = 17.0;
-            let ind_size = 9.0;
-            let ind_pad = 4.0;
-            let key_pad = 0.0; // no extra spacing between key and description
+            let fs = 16.5;
+            let btn_h = fs + 8.0;
+            let btn_pad_x = 12.0;
 
-            // Left column rows
+            // Left column: Reset, Best Network, Toggle Controls
             let mut yl = y;
-            let left_rows: &[( &str, &str, bool )] = &[
-                ("[R]", "Reset Episode", false),
-                ("[N]", "Best Network", state.show_best_network_panel),
-                ("[H]", "Toggle Controls", state.show_controls),
-            ];
-            // Compute dynamic key slot width for left column
-            let mut key_slot_w_left = 0.0f32;
-            for (key, _, _) in left_rows.iter() {
-                let w = measure_text(key, None, fs as u16, 1.0).width;
-                if w > key_slot_w_left { key_slot_w_left = w; }
-            }
-            key_slot_w_left += 1.0; // minimal padding
-            // clamp to a tighter range so the gap doesn't look excessive
-            key_slot_w_left = key_slot_w_left.clamp(24.0, 44.0);
-            for (key, desc, on) in left_rows.iter() {
+            let left = ["Reset", "Best Network", "Controls"];
+            for (i, label) in left.iter().enumerate() {
                 if yl > max_y { break; }
-                // indicator box
-                let ix = x + 6.0;
-                let iy = yl - fs + (fs - ind_size) * 0.5; // center square to text row
-                draw_rectangle(ix, iy, ind_size, ind_size, if *on { ind_on } else { Color::new(0.0,0.0,0.0,0.0) });
-                draw_rectangle_lines(ix, iy, ind_size, ind_size, 1.2, if *on { ind_on } else { ind_off });
-                // draw key in fixed slot
-                let key_x = ix + ind_size + ind_pad;
-                draw_text_clamped(key, key_x, yl, fs, LIGHTGRAY, key_slot_w_left);
-                // draw desc aligned to constant x regardless of key width
-                let desc_x = key_x + key_slot_w_left + key_pad;
-                let desc_w = col_w - (desc_x - (x + 6.0));
-                draw_text_clamped(desc, desc_x, yl, fs, LIGHTGRAY, desc_w);
-                yl += fs + 6.0;
+                let bx = x + 6.0;
+                let by = yl - fs + 4.0;
+                let bw = col_w - 12.0;
+                let (mx, my) = mouse_position();
+                let hovering = mx >= bx && mx <= bx + bw && my >= by && my <= by + btn_h;
+                // Determine 'on' state for color
+                let on = match i {
+                    0 => false, // Reset is an action
+                    1 => state.show_best_network_panel,
+                    2 => state.show_controls,
+                    _ => false,
+                };
+                let bg = if on { Color::new(0.22, 0.58, 0.95, 1.0) } else if hovering { Color::new(0.18, 0.18, 0.18, 1.0) } else { Color::new(0.12, 0.12, 0.12, 0.9) };
+                draw_rectangle(bx, by, bw, btn_h, bg);
+                draw_rectangle_lines(bx, by, bw, btn_h, 1.0, Color::new(0.6,0.6,0.6,0.8));
+                // label centered vertically
+                draw_text(label, bx + btn_pad_x, by + (btn_h * 0.65), fs, WHITE);
+                if hovering && is_mouse_button_pressed(MouseButton::Left) {
+                    match i {
+                        0 => {
+                            // Reset episode
+                            let mut rng = ::rand::rng();
+                            state.episode = crate::sim::Episode::new(&mut rng, state.population.len());
+                            state.focused_agent = None;
+                            state.hud_toast = Some(("Episode reset".to_string(), 1.6));
+                        }
+                        1 => { state.show_best_network_panel = !state.show_best_network_panel; }
+                        2 => { state.show_controls = !state.show_controls; }
+                        _ => {}
+                    }
+                }
+                // description to the right of button
+                let desc_x = bx + bw + 8.0;
+                let desc_w = (x + col_w) - desc_x;
+                let desc = match i {
+                    0 => "Restart the episode (randomized spawns)",
+                    1 => "Show best network in panel",
+                    2 => "Hide/show these controls",
+                    _ => "",
+                };
+                draw_text_clamped(desc, desc_x, yl, 14.0, LIGHTGRAY, desc_w);
+                yl += btn_h + 8.0;
             }
 
-            // Right column rows
+            // Right column: Pause at end, Collision/Continue, Vision, Unified, Energy, Grid, Graphs, QuickSave, LoadLatest, ColorBySpecies
             let mut yr = y;
-            let right_rows: &[( &str, &str, bool )] = &[
-                ("[T]", "Pause at episode end", state.show_scoreboard_panel),
-                ("[C]", if state.scoreboard_pending { "Continue" } else { "Collision Radii" }, if state.scoreboard_pending { false } else { state.show_collision_radii }),
-                ("[V]", "Vision Rays", state.show_cones),
-                ("[U]", "Unified Overlay", state.show_unified_overlay),
-                ("[E]", "Energy Bar", state.show_energy_overlay),
-                ("[G]", "Exploration Grid", state.show_grid),
-                ("[Z]", "Graphs Panel", state.show_graphs_panel),
-                // FPS counter is always displayed now; removed toggle row
-                ("[S]", "Quick Save (HUD)", false),
-                ("[L]", "Load Latest", false),
-                ("[K]", "Color by Species", state.color_by_species),
+            let right_x = x + 6.0 + col_w + col_gap;
+            let right = [
+                "Pause at End",
+                "Collision / Continue",
+                "Vision Rays",
+                "Unified Overlay",
+                "Energy Bar",
+                "Exploration Grid",
+                "Graphs Panel",
+                "Quick Save",
+                "Load Latest",
+                "Color by Species",
             ];
-            // Compute dynamic key slot width for right column
-            let mut key_slot_w_right = 0.0f32;
-            for (key, _, _) in right_rows.iter() {
-                let w = measure_text(key, None, fs as u16, 1.0).width;
-                if w > key_slot_w_right { key_slot_w_right = w; }
-            }
-            key_slot_w_right += 1.0;
-            key_slot_w_right = key_slot_w_right.clamp(24.0, 32.0);
-            for (key, desc, on) in right_rows.iter() {
+            for (i, label) in right.iter().enumerate() {
                 if yr > max_y { break; }
-                let ix = x + 6.0 + col_w + col_gap;
-                let iy = yr - fs + (fs - ind_size) * 0.5;
-                draw_rectangle(ix, iy, ind_size, ind_size, if *on { ind_on } else { Color::new(0.0,0.0,0.0,0.0) });
-                draw_rectangle_lines(ix, iy, ind_size, ind_size, 1.2, if *on { ind_on } else { ind_off });
-                // key in fixed slot
-                let key_x = ix + ind_size + ind_pad;
-                draw_text_clamped(key, key_x, yr, fs, LIGHTGRAY, key_slot_w_right);
-                // desc aligned to constant x
-                let desc_x = key_x + key_slot_w_right + key_pad;
-                let desc_w = col_w - (desc_x - (x + 6.0 + col_w + col_gap));
-                draw_text_clamped(desc, desc_x, yr, fs, LIGHTGRAY, desc_w);
-                yr += fs + 6.0;
+                let bx = right_x;
+                let by = yr - fs + 4.0;
+                let bw = col_w - 12.0;
+                let (mx, my) = mouse_position();
+                let hovering = mx >= bx && mx <= bx + bw && my >= by && my <= by + btn_h;
+                let on = match i {
+                    0 => state.show_scoreboard_panel,
+                    1 => { if state.scoreboard_pending { false } else { state.show_collision_radii } }
+                    2 => state.show_cones,
+                    3 => state.show_unified_overlay,
+                    4 => state.show_energy_overlay,
+                    5 => state.show_grid,
+                    6 => state.show_graphs_overlay,
+                    7 => false,
+                    8 => false,
+                    9 => state.color_by_species,
+                    _ => false,
+                };
+                let bg = if on { Color::new(0.22, 0.58, 0.95, 1.0) } else if hovering { Color::new(0.18, 0.18, 0.18, 1.0) } else { Color::new(0.12, 0.12, 0.12, 0.9) };
+                draw_rectangle(bx, by, bw, btn_h, bg);
+                draw_rectangle_lines(bx, by, bw, btn_h, 1.0, Color::new(0.6,0.6,0.6,0.8));
+                draw_text(label, bx + btn_pad_x, by + (btn_h * 0.65), fs, WHITE);
+                if hovering && is_mouse_button_pressed(MouseButton::Left) {
+                    match i {
+                        0 => { state.show_scoreboard_panel = !state.show_scoreboard_panel; }
+                        1 => {
+                            if state.scoreboard_pending { state.scoreboard_pending = false; state.hud_toast = Some(("Continuing...".to_string(), 1.2)); }
+                            else { state.show_collision_radii = !state.show_collision_radii; }
+                        }
+                        2 => { state.show_cones = !state.show_cones; }
+                        3 => { state.show_unified_overlay = !state.show_unified_overlay; }
+                        4 => { state.show_energy_overlay = !state.show_energy_overlay; }
+                        5 => { state.show_grid = !state.show_grid; }
+                        6 => { state.show_graphs_overlay = !state.show_graphs_overlay; }
+                        7 => { state.hud_toast = Some(("Quick save not implemented in HUD".to_string(), 2.0)); }
+                        8 => { state.hud_toast = Some(("Load latest not implemented".to_string(), 2.0)); }
+                        9 => { state.color_by_species = !state.color_by_species; }
+                        _ => {}
+                    }
+                }
+                // optional small help text under the label
+                let help = match i {
+                    0 => "Pause when episode ends",
+                    1 => if state.scoreboard_pending { "Click to continue" } else { "Toggle collision debug" },
+                    2 => "Show vision rays for agents",
+                    3 => "Overlay unified sensor visualization",
+                    4 => "Show energy bars above agents",
+                    5 => "Show exploration grid overlay",
+                    6 => "Open graphs panel overlay",
+                    7 => "Save a quick snapshot of the sim",
+                    8 => "Load the most recent quicksave",
+                    9 => "Color agents by species",
+                    _ => "",
+                };
+                draw_text_clamped(help, bx + bw + 8.0, yr, 13.0, GRAY, (x + max_w) - (bx + bw + 8.0));
+                yr += btn_h + 8.0;
             }
             let _y_end = yl.max(yr) + GAP;
         }
