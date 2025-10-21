@@ -61,6 +61,8 @@ pub fn resolve_predation(
                     agents[i].kills += 1; // counts scavenged meat as kill-equivalent for diet tint
                     // Eating meat refreshes contentment (hunger is derived as 1 - contentment)
                     agents[i].contentment = 1.0;
+                    // Early-eating reward (optional for carnivores; weight may be 0)
+                    if agents[i].hunger < 0.8 { agents[i].eat_early_units += 1.0; }
                     agents[j].corpse_energy = 0.0;
                     agents[j].consumed = true;
                 }

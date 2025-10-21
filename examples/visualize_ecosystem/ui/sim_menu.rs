@@ -207,6 +207,7 @@ pub async fn run_sim_menu(state: &mut crate::AppState) -> SimMenuResult {
                                     hunger: 0.0,
                                     contentment: 1.0,
                                     rest_content_units: 0.0,
+                                    eat_early_units: 0.0,
                                 });
                             }
                             

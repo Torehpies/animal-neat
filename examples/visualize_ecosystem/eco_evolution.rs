@@ -93,6 +93,7 @@ pub fn eco_cull_population_by_fitness(state: &mut crate::AppState) {
             let w_chase = crate::params::get_fit_chase_other_weight(kind);
             let w_chase_same = crate::params::get_fit_chase_same_weight(kind);
             let w_restc = crate::params::get_fit_rest_content_weight(kind);
+            let w_eearly = crate::params::get_fit_eat_early_weight(kind);
             let lifetime_score = (a.alive_steps as f32) / (params::MAX_STEPS as f32);
             let avg_energy_norm = if a.alive_steps > 0 { (a.energy_accum / a.alive_steps as f32) / crate::params::get_max_energy_for(kind) } else { 0.0 };
             let offspring_score = a.offspring_count as f32;
@@ -119,7 +120,8 @@ pub fn eco_cull_population_by_fitness(state: &mut crate::AppState) {
                 + w_approach * approach_units
                 + w_chase * chase_units
                 + w_chase_same * chase_same_units
-                + w_restc * a.rest_content_units;
+                + w_restc * a.rest_content_units
+                + w_eearly * a.eat_early_units;
             if complexity_penalty > 0.0 {
                 let enabled = state.population[i].connections.iter().filter(|c| c.enabled).count() as f32;
                 s -= complexity_penalty * enabled;
@@ -327,6 +329,7 @@ pub fn spawn_offspring_if_needed<R: Rng>(
             hunger: 0.0,
             contentment: 1.0,
             rest_content_units: 0.0,
+            eat_early_units: 0.0,
         });
         // Extend comm fitness accumulator to match agents length
         episode.comm_fitness_accum.push(0.0);

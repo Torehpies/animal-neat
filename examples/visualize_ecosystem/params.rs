@@ -39,6 +39,8 @@ thread_local! {
     static RUNTIME_FIT_HERDING_WEIGHT_HERB: Cell<f32> = Cell::new(0.3);
     // New: reward resting while content (helps learn eat+rest cycle)
     static RUNTIME_FIT_REST_CONTENT_WEIGHT_HERB: Cell<f32> = Cell::new(0.2);
+    // New: reward eating before hunger becomes too high (encourage timely foraging)
+    static RUNTIME_FIT_EAT_EARLY_WEIGHT_HERB: Cell<f32> = Cell::new(0.5);
     // Carnivore
     static RUNTIME_FIT_LIFETIME_WEIGHT_CARN: Cell<f32> = Cell::new(0.05);
     static RUNTIME_FIT_ENERGY_WEIGHT_CARN: Cell<f32> = Cell::new(5.0);
@@ -51,6 +53,7 @@ thread_local! {
     static RUNTIME_FIT_KILLS_WEIGHT_CARN: Cell<f32> = Cell::new(20.0);
     static RUNTIME_FIT_HERDING_WEIGHT_CARN: Cell<f32> = Cell::new(0.3);
     static RUNTIME_FIT_REST_CONTENT_WEIGHT_CARN: Cell<f32> = Cell::new(0.2);
+    static RUNTIME_FIT_EAT_EARLY_WEIGHT_CARN: Cell<f32> = Cell::new(0.0); // typically 0 for carnivores
     // Behavior shaping weights (per kind)
     static RUNTIME_FIT_APPROACH_FOOD_WEIGHT_HERB: Cell<f32> = Cell::new(0.1);
     static RUNTIME_FIT_CHASE_OTHER_WEIGHT_HERB: Cell<f32> = Cell::new(0.3);
@@ -90,13 +93,16 @@ pub fn get_fit_approach_food_weight(kind: Kind) -> f32 { match kind { Kind::Herb
 pub fn get_fit_chase_other_weight(kind: Kind) -> f32 { match kind { Kind::Herb => RUNTIME_FIT_CHASE_OTHER_WEIGHT_HERB.with(|c| c.get()), Kind::Carn => RUNTIME_FIT_CHASE_OTHER_WEIGHT_CARN.with(|c| c.get()) } }
 pub fn get_fit_chase_same_weight(kind: Kind) -> f32 { match kind { Kind::Herb => RUNTIME_FIT_CHASE_SAME_WEIGHT_HERB.with(|c| c.get()), Kind::Carn => RUNTIME_FIT_CHASE_SAME_WEIGHT_CARN.with(|c| c.get()) } }
 pub fn get_fit_rest_content_weight(kind: Kind) -> f32 { match kind { Kind::Herb => RUNTIME_FIT_REST_CONTENT_WEIGHT_HERB.with(|c| c.get()), Kind::Carn => RUNTIME_FIT_REST_CONTENT_WEIGHT_CARN.with(|c| c.get()) } }
+pub fn get_fit_eat_early_weight(kind: Kind) -> f32 { match kind { Kind::Herb => RUNTIME_FIT_EAT_EARLY_WEIGHT_HERB.with(|c| c.get()), Kind::Carn => RUNTIME_FIT_EAT_EARLY_WEIGHT_CARN.with(|c| c.get()) } }
 
 // =====================
 // Contentment (hunger is derived)
 // =====================
 // Hunger is derived as 1 - contentment; contentment changes with activity/rest.
-pub const CONTENTMENT_RECHARGE_RATE: f32 = 0.002; // fraction of energy regained per step while resting/content (also used as contentment recharge rate scale)
-pub const CONTENTMENT_DECAY_RATE: f32 = 0.005; // rate at which contentment decays while active/moving
+// Faster recharge and slower decay to allow a clear "eat → rest" cycle.
+// Make resting windows more achievable: faster recharge, slower decay
+pub const CONTENTMENT_RECHARGE_RATE: f32 = 0.010; // contentment recharge rate scale when idle
+pub const CONTENTMENT_DECAY_RATE: f32 = 0.002; // contentment decay rate while sufficiently active
 
 
 
@@ -473,8 +479,8 @@ pub const IDLENESS_PENALTY_PER_STEP: f32 = 0.1;
 // Output[1] gives speed scalar. Heading is wrapped to (-PI, PI] to avoid drift.
 pub const MOTOR_NOISE: f32 = 0.0;                // noise disabled (was 0.03) for deterministic control
 pub const MAX_TURN_PER_STEP: f32 = std::f32::consts::PI / 18.0; // same numeric value as previous smoothing limit
-pub const MOVE_ENERGY_SCALE: f32 = 0.5;           // energy cost per unit normalized speed
-pub const TURN_ENERGY_SCALE: f32 = 0.75;          // energy cost added proportional to |turn_fraction|
+pub const MOVE_ENERGY_SCALE: f32 = 0.35;          // energy cost per unit normalized speed (lowered to make resting impactful)
+pub const TURN_ENERGY_SCALE: f32 = 0.5;           // energy cost added proportional to |turn_fraction| (lowered)
 // Inertia extension (Stage A): treat Output[1] as forward thrust instead of direct speed.
 // v_{t+1} = v_t * (1.0 - DRAG_COEFF) + thrust * MAX_THRUST * forward_dir
 // Speed capped softly by MAX_VELOCITY (explicit clamp)

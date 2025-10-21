@@ -327,7 +327,12 @@ pub fn tick_step<R: Rng>(
         // Eating: only Herbivores eat plants. Eating no longer restores energy; it only resets hunger/contentment via `ate` flag.
     let ate = if matches!(a.kind, AgentKind::Herbivore) && world::eat_if_near(food, food_lifetime, &a.body) {
             // Do not add energy or schedule digestion; just record the event.
-            a.eaten += 1; if let Some(ref mut hook) = first_eat_step { if hook.is_none() { **hook = Some(step_idx); } } true } else { false };
+            a.eaten += 1;
+            // Early-eating reward: if hunger < 0.8 (i.e., contentment > 0.2), accumulate a small unit.
+            if a.hunger < 0.8 { a.eat_early_units += 1.0; }
+            if let Some(ref mut hook) = first_eat_step { if hook.is_none() { **hook = Some(step_idx); } }
+            true
+        } else { false };
         // Predation candidate scan via spatial grid
         if PREDATION_ENABLED || SCAVENGE_ENABLED {
             let dir = intent.dir; let mut target: Option<usize> = None;
@@ -419,15 +424,17 @@ pub fn tick_step<R: Rng>(
 
         // ----- Contentment-only model (hunger is derived) -----
         if ate {
+            // Eating refreshes contentment strongly; ensure it's at least 0.95 to open regen gate.
             a.contentment = 1.0;
         } else {
-            // Activity reduces contentment; idling increases it
-            let moving = if USE_INERTIA { a.body.vel.length() > 0.01 } else { intent.raw_thrust.abs() > 0.01 };
-            let turning = intent.turn_delta.abs() > 1e-3;
+            // Activity reduces contentment; idling increases it.
+            // Make decay require more significant activity and recharge stronger to enable rest windows.
+            let moving = if USE_INERTIA { a.body.vel.length() > 0.08 } else { intent.raw_thrust.abs() > 0.08 };
+            let turning = intent.turn_delta.abs() > 2e-3;
             if moving || turning {
-                a.contentment = (a.contentment - crate::params::CONTENTMENT_DECAY_RATE * 1.2).clamp(0.0, 1.0);
+                a.contentment = (a.contentment - crate::params::CONTENTMENT_DECAY_RATE).clamp(0.0, 1.0);
             } else {
-                a.contentment = (a.contentment + crate::params::CONTENTMENT_RECHARGE_RATE * 1.5).clamp(0.0, 1.0);
+                a.contentment = (a.contentment + crate::params::CONTENTMENT_RECHARGE_RATE).clamp(0.0, 1.0);
             }
         }
         // Derive hunger as the inverse of contentment
@@ -435,16 +442,16 @@ pub fn tick_step<R: Rng>(
 
         // If content and resting, allow passive energy recharge to model restful recovery.
         // Gate on higher contentment so eating (which sets contentment=1) enables strong regen.
-        if a.contentment > 0.7 {
-            let resting = if USE_INERTIA { a.body.vel.length() < 0.03 && intent.turn_delta.abs() < 5e-4 } else { intent.raw_thrust.abs() < 0.03 && intent.turn_delta.abs() < 5e-4 };
+        if a.contentment > 0.65 {
+            // Consider the agent resting if mostly still and not turning much; relax thresholds a bit
+            let resting = if USE_INERTIA { a.body.vel.length() < 0.06 && intent.turn_delta.abs() < 1e-3 } else { intent.raw_thrust.abs() < 0.06 && intent.turn_delta.abs() < 1e-3 };
             if resting {
                 let k = match a.kind { AgentKind::Herbivore => crate::params::Kind::Herb, AgentKind::Carnivore => crate::params::Kind::Carn };
                 // Scale recharge by how content the agent is (quadratic to emphasize high contentment)
                 let c = a.contentment.clamp(0.0, 1.0);
-                // Increase conversion value so resting is worthwhile: base 0.004 of max energy per step at full content,
-                // tapering down quadratically with contentment. Example: max_energy=5000 -> ~20 energy/step at c=1.
-                let base = 0.004; // was ~0.002 via CONTENTMENT_RECHARGE_RATE scale
-                let regen = base * (0.25 + 0.75*c*c) * crate::params::get_max_energy_for(k);
+                // Increase conversion so resting is clearly beneficial: ~0.010 of max energy/step at full content.
+                let base = 0.010;
+                let regen = base * (0.2 + 0.8*c*c) * crate::params::get_max_energy_for(k);
                 a.energy = (a.energy + regen).min(crate::params::get_max_energy_for(k));
                 // Accumulate rest-with-contentment shaping units (normalized per step)
                 a.rest_content_units += c;

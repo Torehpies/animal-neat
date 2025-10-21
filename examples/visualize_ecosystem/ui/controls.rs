@@ -203,6 +203,7 @@ pub fn handle_keyboard(
                             hunger: 0.0,
                             contentment: 1.0,
                             rest_content_units: 0.0,
+                            eat_early_units: 0.0,
                         });
                     }
                     state.episode.steps = snap.episode_steps;

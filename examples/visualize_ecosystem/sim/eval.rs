@@ -53,6 +53,7 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         chase_same_units: 0.0,
         hunger: 0.0,
         contentment: 1.0,
+        eat_early_units: 0.0,
     }).collect();
     // Track exploration (unique grid cells)
     let mut visited: Vec<HashSet<u32>> = vec![HashSet::new(); agents.len()];
@@ -92,6 +93,8 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         let w_approach = crate::params::get_fit_approach_food_weight(kind);
         let w_chase = crate::params::get_fit_chase_other_weight(kind);
         let w_chase_same = crate::params::get_fit_chase_same_weight(kind);
+        let w_restc = crate::params::get_fit_rest_content_weight(kind);
+        let w_eearly = crate::params::get_fit_eat_early_weight(kind);
         // Per-kind fitness weights
         let w_life = crate::params::get_fit_lifetime_weight(kind);
         let w_energy = crate::params::get_fit_energy_weight(kind);
@@ -131,7 +134,9 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
             + w_herd * herd_units
             + w_approach * approach_units
             + w_chase * chase_units
-            + w_chase_same * chase_same_units;
+            + w_chase_same * chase_same_units
+            + w_restc * a.rest_content_units
+            + w_eearly * a.eat_early_units;
         if complexity_penalty > 0.0 {
             // Penalize number of enabled connections in the genome
             let enabled = population[i].connections.iter().filter(|c| c.enabled).count() as f32;

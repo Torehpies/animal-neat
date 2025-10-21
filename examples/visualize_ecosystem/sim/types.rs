@@ -67,6 +67,8 @@ pub struct Agent {
     pub contentment: f32,           // 0.0 = not content (seeking), 1.0 = fully content (resting)
     // Accumulator for resting while content (fitness shaping)
     pub rest_content_units: f32,
+    // Accumulator for eating before hunger gets too high (hunger<0.8 or contentment>0.2)
+    pub eat_early_units: f32,
 }
 
 #[derive(Clone, Copy, Debug)]
