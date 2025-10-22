@@ -33,14 +33,15 @@ fn draw_text_wrapped(text: &str, x: f32, mut y: f32, max_w: f32, font_sz: f32, l
     }
 }
 
-fn draw_help_overlay(panel_x: f32, panel_y: f32, panel_w: f32, panel_h: f32, ui_scale: f32) {
+fn draw_help_overlay(state: &mut MenuState, panel_x: f32, panel_y: f32, panel_w: f32, panel_h: f32, ui_scale: f32) {
     let scrim = Color::new(0.0, 0.0, 0.0, 0.55);
     draw_rectangle(0.0, 0.0, screen_width(), screen_height(), scrim);
 
-    let box_w = (panel_w * 0.86).clamp(560.0, 900.0);
-    let box_h = (panel_h * 0.78).clamp(420.0, 800.0);
-    let bx = panel_x + (panel_w - box_w) / 2.0;
-    let by = panel_y + (panel_h - box_h) / 2.0;
+    // Match the background panel size exactly to the menu panel
+    let box_w = panel_w;
+    let box_h = panel_h;
+    let bx = panel_x;
+    let by = panel_y;
 
     draw_rectangle(bx, by, box_w, box_h, Color::new(0.10, 0.11, 0.14, 1.0));
     draw_rectangle_lines(bx, by, box_w, box_h, 3.0, Color::new(0.45, 0.75, 1.0, 1.0));
@@ -71,16 +72,79 @@ fn draw_help_overlay(panel_x: f32, panel_y: f32, panel_w: f32, panel_h: f32, ui_
     - Use small nudges: 0.05-0.5 often suffices for shaping.\n\
     - Large populations or worlds will reduce FPS; adjust to your machine.";
 
-    draw_text_wrapped(help_text, content_x, content_y, content_w, text_sz, line_h, LIGHTGRAY);
+    // Viewport for help content so it never overflows outside the panel
+    let hint_sz = text_sz * 0.95;
+    let viewport_y = content_y;
+    let viewport_h = (by + box_h) - viewport_y - (pad * 0.9 + hint_sz);
+
+    // Scroll handling when mouse is over help content viewport
+    let (mx, my) = mouse_position();
+    if mx >= content_x && mx <= content_x + content_w && my >= viewport_y && my <= viewport_y + viewport_h {
+        let (_wx, wy) = mouse_wheel();
+        if wy.abs() > 0.0 { state.help_scroll -= wy * (40.0 * ui_scale); }
+    }
+
+    // Measure total content height for scroll clamping
+    let mut total_h = 0.0f32;
+    for para in help_text.split('\n') {
+        let words: Vec<&str> = para.split_whitespace().collect();
+        let mut line = String::new();
+        for w in words {
+            let candidate = if line.is_empty() { w.to_string() } else { format!("{} {}", line, w) };
+            let m = measure_text(&candidate, None, text_sz as u16, 1.0);
+            if m.width <= content_w { line = candidate; }
+            else { total_h += line_h; line = w.to_string(); }
+        }
+        if !line.is_empty() { total_h += line_h; }
+        total_h += line_h * 0.25;
+    }
+    let max_scroll = (total_h - viewport_h).max(0.0);
+    if state.help_scroll < 0.0 { state.help_scroll = 0.0; }
+    if state.help_scroll > max_scroll { state.help_scroll = max_scroll; }
+
+    // Draw wrapped text but cull lines outside the viewport rectangle, with scroll offset applied
+    {
+        let mut y_line = content_y;
+        for para in help_text.split('\n') {
+            let words: Vec<&str> = para.split_whitespace().collect();
+            let mut line = String::new();
+            for w in words {
+                let candidate = if line.is_empty() { w.to_string() } else { format!("{} {}", line, w) };
+                let m = measure_text(&candidate, None, text_sz as u16, 1.0);
+                if m.width <= content_w {
+                    line = candidate;
+                } else {
+                    // Draw this line if within viewport
+                    let draw_y = y_line - state.help_scroll;
+                    if draw_y + 2.0 >= viewport_y && draw_y - line_h <= viewport_y + viewport_h {
+                        draw_text(&line, content_x, draw_y, text_sz, LIGHTGRAY);
+                    }
+                    y_line += line_h;
+                    line.clear();
+                    line.push_str(w);
+                }
+            }
+            if !line.is_empty() {
+                let draw_y = y_line - state.help_scroll;
+                if draw_y + 2.0 >= viewport_y && draw_y - line_h <= viewport_y + viewport_h {
+                    draw_text(&line, content_x, draw_y, text_sz, LIGHTGRAY);
+                }
+                y_line += line_h;
+            }
+            // paragraph spacing
+            y_line += line_h * 0.25;
+            if (y_line - state.help_scroll) > viewport_y + viewport_h + line_h { break; }
+        }
+    }
 
     // Close hint at the bottom
     let hint = "Click anywhere to close this help";
-    let m = measure_text(hint, None, (text_sz * 0.95) as u16, 1.0);
+    let m = measure_text(hint, None, (hint_sz) as u16, 1.0);
     draw_text(
         hint,
         bx + (box_w - m.width) / 2.0,
         by + box_h - pad * 0.6,
-        text_sz * 0.95,
+        hint_sz,
         Color::new(0.75, 0.85, 1.0, 0.9),
     );
 }
@@ -303,12 +367,14 @@ pub fn draw_menu(state: &mut MenuState) -> Option<SimConfig> {
     draw_rectangle_lines(help_x, help_y, help_w, help_h, 2.0 * ui_scale, WHITE);
     let q_w = measure_text("?", None, (20.0 * ui_scale) as u16, 1.0).width;
     draw_text("?", help_x + (help_w - q_w) / 2.0, help_y + help_h - 7.0 * ui_scale, 20.0 * ui_scale, WHITE);
-    if help_hover && is_mouse_button_pressed(MouseButton::Left) { state.show_help = true; }
+    let mut help_opened_now = false;
+    if help_hover && is_mouse_button_pressed(MouseButton::Left) { state.show_help = true; help_opened_now = true; }
 
     // If help is open, draw overlay and short-circuit interactions
     if state.show_help {
-        draw_help_overlay(panel_x, panel_y, panel_w, panel_h, ui_scale);
-        if is_mouse_button_pressed(MouseButton::Left) || is_key_pressed(KeyCode::Escape) {
+    draw_help_overlay(state, panel_x, panel_y, panel_w, panel_h, ui_scale);
+        // Require a new click/press to close; ignore the opening click in this same frame
+        if !help_opened_now && (is_mouse_button_pressed(MouseButton::Left) || is_key_pressed(KeyCode::Escape)) {
             state.show_help = false;
         }
         return None;
