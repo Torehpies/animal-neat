@@ -18,17 +18,19 @@ thread_local! {
     // Global defaults (kept for backward-compat); actual sim uses per-kind values below
     static RUNTIME_INITIAL_ENERGY: Cell<f32> = Cell::new(1000.0);
     static RUNTIME_MAX_ENERGY: Cell<f32> = Cell::new(10000.0);
-    static RUNTIME_ENERGY_DRAIN: Cell<f32> = Cell::new(0.05);
+    // Default energy drain (raised to make energy management more punishing)
+    static RUNTIME_ENERGY_DRAIN: Cell<f32> = Cell::new(0.12);
     static RUNTIME_POPULATION_SIZE: Cell<usize> = Cell::new(50);
     static RUNTIME_HERBIVORE_COUNT: Cell<usize> = Cell::new(25);
     static RUNTIME_CARNIVORE_COUNT: Cell<usize> = Cell::new(25);
     // Per-kind energy runtime config
     static RUNTIME_INITIAL_ENERGY_HERB: Cell<f32> = Cell::new(500.0);
     static RUNTIME_MAX_ENERGY_HERB: Cell<f32> = Cell::new(5000.0);
-    static RUNTIME_ENERGY_DRAIN_HERB: Cell<f32> = Cell::new(0.05);
+    static RUNTIME_ENERGY_DRAIN_HERB: Cell<f32> = Cell::new(0.12);
     static RUNTIME_INITIAL_ENERGY_CARN: Cell<f32> = Cell::new(500.0);
     static RUNTIME_MAX_ENERGY_CARN: Cell<f32> = Cell::new(5000.0);
-    static RUNTIME_ENERGY_DRAIN_CARN: Cell<f32> = Cell::new(0.05);
+    // Carnivores lose energy faster per step to reflect higher metabolic/activity cost
+    static RUNTIME_ENERGY_DRAIN_CARN: Cell<f32> = Cell::new(0.40);
     // Fitness weights (runtime configurable)
     // score = w_lifetime*lifetime + w_energy*avg_energy + w_offspring*offspring + w_comm*comm - w_idle*idle_penalty
     // Per-kind fitness weights (defaults are same for both kinds)
@@ -54,9 +56,10 @@ thread_local! {
     static RUNTIME_FIT_COMM_WEIGHT_CARN: Cell<f32> = Cell::new(0.0);
     static RUNTIME_FIT_IDLE_PENALTY_WEIGHT_CARN: Cell<f32> = Cell::new(0.6);
     static RUNTIME_FIT_PLANT_WEIGHT_CARN: Cell<f32> = Cell::new(2.0);
-    static RUNTIME_FIT_MEAT_WEIGHT_CARN: Cell<f32> = Cell::new(20.0);
-    static RUNTIME_FIT_ATTACKS_WEIGHT_CARN: Cell<f32> = Cell::new(10.0);
-    static RUNTIME_FIT_KILLS_WEIGHT_CARN: Cell<f32> = Cell::new(20.0);
+    // Increase carnivore incentives for meat and kills to promote hunting
+    static RUNTIME_FIT_MEAT_WEIGHT_CARN: Cell<f32> = Cell::new(60.0);
+    static RUNTIME_FIT_ATTACKS_WEIGHT_CARN: Cell<f32> = Cell::new(20.0);
+    static RUNTIME_FIT_KILLS_WEIGHT_CARN: Cell<f32> = Cell::new(40.0);
     static RUNTIME_FIT_HERDING_WEIGHT_CARN: Cell<f32> = Cell::new(0.3);
     static RUNTIME_FIT_REST_CONTENT_WEIGHT_CARN: Cell<f32> = Cell::new(0.2);
     static RUNTIME_FIT_EAT_EARLY_WEIGHT_CARN: Cell<f32> = Cell::new(0.0); // typically 0 for carnivores
@@ -67,14 +70,16 @@ thread_local! {
     // New: fleeing other (e.g., herbivore fleeing carnivore)
     static RUNTIME_FIT_FLEE_OTHER_WEIGHT_HERB: Cell<f32> = Cell::new(0.6);
     static RUNTIME_FIT_APPROACH_FOOD_WEIGHT_CARN: Cell<f32> = Cell::new(0.1);
-    static RUNTIME_FIT_CHASE_OTHER_WEIGHT_CARN: Cell<f32> = Cell::new(0.3);
-    static RUNTIME_FIT_CHASE_SAME_WEIGHT_CARN: Cell<f32> = Cell::new(0.4);
+    // Encourage carnivores to approach and chase (promote active hunting)
+    static RUNTIME_FIT_CHASE_OTHER_WEIGHT_CARN: Cell<f32> = Cell::new(0.8);
+    static RUNTIME_FIT_CHASE_SAME_WEIGHT_CARN: Cell<f32> = Cell::new(0.6);
     static RUNTIME_FIT_FLEE_OTHER_WEIGHT_CARN: Cell<f32> = Cell::new(0.0);
     // Offspring reproduction parameters (per kind)
     static RUNTIME_OFFSPRING_ENERGY_HERB: Cell<f32> = Cell::new(250.0);
     static RUNTIME_OFFSPRING_ENERGY_CARN: Cell<f32> = Cell::new(250.0);
     static RUNTIME_OFFSPRING_COOLDOWN_HERB: Cell<usize> = Cell::new(50);
-    static RUNTIME_OFFSPRING_COOLDOWN_CARN: Cell<usize> = Cell::new(100);
+    // Make carnivore reproduction less spammy by increasing cooldown
+    static RUNTIME_OFFSPRING_COOLDOWN_CARN: Cell<usize> = Cell::new(200);
 }
 // Getters for runtime energy config (global)
 pub fn get_initial_energy() -> f32 { RUNTIME_INITIAL_ENERGY.with(|c| c.get()) }
@@ -116,11 +121,22 @@ pub fn get_fit_eat_early_weight(kind: Kind) -> f32 { match kind { Kind::Herb => 
 // Hunger is derived as 1 - contentment; contentment changes with activity/rest.
 // Faster recharge and slower decay to allow a clear "eat → rest" cycle.
 // Make resting windows more achievable: faster recharge, slower decay
-pub const CONTENTMENT_RECHARGE_RATE: f32 = 0.010; // contentment recharge rate scale when idle
-pub const CONTENTMENT_DECAY_RATE: f32 = 0.002; // contentment decay rate while sufficiently active
+// Lowered contentment/recharge to make agents work harder to stay content.
+// Reduced recharge and faster decay means agents will become hungry sooner and
+// need to consume more to maintain contentment.
+// Make contentment harder to regain and faster to lose so agents must forage more often.
+// Make contentment harder to regain and faster to lose so agents must forage more often.
+// Reduced further to increase hunger pressure.
+// Make contentment much harder to regain and faster to lose so agents must forage more often.
+pub const CONTENTMENT_RECHARGE_RATE: f32 = 0.0010; // meaningful idle recharge (was tiny)
+pub const CONTENTMENT_DECAY_RATE: f32 = 0.0010; // slower decay so contentment lasts longer while active
 // How much contentment is restored by consuming items (fraction of full contentment)
-pub const PLANT_CONTENT_RESOLVE: f32 = 0.15; // eating a plant restores 15% contentment
-pub const MEAT_CONTENT_RESOLVE: f32 = 0.20; // eating meat/carcass restores 20% contentment
+// Reduced per-item content restore so eating yields less instantaneous satisfaction.
+// Reduce how much eating restores contentment (smaller rewards per item).
+// Reduce how much eating restores contentment (smaller rewards per item).
+// Reduce how much each food item restores contentment (smaller satisfaction per item)
+pub const PLANT_CONTENT_RESOLVE: f32 = 0.03; // eating a plant restores ~3% contentment
+pub const MEAT_CONTENT_RESOLVE: f32 = 0.20; // eating meat/carcass restores ~10% contentment
 
 
 
@@ -262,7 +278,8 @@ pub const WORLD_H: f32 = 750.0;
 // Agent starting and maximum energy (these are default values; use get_* functions for runtime values)
 pub const INITIAL_ENERGY: f32 = 500.0;
 pub const MAX_ENERGY: f32 = 5000.0;  // clamp upper bound for energy; can be >= INITIAL_ENERGY
-pub const ENERGY_DRAIN_PER_STEP: f32 = 0.05;
+// Increased global per-step energy drain to make energy management more punishing.
+pub const ENERGY_DRAIN_PER_STEP: f32 = 0.12;
 pub const MAX_STEPS: usize = 20_000;
 pub const AGENT_RADIUS: f32 = 1.5;
 // Visual-only: scale factor for rendering agents (sprites/circles) without changing collision/physics.
@@ -309,7 +326,10 @@ pub const BIOME_SEASON_PHASE: [f32; 3] = [0.0, 1.2, 2.4]; // radians offset per 
 pub const FOOD_COUNT: usize = 500;
 // Increased plant radius so the plant sprite appears larger and its collision/eating range matches the visual.
 pub const FOOD_RADIUS: f32 = 5.0;
-pub const FOOD_ENERGY: f32 = 60.0;
+// Reduce energy provided by plants and meat so conversions are smaller.
+// Reduce energy gained from food to lower energy conversion efficiency
+// Lower energy yields from plants so conversion is less generous
+pub const FOOD_ENERGY: f32 = 8.0;
 
 // Plant/food dynamics
 pub const MAX_FOOD: usize = 100;
@@ -387,7 +407,7 @@ pub const ENABLE_VISION_WALLS: bool = false;
 // Exploration (simplified)
 // ==========================
 pub const EXPL_CELL_SIZE: f32 = 50.0;            // grid resolution for exploration coverage
-pub const EXPL_WEIGHT: f32 = 30.0;                // reward for 100% coverage (typically unreachable)
+pub const EXPL_WEIGHT: f32 = 30.0;                // reward for 100% coverage (boosted to encourage exploration)
 
 // ========================
 // Fitness shaping (unified & simplified) + w_herd*herd_units
@@ -430,12 +450,12 @@ pub const ECO_CONTINUOUS: bool = true;
 // Hard caps and thresholds
 pub const ECO_MAX_POP: usize = 250;                 // maximum concurrent agents
 pub const ECO_MIN_POP: usize = 10;                 // minimum seeding on reset if all die
-pub const ECO_BIRTH_ENERGY_THRESHOLD: f32 = 75.0; // minimum energy to allow birth
-pub const ECO_BIRTH_ENERGY_COST: f32 = 75.0;      // energy deducted from parent per birth
-pub const ECO_BIRTH_COOLDOWN_STEPS: usize = 50;    // steps before the same parent can reproduce again (base value, deprecated - use per-kind)
-pub const ECO_BIRTH_COOLDOWN_HERB: usize = 50;    // herbivore reproduction cooldown
-pub const ECO_BIRTH_COOLDOWN_CARN: usize = 100;   // carnivore reproduction cooldown (longer than herbivores)
-pub const ECO_MAX_OFFSPRING_PER_AGENT: usize = 100;  // per-episode cap
+pub const ECO_BIRTH_ENERGY_THRESHOLD: f32 = 150.0; // minimum energy to allow birth (increased)
+pub const ECO_BIRTH_ENERGY_COST: f32 = 150.0;      // energy deducted from parent per birth (increased)
+pub const ECO_BIRTH_COOLDOWN_STEPS: usize = 100;    // steps before the same parent can reproduce again (base value, deprecated - use per-kind)
+pub const ECO_BIRTH_COOLDOWN_HERB: usize = 75;    // herbivore reproduction cooldown (slightly increased)
+pub const ECO_BIRTH_COOLDOWN_CARN: usize = 200;   // carnivore reproduction cooldown (made much longer)
+pub const ECO_MAX_OFFSPRING_PER_AGENT: usize = 5;  // per-episode cap
 pub const ECO_NEWBORN_ENERGY: f32 = 250.0;         // initial energy for newborns (deprecated - use per-kind)
 pub const ECO_NEWBORN_ENERGY_HERB: f32 = 250.0;   // initial energy for herbivore offspring
 pub const ECO_NEWBORN_ENERGY_CARN: f32 = 250.0;   // initial energy for carnivore offspring
@@ -468,7 +488,8 @@ pub const NEWBORN_FLASH_STEPS: usize = 18;
 // Predation/scavenging
 // =====================
 pub const EAT_AGENT_RADIUS: f32 = 2.5 * AGENT_RADIUS;
-pub const MEAT_ENERGY: f32 = 250.0;
+// Reduce meat energy to make carnivory less instantly rewarding
+pub const MEAT_ENERGY: f32 = 80.0;
 pub const PREDATION_ENABLED: bool = true;
 pub const SCAVENGE_ENABLED: bool = true;
 /// Require live prey to be within predator's vision cone to attack (enables ambush tactics)
@@ -507,15 +528,15 @@ pub const IDLENESS_PENALTY_PER_STEP: f32 = 0.1;
 // Output[1] gives speed scalar. Heading is wrapped to (-PI, PI] to avoid drift.
 pub const MOTOR_NOISE: f32 = 0.0;                // noise disabled (was 0.03) for deterministic control
 pub const MAX_TURN_PER_STEP: f32 = std::f32::consts::PI / 18.0; // same numeric value as previous smoothing limit
-pub const MOVE_ENERGY_SCALE: f32 = 0.35;          // energy cost per unit normalized speed (lowered to make resting impactful)
-pub const TURN_ENERGY_SCALE: f32 = 0.5;           // energy cost added proportional to |turn_fraction| (lowered)
+pub const MOVE_ENERGY_SCALE: f32 = 0.12;          // energy cost per unit normalized speed (lowered to encourage movement)
+pub const TURN_ENERGY_SCALE: f32 = 0.2;           // energy cost added proportional to |turn_fraction| (lowered to encourage turning)
 // Inertia extension (Stage A): treat Output[1] as forward thrust instead of direct speed.
 // v_{t+1} = v_t * (1.0 - DRAG_COEFF) + thrust * MAX_THRUST * forward_dir
 // Speed capped softly by MAX_VELOCITY (explicit clamp)
 pub const USE_INERTIA: bool = false;               // feature flag to revert easily
 pub const DRAG_COEFF: f32 = 0.10;                 // fraction of velocity lost per step (0.1 -> ~63% after 10 steps)
-pub const MAX_THRUST: f32 = 1.0;                  // units of velocity added when thrust output = 1.0
-pub const MAX_VELOCITY: f32 = 4.5;                // hard cap on velocity magnitude (pre world scaling)
+pub const MAX_THRUST: f32 = 1.6;                  // units of velocity added when thrust output = 1.0 (increased mobility)
+pub const MAX_VELOCITY: f32 = 6.5;                // hard cap on velocity magnitude (pre world scaling)
 pub const EXTRA_VEL_ENERGY_C1: f32 = 0.1;        // linear velocity cost term
 pub const EXTRA_VEL_ENERGY_C2: f32 = 0.01;       // cubic velocity cost term (penalize high bursts)
 // Controller deadzone to avoid micro-jitter when raw outputs are near zero
