@@ -124,6 +124,8 @@ pub struct MenuState {
     pub input_buffer: String,
     pub show_help: bool,
     pub help_scroll: f32,
+    /// Vertical scroll offset for the Fitness screen (shared by both columns)
+    pub fitness_scroll: f32,
     pub screen: MenuScreen,
 }
 
@@ -182,6 +184,7 @@ impl MenuState {
             input_buffer: String::new(),
             show_help: false,
             help_scroll: 0.0,
+            fitness_scroll: 0.0,
             screen: MenuScreen::Core,
         }
     }
