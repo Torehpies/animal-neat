@@ -33,28 +33,19 @@ fn draw_text_wrapped(text: &str, x: f32, mut y: f32, max_w: f32, font_sz: f32, l
     }
 }
 
-fn draw_help_overlay(state: &mut MenuState, panel_x: f32, panel_y: f32, panel_w: f32, panel_h: f32, ui_scale: f32) {
+fn draw_help_overlay(state: &mut MenuState, _panel_x: f32, _panel_y: f32, _panel_w: f32, _panel_h: f32, ui_scale: f32) {
     let scrim = Color::new(0.0, 0.0, 0.0, 0.55);
     draw_rectangle(0.0, 0.0, screen_width(), screen_height(), scrim);
-
-    // Match the background panel size exactly to the menu panel
-    let box_w = panel_w;
-    let box_h = panel_h;
-    let bx = panel_x;
-    let by = panel_y;
-
-    draw_rectangle(bx, by, box_w, box_h, Color::new(0.10, 0.11, 0.14, 1.0));
-    draw_rectangle_lines(bx, by, box_w, box_h, 3.0, Color::new(0.45, 0.75, 1.0, 1.0));
-
+    
+    // Independent sizing: help overlay uses its own ideal size based on content and screen, not the menu panel
+    let sw = screen_width();
+    let sh = screen_height();
+    let box_w = (sw * 0.72).clamp(560.0, 1000.0);
     let pad = 22.0 * ui_scale;
     let title_sz = 30.0 * ui_scale;
     let text_sz = 18.0 * ui_scale;
     let line_h = text_sz * 1.35;
-
-    draw_text("Help", bx + pad, by + pad + title_sz, title_sz, WHITE);
-
-    let content_x = bx + pad;
-    let content_y = by + pad + title_sz + 14.0 * ui_scale;
+    let hint_sz = text_sz * 0.95;
     let content_w = box_w - pad * 2.0;
 
     let help_text = 
@@ -72,19 +63,7 @@ fn draw_help_overlay(state: &mut MenuState, panel_x: f32, panel_y: f32, panel_w:
     - Use small nudges: 0.05-0.5 often suffices for shaping.\n\
     - Large populations or worlds will reduce FPS; adjust to your machine.";
 
-    // Viewport for help content so it never overflows outside the panel
-    let hint_sz = text_sz * 0.95;
-    let viewport_y = content_y;
-    let viewport_h = (by + box_h) - viewport_y - (pad * 0.9 + hint_sz);
-
-    // Scroll handling when mouse is over help content viewport
-    let (mx, my) = mouse_position();
-    if mx >= content_x && mx <= content_x + content_w && my >= viewport_y && my <= viewport_y + viewport_h {
-        let (_wx, wy) = mouse_wheel();
-        if wy.abs() > 0.0 { state.help_scroll -= wy * (40.0 * ui_scale); }
-    }
-
-    // Measure total content height for scroll clamping
+    // Measure total help content height for ideal sizing
     let mut total_h = 0.0f32;
     for para in help_text.split('\n') {
         let words: Vec<&str> = para.split_whitespace().collect();
@@ -98,9 +77,42 @@ fn draw_help_overlay(state: &mut MenuState, panel_x: f32, panel_y: f32, panel_w:
         if !line.is_empty() { total_h += line_h; }
         total_h += line_h * 0.25;
     }
+
+    let top_h = pad + title_sz + 14.0 * ui_scale; // title block + spacing
+    let bottom_h = pad * 0.9 + hint_sz; // hint area + spacing
+    let ideal_h = top_h + total_h + bottom_h;
+    let max_h = (sh * 0.86).min(sh - 60.0);
+    let min_h = 420.0;
+    let box_h = ideal_h.clamp(min_h, max_h);
+    let bx = (sw - box_w) / 2.0;
+    let by = (sh - box_h) / 2.0;
+
+    // Panel background
+    draw_rectangle(bx, by, box_w, box_h, Color::new(0.10, 0.11, 0.14, 1.0));
+    draw_rectangle_lines(bx, by, box_w, box_h, 3.0, Color::new(0.45, 0.75, 1.0, 1.0));
+
+    draw_text("Help", bx + pad, by + pad + title_sz, title_sz, WHITE);
+
+    let content_x = bx + pad;
+    let content_y = by + pad + title_sz + 14.0 * ui_scale;
+    
+    // Viewport for help content so it never overflows outside the panel
+    let viewport_y = content_y;
+    let viewport_h = (by + box_h) - viewport_y - (pad * 0.9 + hint_sz);
+
+    // Scroll handling when mouse is over help content viewport
+    let (mx, my) = mouse_position();
+    if mx >= content_x && mx <= content_x + content_w && my >= viewport_y && my <= viewport_y + viewport_h {
+        let (_wx, wy) = mouse_wheel();
+        if wy.abs() > 0.0 { state.help_scroll -= wy * (40.0 * ui_scale); }
+    }
+
     let max_scroll = (total_h - viewport_h).max(0.0);
-    if state.help_scroll < 0.0 { state.help_scroll = 0.0; }
-    if state.help_scroll > max_scroll { state.help_scroll = max_scroll; }
+    if max_scroll <= 0.0 { state.help_scroll = 0.0; }
+    else {
+        if state.help_scroll < 0.0 { state.help_scroll = 0.0; }
+        if state.help_scroll > max_scroll { state.help_scroll = max_scroll; }
+    }
 
     // Draw wrapped text but cull lines outside the viewport rectangle, with scroll offset applied
     {
