@@ -128,7 +128,7 @@ pub fn get_fit_eat_early_weight(kind: Kind) -> f32 { match kind { Kind::Herb => 
 // Make contentment harder to regain and faster to lose so agents must forage more often.
 // Reduced further to increase hunger pressure.
 // Make contentment much harder to regain and faster to lose so agents must forage more often.
-pub const CONTENTMENT_RECHARGE_RATE: f32 = 0.0010; // meaningful idle recharge (was tiny)
+pub const CONTENTMENT_RECHARGE_RATE: f32 = 0.00010; // meaningful idle recharge (was tiny)
 pub const CONTENTMENT_DECAY_RATE: f32 = 0.0010; // slower decay so contentment lasts longer while active
 // How much contentment is restored by consuming items (fraction of full contentment)
 // Reduced per-item content restore so eating yields less instantaneous satisfaction.
@@ -279,7 +279,7 @@ pub const WORLD_H: f32 = 750.0;
 pub const INITIAL_ENERGY: f32 = 500.0;
 pub const MAX_ENERGY: f32 = 5000.0;  // clamp upper bound for energy; can be >= INITIAL_ENERGY
 // Increased global per-step energy drain to make energy management more punishing.
-pub const ENERGY_DRAIN_PER_STEP: f32 = 0.12;
+pub const ENERGY_DRAIN_PER_STEP: f32 = 0.20;
 pub const MAX_STEPS: usize = 20_000;
 pub const AGENT_RADIUS: f32 = 1.5;
 // Visual-only: scale factor for rendering agents (sprites/circles) without changing collision/physics.
@@ -568,7 +568,7 @@ pub const SOUND_ATTENUATION_EXP: f32 = 2.0;
 // Digestion / Corpse decay
 // ==============================
 pub const CORPSE_INITIAL_ENERGY: f32 = MEAT_ENERGY;
-pub const CORPSE_DECAY_RATE: f32 = 0.006;
+pub const CORPSE_DECAY_RATE: f32 = 0.05;
 pub const DIGEST_STEPS_PLANT: u16 = 25;
 pub const DIGEST_STEPS_MEAT: u16 = 45;
 
