@@ -55,6 +55,7 @@ pub fn eval_population_single_episode(population: &[Genome]) -> Vec<f32> {
         hunger: 0.0,
         contentment: 1.0,
         eat_early_units: 0.0,
+        is_eating: false,
     }).collect();
     // Track exploration (unique grid cells)
     let mut visited: Vec<HashSet<u32>> = vec![HashSet::new(); agents.len()];

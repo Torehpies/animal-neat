@@ -3,7 +3,7 @@ use macroquad::prelude::Vec2;
 use ::rand::Rng;
 use std::collections::VecDeque;
 use neat::genome::Genome;
-use crate::{params::*, sim::{Agent, AgentKind, CommSignal, StepDelta, tick_step, AgentId}, body::Body, world};
+use crate::{params::*, sensing, sim::{Agent, AgentKind, CommSignal, StepDelta, tick_step, AgentId}, body::Body, world};
 use rand::seq::SliceRandom;
 
 pub struct Episode {
@@ -75,6 +75,7 @@ impl Episode {
                 contentment: 1.0,
                 rest_content_units: 0.0,
                 eat_early_units: 0.0,
+                is_eating: false,
             });
         }
         for j in 0..carn_count {
@@ -123,6 +124,7 @@ impl Episode {
                 contentment: 1.0,
                 rest_content_units: 0.0,
                 eat_early_units: 0.0,
+                is_eating: false,
             });
         }
 
@@ -136,6 +138,35 @@ impl Episode {
         }
         let food = world::build_world(rng);
         let food_lifetime = world::init_food_lifetimes(&food, rng);
+        // Initialize agent memories so agents start with sensible priors:
+        // - Herbivores get a last_food_mem pointing toward the nearest plant (local frame)
+        // - Carnivores get a last_other_mem pointing toward the nearest herbivore (local frame)
+        // Use sensing utilities to compute local vectors from rays / nearest-agent helper.
+        // Build a lightweight snapshot once (pos, alive, consumed, species, is_corpse)
+        let snapshot: Vec<(Vec2, bool, bool, usize, bool)> = agents.iter().map(|aa| {
+            let alive = aa.energy > 0.0 && aa.health > DEATH_HEALTH_THRESHOLD;
+            let is_corpse = !alive && !aa.consumed && aa.corpse_energy > 0.1;
+            let kind_id: usize = match aa.kind { AgentKind::Herbivore => 0, AgentKind::Carnivore => 1 };
+            (aa.body.pos, alive, aa.consumed, kind_id, is_corpse)
+        }).collect();
+
+        for a in agents.iter_mut() {
+            // nearest food vector (local) for herbivores, zero for carnivores
+            let (fx, fy) = sensing::food_vector_from_rays(a.body.pos, a.theta, &food);
+            if matches!(a.kind, AgentKind::Herbivore) {
+                a.last_food_mem = Vec2 { x: fx, y: fy };
+            } else {
+                a.last_food_mem = Vec2 { x: 0.0, y: 0.0 };
+            }
+            // nearest other (herbivore) for carnivores; for herbivores we set last_other_mem to zero
+            if matches!(a.kind, AgentKind::Carnivore) {
+                let my_species = 1usize; // carnivore species id
+                let ((_same_x, _same_y), (other_x, other_y)) = sensing::nearest_same_other_vectors_local(a.body.pos, a.theta, &snapshot, a.id.0, my_species);
+                a.last_other_mem = Vec2 { x: other_x, y: other_y };
+            } else {
+                a.last_other_mem = Vec2 { x: 0.0, y: 0.0 };
+            }
+        }
         Self {
             food,
             food_lifetime,

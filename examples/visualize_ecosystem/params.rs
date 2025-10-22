@@ -118,6 +118,9 @@ pub fn get_fit_eat_early_weight(kind: Kind) -> f32 { match kind { Kind::Herb => 
 // Make resting windows more achievable: faster recharge, slower decay
 pub const CONTENTMENT_RECHARGE_RATE: f32 = 0.010; // contentment recharge rate scale when idle
 pub const CONTENTMENT_DECAY_RATE: f32 = 0.002; // contentment decay rate while sufficiently active
+// How much contentment is restored by consuming items (fraction of full contentment)
+pub const PLANT_CONTENT_RESOLVE: f32 = 0.15; // eating a plant restores 15% contentment
+pub const MEAT_CONTENT_RESOLVE: f32 = 0.20; // eating meat/carcass restores 20% contentment
 
 
 

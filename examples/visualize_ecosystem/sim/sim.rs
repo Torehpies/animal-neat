@@ -49,22 +49,25 @@ pub fn resolve_predation(
             } else {
                 // Scavenge OR second predation hit on dead body -> consume corpse energy (no energy restoration)
                 if agents[j].corpse_energy > 0.0 {
-                    // Previously, energy was granted here (immediate or via digestion). Now, we do NOT add energy.
-                    // Still apply small healing bonus and touch damage side-effects, and mark corpse consumed.
-                    // Healing bonus from meat
-                    agents[i].health = (agents[i].health + MEAT_HEAL_BONUS).min(agents[i].max_health);
-                    // Apply a small touch damage to scavenger to add risk to corpse consumption
-                    if SCAVENGE_TOUCH_DAMAGE > 0.0 {
-                        agents[i].health = (agents[i].health - SCAVENGE_TOUCH_DAMAGE).max(DEATH_HEALTH_THRESHOLD);
+                    // Sticky eating: allow scavenging when carnivore is already in eating state or when contentment <= 0.2
+                    let want_to_eat = agents[i].is_eating || agents[i].contentment <= 0.20;
+                    if want_to_eat {
+                        // Previously, energy was granted here (immediate or via digestion). Now, we do NOT add energy.
+                        // Still apply small healing bonus and touch damage side-effects, and mark corpse consumed.
+                        agents[i].health = (agents[i].health + MEAT_HEAL_BONUS).min(agents[i].max_health);
+                        if SCAVENGE_TOUCH_DAMAGE > 0.0 {
+                            agents[i].health = (agents[i].health - SCAVENGE_TOUCH_DAMAGE).max(DEATH_HEALTH_THRESHOLD);
+                        }
+                        agents[i].eaten += 1;
+                        agents[i].kills += 1; // counts scavenged meat as kill-equivalent for diet tint
+                        agents[i].contentment = (agents[i].contentment + crate::params::MEAT_CONTENT_RESOLVE).clamp(0.0, 1.0);
+                        agents[i].hunger = (1.0 - agents[i].contentment).clamp(0.0, 1.0);
+                        if agents[i].hunger < 0.8 { agents[i].eat_early_units += 1.0; }
+                        agents[j].corpse_energy = 0.0;
+                        agents[j].consumed = true;
+                        // Ensure eating state persists until full
+                        agents[i].is_eating = agents[i].contentment < 1.0;
                     }
-                    agents[i].eaten += 1;
-                    agents[i].kills += 1; // counts scavenged meat as kill-equivalent for diet tint
-                    // Eating meat refreshes contentment (hunger is derived as 1 - contentment)
-                    agents[i].contentment = 1.0;
-                    // Early-eating reward (optional for carnivores; weight may be 0)
-                    if agents[i].hunger < 0.8 { agents[i].eat_early_units += 1.0; }
-                    agents[j].corpse_energy = 0.0;
-                    agents[j].consumed = true;
                 }
             }
             claimed[j] = true;

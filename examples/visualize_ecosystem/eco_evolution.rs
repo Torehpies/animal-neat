@@ -336,6 +336,7 @@ pub fn spawn_offspring_if_needed<R: Rng>(
             contentment: 1.0,
             rest_content_units: 0.0,
             eat_early_units: 0.0,
+            is_eating: false,
         });
         // Extend comm fitness accumulator to match agents length
         episode.comm_fitness_accum.push(0.0);

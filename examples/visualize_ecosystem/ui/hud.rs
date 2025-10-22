@@ -3,7 +3,7 @@ use crate::AppState;
 use crate::params::*;
 use crate::ui_common::{
     draw_text_clamped, draw_text_wrapped, draw_panel, section_title, draw_divider,
-    PANEL_BG, PANEL_BORDER, SUBPANEL_BG, PAD, GAP, FONT,
+    PANEL_BG, PANEL_BORDER, SUBPANEL_BG, ACCENT, PAD, GAP, FONT,
 };
 use crate::ui_network::{draw_network_panel};
 use crate::ui_graphs::draw_graphs_panel;
@@ -116,6 +116,9 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
 
     // Controls (toggleable) rendered as clickable buttons instead of keybind labels
     // Hide regular HUD controls when the standalone "best network" panel is open
+    // Hover hint shown when the mouse is over any HUD button
+    let mut hover_hint: Option<String> = None;
+
     if state.show_controls && !state.show_best_network_panel {
         if y <= max_y {
             y = section_title("Controls", x, y, max_w);
@@ -124,6 +127,8 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
             let fs = 16.5;
             let btn_h = fs + 8.0;
             let btn_pad_x = 12.0;
+
+            // Hover hint shown when the mouse is over any HUD button
 
             // Left column: Reset, Best Network, Toggle Controls
             let mut yl = y;
@@ -193,7 +198,7 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
                         _ => {}
                     }
                 }
-                // description to the right of button
+                // description to the right of button (also used for hover hint)
                 let desc_x = bx + bw + 8.0;
                 let desc_w = (x + col_w) - desc_x;
                 let desc = match i {
@@ -203,6 +208,7 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
                     3 => "Quick Save",
                     _ => "",
                 };
+                if hovering { hover_hint = Some(desc.to_string()); }
                 draw_text_clamped(desc, desc_x, yl, 14.0, LIGHTGRAY, desc_w);
                 yl += btn_h + 8.0;
             }
@@ -253,6 +259,7 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
                     3 => "Load the most recent quicksave",
                     _ => "",
                 };
+                if hovering { hover_hint = Some(help.to_string()); }
                 draw_text_clamped(help, bx + bw + 8.0, yr, 13.0, GRAY, (x + max_w) - (bx + bw + 8.0));
                 yr += btn_h + 8.0;
             }
@@ -303,7 +310,33 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
                     _ => {}
                 }
             }
+            // small hover hints for stacked buttons
+            let small_hint = match i {
+                0 => "Ultra mode: max visual fidelity (may be slower)",
+                1 => "Fast mode: speed up simulation (F)",
+                2 => "Pause / Resume (P)",
+                _ => "",
+            };
+            if hovering { hover_hint = Some(small_hint.to_string()); }
         }
+    }
+
+    // Draw hover tooltip if any button is hovered
+    if let Some(hint) = hover_hint {
+        let (mx, my) = mouse_position();
+        let pad = 8.0;
+        let fs = 14.0;
+        let tw = measure_text(&hint, None, fs as u16, 1.0).width + pad * 2.0;
+        let th = fs + pad * 2.0;
+        let mut tx = mx + 12.0;
+        let mut ty = my + 12.0;
+        let sw = screen_width();
+        let sh = screen_height();
+        if tx + tw + 8.0 > sw { tx = (sw - tw - 8.0).max(8.0); }
+        if ty + th + 8.0 > sh { ty = (sh - th - 8.0).max(8.0); }
+        draw_rectangle(tx, ty, tw, th, Color::new(0.06, 0.06, 0.06, 0.95));
+        draw_rectangle_lines(tx, ty, tw, th, 1.0, ACCENT);
+        draw_text(&hint, tx + pad, ty + fs + (th - fs) * 0.5 - 6.0, fs, WHITE);
     }
 
     // Graphs panel area (trends)

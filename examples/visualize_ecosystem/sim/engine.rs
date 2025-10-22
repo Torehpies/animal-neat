@@ -153,6 +153,20 @@ pub fn tick_step<R: Rng>(
     // If this agent is a carnivore, hide plant signals by passing an empty food index slice.
     let food_slice: &[usize] = if matches!(a.kind, AgentKind::Carnivore) { &[] } else { &food_candidates[..] };
     sensing::build_inputs_inplace(&mut scratch, a.body.pos, a.theta, food, energy_in, a.last_food_mem, a.last_same_mem, a.last_other_mem, &snapshot, i, my_species, a.heard_sectors, Some(food_slice), Some(&agent_candidates));
+        // Inject explicit nearest-food vector into the input memory range so networks can access a simple (x,y) food heading.
+        // Respect carnivore masking: herbivores get the food vector, carnivores receive zeros.
+        let ir = sensing::input_ranges();
+        let (inj_fx, inj_fy) = if matches!(a.kind, AgentKind::Carnivore) { (0.0f32, 0.0f32) } else { (cur_fx, cur_fy) };
+        // Guard indices to be safe in case layouts change
+        if ir.memory.end > ir.memory.start {
+            let ms = ir.memory.start;
+            if ms < crate::params::INPUTS {
+                scratch[ms] = inj_fx;
+                if ms + 1 < ir.memory.end && ms + 1 < crate::params::INPUTS {
+                    scratch[ms + 1] = inj_fy;
+                }
+            }
+        }
         sim::mask_inputs(&mut scratch);
         let out = population[i].evaluate_slice(&scratch);
         let mut raw_turn = out.get(0).copied().unwrap_or(0.0);
@@ -261,14 +275,15 @@ pub fn tick_step<R: Rng>(
     let k = match a.kind { AgentKind::Herbivore => crate::params::Kind::Herb, AgentKind::Carnivore => crate::params::Kind::Carn };
         if crate::params::get_fit_approach_food_weight(k) != 0.0 {
             // pick the appropriate local vector
-            let (tx, ty, signal_strength) = match a.kind {
+            let (_tx, ty, signal_strength) = match a.kind {
                 AgentKind::Herbivore => (intent.cur_food_vec.0, intent.cur_food_vec.1, (intent.cur_food_vec.0*intent.cur_food_vec.0 + intent.cur_food_vec.1*intent.cur_food_vec.1).sqrt()),
                 AgentKind::Carnivore => (intent.cur_carcass_vec.0, intent.cur_carcass_vec.1, (intent.cur_carcass_vec.0*intent.cur_carcass_vec.0 + intent.cur_carcass_vec.1*intent.cur_carcass_vec.1).sqrt()),
             };
-            // Projection onto forward (local frame uses y as forward, but compute robustly)
-            let forward = intent.dir;
-            let forward_component = (forward.x * tx + forward.y * ty).max(0.0);
+            // The stored vectors (`tx`,`ty`) are already in the agent-local frame (x=right, y=forward).
+            // So the forward component is simply the local y value. Clamp to positive forward-facing values.
+            let forward_component = ty.max(0.0);
             // Forward motion factor: velocity along forward (inertia) or positive thrust (no inertia)
+            let forward = intent.dir;
             let motion_factor = if USE_INERTIA {
                 let fwd_speed = a.body.vel.dot(forward).max(0.0);
                 (fwd_speed / MAX_VELOCITY).clamp(0.0, 1.0)
@@ -280,10 +295,8 @@ pub fn tick_step<R: Rng>(
             // Movement gating: allow reward when moving OR when strongly facing target (so carnivores can orient toward carcass)
             let moving_forward = if USE_INERTIA { (a.body.vel.dot(forward) / MAX_VELOCITY) > 0.01 } else { intent.raw_thrust.max(0.0) > 0.01 };
             let allow_by_facing = forward_component > 0.6; // strong facing override
-            let mut reward = 0.0f32;
             if forward_component > APPROACH_EPS && (moving_forward || allow_by_facing) {
-                reward = forward_component * motion_factor * signal_strength;
-                reward = reward.clamp(0.0, APPROACH_MAX_DELTA_PER_STEP);
+                let reward = (forward_component * motion_factor * signal_strength).clamp(0.0, APPROACH_MAX_DELTA_PER_STEP);
                 if reward > APPROACH_EPS { a.approach_food_units += reward; }
             }
         }
@@ -301,9 +314,9 @@ pub fn tick_step<R: Rng>(
                 if t.abs() < THRUST_DEADZONE { t = 0.0; }
                 t.max(0.0).clamp(0.0, 1.0)
             };
+            // `v` is in local frame (x=right, y=forward)
             let forward_component = v.y.max(0.0);
-            let mut reward = forward_component * motion_factor; // gate by motion so spinning-in-place doesn't pay
-            reward = reward.clamp(0.0, APPROACH_MAX_DELTA_PER_STEP);
+            let reward = (forward_component * motion_factor).clamp(0.0, APPROACH_MAX_DELTA_PER_STEP); // gate by motion so spinning-in-place doesn't pay
             if reward > APPROACH_EPS { a.chase_other_units += reward; }
         }
         // Flee other-species (herbivores only): reward moving in any direction that increases distance from nearest carnivore
@@ -325,12 +338,11 @@ pub fn tick_step<R: Rng>(
                         t.max(0.0).clamp(0.0, 1.0)
                     };
                     
-                    // Reward fleeing when carnivore is visible (ahead: v.y > 0)
-                    // The herbivore should move in ANY direction away from the threat
-                    // Simple heuristic: if threat is in forward vision, reward movement (any direction works)
-                    let flee_urgency = v.y.max(0.0); // only flee from threats ahead (in vision)
-                    let mut reward = flee_urgency * motion_factor * threat_strength;
-                    reward = reward.clamp(0.0, APPROACH_MAX_DELTA_PER_STEP);
+                    // Reward fleeing when carnivore is visible ahead (v.y > 0).
+                    // The herbivore should move in any direction that increases distance, so we
+                    // use the local forward component as the urgency signal.
+                    let flee_urgency = v.y.max(0.0);
+                    let reward = (flee_urgency * motion_factor * threat_strength).clamp(0.0, APPROACH_MAX_DELTA_PER_STEP);
                     if reward > APPROACH_EPS { a.flee_other_units += reward; }
                 }
             }
@@ -349,19 +361,33 @@ pub fn tick_step<R: Rng>(
                 t.max(0.0).clamp(0.0, 1.0)
             };
             let forward_component = v.y.max(0.0);
-            let mut reward = forward_component * motion_factor; // gate by motion to avoid stationary "radar"
-            reward = reward.clamp(0.0, APPROACH_MAX_DELTA_PER_STEP);
+            let reward = (forward_component * motion_factor).clamp(0.0, APPROACH_MAX_DELTA_PER_STEP); // gate by motion to avoid stationary "radar"
             if reward > APPROACH_EPS { a.chase_same_units += reward; }
         }
         // Eating: only Herbivores eat plants. Eating no longer restores energy; it only resets hunger/contentment via `ate` flag.
-    let ate = if matches!(a.kind, AgentKind::Herbivore) && world::eat_if_near(food, food_lifetime, &a.body) {
-            // Do not add energy or schedule digestion; just record the event.
-            a.eaten += 1;
-            // Early-eating reward: if hunger < 0.8 (i.e., contentment > 0.2), accumulate a small unit.
-            if a.hunger < 0.8 { a.eat_early_units += 1.0; }
-            if let Some(ref mut hook) = first_eat_step { if hook.is_none() { **hook = Some(step_idx); } }
-            true
-        } else { false };
+        // Sticky eating policy: when contentment <= 0.2 an agent may start eating; once eating starts they continue
+        // attempting to eat across ticks until contentment reaches 1.0, then is_eating is cleared and they must wait
+        // until contentment drops to <= 0.2 again.
+        let mut ate = false;
+        if matches!(a.kind, AgentKind::Herbivore) {
+            let want_to_eat = a.is_eating || a.contentment <= 0.20;
+            if want_to_eat {
+                if world::eat_if_near(food, food_lifetime, &a.body) {
+                    a.eaten += 1;
+                    a.contentment = (a.contentment + crate::params::PLANT_CONTENT_RESOLVE).clamp(0.0, 1.0);
+                    a.hunger = (1.0 - a.contentment).clamp(0.0, 1.0);
+                    if a.hunger < 0.8 { a.eat_early_units += 1.0; }
+                    if let Some(ref mut hook) = first_eat_step { if hook.is_none() { **hook = Some(step_idx); } }
+                    ate = true;
+                    // Ensure the agent remains in eating state until full
+                    a.is_eating = a.contentment < 1.0;
+                } else {
+                    // If we attempted to eat but no plant was in reach, only start eating state when actually consuming
+                    // so don't set is_eating here.
+                    ate = false;
+                }
+            }
+        }
         // Predation candidate scan via spatial grid
         if PREDATION_ENABLED || SCAVENGE_ENABLED {
             let dir = intent.dir; let mut target: Option<usize> = None;
@@ -452,10 +478,7 @@ pub fn tick_step<R: Rng>(
         if COMMUNICATION_ENABLED { energy_cost += a.call_intensity * CALL_COST; }
 
         // ----- Contentment-only model (hunger is derived) -----
-        if ate {
-            // Eating refreshes contentment strongly; ensure it's at least 0.95 to open regen gate.
-            a.contentment = 1.0;
-        } else {
+        if !ate {
             // Activity reduces contentment; idling increases it.
             // Make decay require more significant activity and recharge stronger to enable rest windows.
             let moving = if USE_INERTIA { a.body.vel.length() > 0.08 } else { intent.raw_thrust.abs() > 0.08 };
@@ -469,22 +492,30 @@ pub fn tick_step<R: Rng>(
         // Derive hunger as the inverse of contentment
         a.hunger = (1.0 - a.contentment).clamp(0.0, 1.0);
 
-        // If content and resting, allow passive energy recharge to model restful recovery.
-        // Gate on higher contentment so eating (which sets contentment=1) enables strong regen.
-        if a.contentment > 0.65 {
-            // Consider the agent resting if mostly still and not turning much; relax thresholds a bit
-            let resting = if USE_INERTIA { a.body.vel.length() < 0.06 && intent.turn_delta.abs() < 1e-3 } else { intent.raw_thrust.abs() < 0.06 && intent.turn_delta.abs() < 1e-3 };
-            if resting {
-                let k = match a.kind { AgentKind::Herbivore => crate::params::Kind::Herb, AgentKind::Carnivore => crate::params::Kind::Carn };
-                // Scale recharge by how content the agent is (quadratic to emphasize high contentment)
-                let c = a.contentment.clamp(0.0, 1.0);
-                // Increase conversion so resting is clearly beneficial: ~0.010 of max energy/step at full content.
-                let base = 0.010;
-                let regen = base * (0.2 + 0.8*c*c) * crate::params::get_max_energy_for(k);
-                a.energy = (a.energy + regen).min(crate::params::get_max_energy_for(k));
-                // Accumulate rest-with-contentment shaping units (normalized per step)
-                a.rest_content_units += c;
-            }
+        // Passive energy recharge scaled by contentment and a soft rest factor.
+        // We broaden the conditions and increase the base so regen can better catch up with drain.
+        if a.contentment > 0.0 {
+            let vel = if USE_INERTIA { a.body.vel.length() } else { intent.raw_thrust.abs() };
+            let turn_mag = intent.turn_delta.abs();
+            // Use world-tuned thresholds (less sensitive) so partial stillness yields meaningful regen
+            let vel_thresh = MAX_VELOCITY.max(0.5) * 0.8; // relative threshold
+            let turn_thresh = (MAX_TURN_PER_STEP.max(0.05)) * 0.5;
+            let vel_factor = (1.0 - (vel / vel_thresh)).clamp(0.0, 1.0);
+            let turn_factor = (1.0 - (turn_mag / turn_thresh)).clamp(0.0, 1.0);
+            // Ensure a small baseline rest factor so moving agents still gain some energy
+            let rest_factor = (0.25 + 0.75 * (vel_factor * turn_factor)).clamp(0.0, 1.0);
+
+            let k = match a.kind { AgentKind::Herbivore => crate::params::Kind::Herb, AgentKind::Carnivore => crate::params::Kind::Carn };
+            let c = a.contentment.clamp(0.0, 1.0);
+            // Increased base regen to make refilling competitive with typical drains
+            let base = 0.06; // fraction of max energy per step when fully content/resting (was 0.015)
+            // Combine content and rest into final scalar; prefer content^2 for stronger high-content effect
+            let regen = base * (0.3 + 0.7 * c * c) * (0.4 + 0.6 * rest_factor) * crate::params::get_max_energy_for(k);
+            // Allow a generous target cap so regen can restore a significant portion when content is high
+            let max_target = crate::params::get_max_energy_for(k) * 0.8 * c;
+            let new_energy = (a.energy + regen).min(crate::params::get_max_energy_for(k));
+            a.energy = a.energy.max(new_energy.min(max_target));
+            a.rest_content_units += c * rest_factor;
         }
 
         // Apply energy drain after any passive regen

@@ -71,6 +71,8 @@ pub struct Agent {
     pub rest_content_units: f32,
     // Accumulator for eating before hunger gets too high (hunger<0.8 or contentment>0.2)
     pub eat_early_units: f32,
+    // Eating state: when true the agent will continue attempting to eat until contentment reaches 1.0
+    pub is_eating: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
