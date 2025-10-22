@@ -48,9 +48,69 @@ pub async fn preload_help_slides() -> Vec<GuideSlide> {
     ));
 
     slides.push(GuideSlide::new(
-        "Graphs",
-        "Open the Graphs Panel to monitor population trends, births/deaths per species, and more. Use it to diagnose stability or collapse in your ecosystem.",
-        try_load_guide_image("graphs.png").await,
+        "World & Resources",
+        "Plants spawn and regrow across biomes. Herbivores eat plants; carnivores eat prey or scavenge. Seasons subtly change growth rates. The exploration grid (G) can help visualize territory coverage.",
+        try_load_guide_image("world_view.png").await,
+    ));
+
+    slides.push(GuideSlide::new(
+        "Focusing Agents",
+        "Left-click an agent to focus it. The HUD shows per-agent stats: energy/health, alive steps, kills/food eaten, and offspring count. While focused, the network panel (N) displays that agent’s brain.",
+        try_load_guide_image("agents_focus.png").await,
+    ));
+
+    slides.push(GuideSlide::new(
+        "HUD Controls",
+        "The HUD provides quick buttons: Reset episode, Best Network panel, Controls toggle, View Options, Graphs panel, Save/Load. Use them to explore without leaving the simulation.",
+        try_load_guide_image("hud_overview.png").await,
+    ));
+
+    slides.push(GuideSlide::new(
+        "View Options Overlay",
+        "Toggle extra overlays: Collision radii, Vision rays, Unified inputs, Energy bars, Exploration grid. These are visual aids and don’t affect the simulation logic.",
+        try_load_guide_image("view_options.png").await,
+    ));
+
+    slides.push(GuideSlide::new(
+        "Graphs Overlay",
+        "Open the Graphs overlay to inspect trends: population size, species count, births/deaths per kind, fitness trends, and intelligence proxies. Navigate tabs with Z + Left/Right or 1–4.",
+        try_load_guide_image("graphs_overlay.png").await,
+    ));
+
+    slides.push(GuideSlide::new(
+        "Best/Live Networks",
+        "The Network panel shows either the best network of the last evaluation or the focused agent’s network. Use it to see how topology evolves: hidden nodes, recurrent links, and modular structure.",
+        try_load_guide_image("best_network.png").await,
+    ));
+
+    slides.push(GuideSlide::new(
+        "Scoreboard",
+        "At the end of an episode (if enabled), the Scoreboard summarizes top performers and key stats. Continue to evolve, or tweak settings and rerun.",
+        try_load_guide_image("scoreboard.png").await,
+    ));
+
+    slides.push(GuideSlide::new(
+        "Saving & Loading",
+        "Use Quick Save (S) to snapshot population and sim state. Load the most recent snapshot (L) to resume later. Snapshots are written to `snapshots/` with a unique per-session prefix.",
+        try_load_guide_image("saving_loading.png").await,
+    ));
+
+    slides.push(GuideSlide::new(
+        "Performance Modes",
+        "Normal: one step per ~0.05s. Fast: many steps per frame. Ultra: very high throughput with minimal rendering (press X). Use Fast/Ultra to accelerate evolution, then return to inspect behaviors.",
+        try_load_guide_image("performance_modes.png").await,
+    ));
+
+    slides.push(GuideSlide::new(
+        "Tips",
+        "- Reduce population or food to stress-test behaviors.\n- Tune fitness weights mildly to avoid converging to a single exploit.\n- Disable unused inputs for ablations.\n- Use the grid and overlays to debug sensing.",
+        try_load_guide_image("tips.png").await,
+    ));
+
+    slides.push(GuideSlide::new(
+        "Hotkeys",
+        "P: Pause | F: Fast | X: Ultra | R: Reset\nV: Vision | U: Unified overlay | E: Energy | C: Collision\nG: Grid | Z: Graphs overlay | N: Network panel | H: HUD controls\nF1: Open Help",
+        try_load_guide_image("hotkeys.png").await,
     ));
 
     slides

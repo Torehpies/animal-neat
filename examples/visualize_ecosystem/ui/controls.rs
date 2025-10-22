@@ -42,6 +42,12 @@ pub fn handle_keyboard(
     if is_key_pressed(KeyCode::H) { state.show_controls = !state.show_controls; }
     if is_key_pressed(KeyCode::K) { state.color_by_species = !state.color_by_species; }
 
+    // Help overlay (F1)
+    if is_key_pressed(KeyCode::F1) {
+        state.show_help_overlay = true;
+        state.help_slide_idx = 0;
+    }
+
     // Graphs overlay toggle and tab navigation
     if is_key_pressed(KeyCode::Z) { state.show_graphs_overlay = !state.show_graphs_overlay; }
     if state.show_graphs_overlay {
