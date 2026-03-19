@@ -53,7 +53,7 @@ pub fn draw_world(
             g = (g + brighten * 1.3).clamp(0.0, 1.0);
             bl = (bl + brighten).clamp(0.0, 1.0);
         }
-        draw_rectangle(x0.min(x1), fitted.y, w, fitted.h, Color::new(r, g, bl, a));
+        draw_rectangle(x0.min(x1), fitted.y, w, fitted.h, Color::new(0.45, 0.63, 0.41, 1.0));
     }
     // border
     draw_rectangle_lines(fitted.x, fitted.y, fitted.w, fitted.h, 2.0, BLACK);

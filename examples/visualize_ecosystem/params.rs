@@ -448,7 +448,7 @@ pub const COMM_CALLER_REWARD: f32 = 0.4;       // fitness added to original call
 // agents are removed. The genomes vector is kept aligned with the agents vector.
 pub const ECO_CONTINUOUS: bool = true;
 // Hard caps and thresholds
-pub const ECO_MAX_POP: usize = 250;                 // maximum concurrent agents
+pub const ECO_MAX_POP: usize = 150;                 // maximum concurrent agents
 pub const ECO_MIN_POP: usize = 10;                 // minimum seeding on reset if all die
 pub const ECO_BIRTH_ENERGY_THRESHOLD: f32 = 150.0; // minimum energy to allow birth (increased)
 pub const ECO_BIRTH_ENERGY_COST: f32 = 150.0;      // energy deducted from parent per birth (increased)

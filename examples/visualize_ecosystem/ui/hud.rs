@@ -132,7 +132,7 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
 
             // Left column: Reset, Best Network, Toggle Controls
             let mut yl = y;
-            let left = ["Reset", "Best Network","Controls","Quick Save" ];
+            let left = ["Reset", "Controls" ];
             for (i, label) in left.iter().enumerate() {
                 if yl > max_y { break; }
                 let bx = x + 6.0;
@@ -220,7 +220,6 @@ pub fn draw_hud(area: Rect, state: &mut AppState, running: &mut bool, fast_mode:
                 "View Options",
                 "Graphs Panel",
                 "HELP",
-                "Load Latest",
             ];
             for (i, label) in right.iter().enumerate() {
                 if yr > max_y { break; }
